@@ -1,0 +1,13 @@
+lockfileVersion: "6.0"
+
+settings:
+  autoInstallPeers: true
+
+dependencies:
+  stripe:
+    specifier: ^16.12.0
+    version: 16.12.0
+
+packages:
+  stripe@16.12.0:
+    resolution: { integrity: sha512-fixture-stripe-16-12-0 }

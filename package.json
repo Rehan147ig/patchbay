@@ -1,0 +1,51 @@
+{
+  "name": "patchbay",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Patchbay - governed API-change remediation platform (MVP)",
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@10.34.5",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "concurrently -n web,worker -c cyan,magenta \"pnpm --filter @patchbay/web dev\" \"pnpm --filter @patchbay/worker dev\"",
+    "build": "pnpm --filter @patchbay/web build",
+    "lint": "eslint . --max-warnings 0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "pnpm -r --parallel typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:generate": "pnpm --filter @patchbay/db generate",
+    "db:migrate": "pnpm --filter @patchbay/db migrate",
+    "db:seed": "pnpm --filter @patchbay/db seed",
+    "db:reset": "pnpm --filter @patchbay/db reset",
+    "e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@types/node": "^22.15.0",
+    "concurrently": "^9.1.2",
+    "dotenv-cli": "^8.0.0",
+    "eslint": "^9.30.0",
+    "eslint-config-prettier": "^10.1.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "prettier": "^3.5.3",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.35.0",
+    "vitest": "^3.2.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "@tailwindcss/oxide",
+      "esbuild",
+      "msgpackr-extract",
+      "prisma",
+      "sharp"
+    ]
+  }
+}

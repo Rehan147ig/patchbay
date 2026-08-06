@@ -1,0 +1,125 @@
+# Patchbay - Enterprise Readiness Specification & Production Roadmap
+
+This document provides a truthful, architecturally sound specification of Patchbay's current local MVP capabilities, security boundaries, database requirements, and phase-by-phase production roadmap. It serves as an authoritative specification for engineering leaders, security auditors, and automated coding agents (e.g. Codex).
+
+---
+
+## 1. Current State & Truthful Reality
+
+Patchbay is currently a **strong local, production-shaped MVP**. The core remediation engine workflow is implemented end-to-end: static impact analysis, AST diff generation, deterministic policy evaluation, approval workflows, local draft PR generation, and append-only audit events.
+
+### Support Matrix
+
+| Vendor / Integration                                                     | Monitored | Analyzed | Plan-Only  | Auto-Remediated (Patch + Validate) | Default Policy Gate                                    |
+| :----------------------------------------------------------------------- | :-------: | :------: | :--------: | :--------------------------------: | :----------------------------------------------------- |
+| **OpenAI Node SDK** (`createChatCompletion` → `chat.completions.create`) |    ✅     |    ✅    |     ❌     |             **✅ Yes**             | Auto Draft PR (if confidence ≥ 85 & validation passes) |
+| **Stripe Node SDK** (customer creation `metadata`)                       |    ✅     |    ✅    |     ❌     |             **✅ Yes**             | Requires Human Approval (`PAYMENT` risk tag)           |
+| **Auth0 SDK** (`jwtCheck` middleware update)                             |    ✅     |    ✅    |     ❌     |             **✅ Yes**             | Requires Mandatory Human Approval (`AUTH` risk tag)    |
+| **Twilio SDK** (`messages.create` deprecation)                           |    ✅     |    ✅    |     ❌     |             **✅ Yes**             | Auto Draft PR (if confidence ≥ 85 & validation passes) |
+| **Generic OpenAPI Diff** (schema property/endpoint changes)              |    ✅     |    ✅    | **✅ Yes** |               ❌ No                | Plan-Only Strategy (No automated patch generation)     |
+
+### Single Launch Target Workflow
+
+- **Launch Scope**: OpenAI Node SDK migrations (`openai@3.x` to `openai@4.x`) for GitHub TypeScript/Node.js repositories using `pnpm` or `npm`.
+
+---
+
+## 2. Technical Audit & Architecture Gaps
+
+A rigorous architectural review reveals the following key gaps between the local MVP and an enterprise production platform:
+
+### 1. Execution Plane Isolation (High Risk)
+
+- **Current State**: The sandbox runner ([`packages/sandbox-runner/src/index.ts`](file:///C:/Users/SHAIK%20MOHAMMAD%20REHAN/patchbay/packages/sandbox-runner/src/index.ts)) executes allowlisted commands (`pnpm install --frozen-lockfile`) via `child_process.spawn` directly on the host node.
+- **Security Risk**: A malicious or compromised repository `package.json` with `preinstall` or `postinstall` lifecycle hooks can execute arbitrary shell code on the worker host during `pnpm install`.
+- **Fix Required**: Move execution to a physically separated, ephemeral execution plane (microVMs or container sandboxes with network & resource limits).
+
+### 2. Mock Git Provider & Real GitHub App
+
+- **Current State**: `LocalGitProvider` ([`packages/git-provider/src/index.ts`](file:///C:/Users/SHAIK%20MOHAMMAD%20REHAN/patchbay/packages/git-provider/src/index.ts)) makes a local temp folder copy and returns `file:///...` URLs.
+- **Fix Required**: Implement a real `GitHubProvider` with RS256 JWT App authentication, installation access tokens, HMAC SHA-256 webhook verification, and PR creation over GitHub REST API.
+
+### 3. Multi-Tenant Database Schema Prerequisites (RLS)
+
+- **Current State**: `RemediationPlan`, `ValidationRun`, `PullRequest`, `PatchArtifact`, and `Approval` tables do **not** have a direct `organizationId` foreign key. Organization context is reached transitively via `ImpactAssessment -> Repository -> Organization`.
+- **Database Flaw**: PostgreSQL Row-Level Security (RLS) policies cannot performantly enforce tenant isolation without a direct `organizationId` column on every operational table.
+- **Fix Required**: Migration to add explicit `organizationId` to all operational tables before enabling PostgreSQL RLS policies.
+
+### 4. Logger Architecture
+
+- **Current State**: The logger ([`packages/domain/src/logger.ts`](file:///C:/Users/SHAIK%20MOHAMMAD%20REHAN/patchbay/packages/domain/src/logger.ts)) is a lightweight custom JSON console logger with correlation ID support. It is **not** Pino and currently lacks log shipping, external metric collection, or distributed tracing.
+
+### 5. PR Creation Idempotency
+
+- **Current State**: Multiple API calls or queue retries can potentially attempt duplicate PR creation if un-gated.
+- **Fix Required**: Add database unique constraints (`remediationPlanId` on `PullRequest`) and job idempotency keys to ensure exactly-once PR creation.
+
+### 6. AI Strategy Safety
+
+- **Current State**: `packages/ai-provider` is intentionally stubbed.
+- **AI Policy**: AI output **must remain plan-only and advisory**. AI will never automatically apply un-verified code edits or execute commands until a human-reviewed rule promotion workflow exists.
+
+---
+
+## 3. Revised Phased Production Roadmap
+
+```mermaid
+flowchart TD
+    P0[Phase 0: Document Truth & Support Matrix] --> P1[Phase 1: Private Beta Safety & Real GitHub App]
+    P1 --> P2[Phase 2: Separate Ephemeral Execution Plane]
+    P2 --> P3[Phase 3: Multi-Tenant Schema & Database RLS]
+    P3 --> P4[Phase 4: Operational Readiness & Observability]
+    P4 --> P5[Phase 5: Enterprise Features on Demand]
+    P5 --> P6[Phase 6: Measured Ecosystem Expansion]
+```
+
+### Phase 0: Document Truth & Support Matrix (Current Phase)
+
+- [x] Update `docs/enterprise-readiness.md`, `README.md`, and `docs/implementation-plan.md` to reflect local policy, approvals, and mock PR creation.
+- [x] Document accurate support matrix and launch target workflow (OpenAI Node SDK).
+- [x] Add PR creation idempotency guards and audit event for `POLICY_BLOCKED`.
+
+### Phase 1: Private Beta Safety (Target: Initial Users)
+
+- [ ] Implement production `GitHubProvider` with RS256 App private key signing, installation tokens, and draft PR endpoints.
+- [ ] Implement GitHub webhook listener with HMAC SHA-256 signature verification (`x-hub-signature-256`).
+- [ ] Add unique constraint `remediationPlanId` on `PullRequest` table in Prisma schema.
+- [ ] Add structured audit logging for `POLICY_BLOCKED` and `PR_FAILED`.
+- [ ] Add Playwright / Vitest E2E tests mocking GitHub API responses.
+
+### Phase 2: Separate Ephemeral Execution Plane
+
+- [ ] Decouple sandbox runner from web/worker application host into a dedicated Linux runner service.
+- [ ] Execute validation commands in ephemeral gVisor / Docker containers with:
+  - CPU limit: 1.0 core, Memory limit: 512MB, Process cap: 64.
+  - Short-lived GitHub tokens passed only into the runner container.
+  - Outbound egress restricted to GitHub API and npm/pnpm registry proxy only.
+  - Instant workspace and container destruction after execution.
+
+### Phase 3: Multi-Tenant Database Foundation
+
+- [ ] Database Migration: Add explicit `organizationId` column to `RemediationPlan`, `ValidationRun`, `PullRequest`, `PatchArtifact`, and `Approval`.
+- [ ] Implement transaction-scoped PostgreSQL Row-Level Security (RLS):
+  ```sql
+  ALTER TABLE "RemediationPlan" ENABLE ROW LEVEL SECURITY;
+  CREATE POLICY plan_tenant_isolation ON "RemediationPlan"
+    USING ("organizationId" = current_setting('app.current_organization_id'));
+  ```
+- [ ] Implement cloud KMS envelope encryption for stored repository tokens and secrets.
+
+### Phase 4: Operational Readiness
+
+- [ ] Add OpenTelemetry (OTel) instrumentation for HTTP routes and background jobs.
+- [ ] Configure BullMQ Dead Letter Queues (DLQ) with alert hooks.
+- [ ] Implement downloadable audit event evidence export (`GET /api/audit/export`).
+
+### Phase 5: Enterprise Features on Demand
+
+- [ ] Add OIDC SSO (Google Workspace, Okta) based on customer requirements.
+- [ ] Add SAML 2.0, SCIM directory provisioning, and SIEM audit exports as enterprise custom add-ons.
+
+### Phase 6: Measured Ecosystem Expansion
+
+- [ ] Expand rule engine fixtures for additional SDKs (Stripe v2, Twilio v2).
+- [ ] Expand polyglot AST parsers (Python `libcst`, Go `go/ast`) after TypeScript/GitHub has paying design partners.
+- [ ] Keep LLM outputs strictly plan-only until promoted to signed deterministic rules.

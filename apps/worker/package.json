@@ -1,0 +1,31 @@
+{
+  "name": "@patchbay/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "dotenv -e ../../.env -- tsx watch src/index.ts",
+    "start": "dotenv -e ../../.env -- tsx src/index.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@patchbay/audit": "workspace:*",
+    "@patchbay/db": "workspace:*",
+    "@patchbay/domain": "workspace:*",
+    "@patchbay/git-provider": "workspace:*",
+    "@patchbay/policy-engine": "workspace:*",
+    "@patchbay/queue": "workspace:*",
+    "@patchbay/repo-analysis": "workspace:*",
+    "@patchbay/sandbox-runner": "workspace:*",
+    "@patchbay/vendor-connectors": "workspace:*",
+    "bullmq": "^5.50.0",
+    "ioredis": "^5.6.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  }
+}

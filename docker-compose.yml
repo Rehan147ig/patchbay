@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: patchbay-postgres
+    environment:
+      POSTGRES_USER: patchbay
+      POSTGRES_PASSWORD: patchbay_dev_only
+      POSTGRES_DB: patchbay
+    ports:
+      # 5433 on the host to avoid clashes with other local stacks (5432 is commonly taken).
+      - "5433:5432"
+    volumes:
+      - patchbay_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U patchbay -d patchbay"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: patchbay-redis
+    ports:
+      # 6380 on the host to avoid clashes with other local stacks (6379 is commonly taken).
+      - "6380:6379"
+    volumes:
+      - patchbay_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  patchbay_pgdata:
+  patchbay_redisdata:

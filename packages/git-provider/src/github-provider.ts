@@ -1,0 +1,198 @@
+import { RepositoryProvider, PullRequestStatus } from "@patchbay/domain";
+import {
+  LocalGitProvider,
+  type CreateDraftPRInput,
+  type GitProvider,
+  type PullRequestResult,
+} from "./local-provider";
+
+export interface GitHubConfig {
+  /** Personal access token with `repo` scope. */
+  token: string;
+  /** Target repository in `owner/name` form. */
+  repository: string;
+  /** Base branch to branch off. Defaults to the repository default branch. */
+  baseBranch?: string;
+  /** GitHub API base URL. Defaults to https://api.github.com. */
+  apiUrl?: string;
+  /** Injectable fetch for tests. */
+  fetchImpl?: typeof fetch;
+}
+
+interface GitHubRepo {
+  default_branch: string;
+}
+
+interface GitHubRef {
+  object: { sha: string };
+}
+
+interface GitHubContent {
+  sha: string;
+}
+
+interface GitHubPullRequest {
+  number: number;
+  html_url: string;
+}
+
+const DEFAULT_API_URL = "https://api.github.com";
+
+/**
+ * Real GitHub provider: creates a branch off the base branch, writes each patch
+ * through the contents API, and opens a draft pull request.
+ */
+export class GitHubProvider implements GitProvider {
+  private readonly config: GitHubConfig;
+  private readonly fetchImpl: typeof fetch;
+  private readonly apiUrl: string;
+
+  constructor(config: GitHubConfig) {
+    if (!config.token) {
+      throw new Error("GitHubProvider requires a token");
+    }
+    if (!/^[\w.-]+\/[\w.-]+$/.test(config.repository)) {
+      throw new Error(
+        `GitHubProvider requires a repository in owner/name form, got: ${config.repository}`,
+      );
+    }
+    this.config = config;
+    this.fetchImpl = config.fetchImpl ?? globalThis.fetch;
+    this.apiUrl = (config.apiUrl ?? DEFAULT_API_URL).replace(/\/+$/, "");
+  }
+
+  async createDraftPullRequest(input: CreateDraftPRInput): Promise<PullRequestResult> {
+    const owner = this.config.repository.split("/")[0]!;
+    const repo = this.config.repository.split("/")[1]!;
+    const base = this.config.baseBranch ?? (await this.defaultBranch(owner, repo));
+    await this.createBranch(owner, repo, input.branchName, base);
+    await this.applyPatches(owner, repo, input.branchName, input.patches);
+    const pullRequest = await this.openDraftPR(owner, repo, base, input);
+
+    return {
+      provider: RepositoryProvider.GITHUB,
+      branchName: input.branchName,
+      url: pullRequest.html_url,
+      externalId: String(pullRequest.number),
+      title: input.title,
+      body: input.body,
+      status: PullRequestStatus.DRAFT,
+    };
+  }
+
+  private async defaultBranch(owner: string, repo: string): Promise<string> {
+    const data = await this.request<GitHubRepo>(`/repos/${owner}/${repo}`, { method: "GET" });
+    return data.default_branch;
+  }
+
+  private async createBranch(
+    owner: string,
+    repo: string,
+    branchName: string,
+    base: string,
+  ): Promise<void> {
+    const baseRef = await this.request<GitHubRef>(
+      `/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(base)}`,
+      { method: "GET" },
+    );
+    await this.request(`/repos/${owner}/${repo}/git/refs`, {
+      method: "POST",
+      body: JSON.stringify({
+        ref: `refs/heads/${branchName}`,
+        sha: baseRef.object.sha,
+      }),
+    });
+  }
+
+  private async applyPatches(
+    owner: string,
+    repo: string,
+    branchName: string,
+    patches: Array<{ filePath: string; patchedContent: string }>,
+  ): Promise<void> {
+    for (const patch of patches) {
+      const path = patch.filePath.replace(/^\/+/, "");
+      const existing = await this.request<GitHubContent | null>(
+        `/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}?ref=${encodeURIComponent(branchName)}`,
+        { method: "GET", allowNotFound: true },
+      );
+      await this.request(`/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          message: `Apply Patchbay patch: ${path}`,
+          content: Buffer.from(patch.patchedContent, "utf8").toString("base64"),
+          branch: branchName,
+          ...(existing ? { sha: existing.sha } : {}),
+        }),
+      });
+    }
+  }
+
+  private async openDraftPR(
+    owner: string,
+    repo: string,
+    base: string,
+    input: CreateDraftPRInput,
+  ): Promise<GitHubPullRequest> {
+    return this.request<GitHubPullRequest>(`/repos/${owner}/${repo}/pulls`, {
+      method: "POST",
+      body: JSON.stringify({
+        title: input.title,
+        body: input.body,
+        head: input.branchName,
+        base,
+        draft: true,
+      }),
+    });
+  }
+
+  private async request<T>(
+    path: string,
+    init: { method: string; body?: string; allowNotFound?: boolean },
+  ): Promise<T> {
+    const response = await this.fetchImpl(`${this.apiUrl}${path}`, {
+      method: init.method,
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${this.config.token}`,
+        "X-GitHub-Api-Version": "2022-11-28",
+        ...(init.body ? { "Content-Type": "application/json" } : {}),
+      },
+      ...(init.body ? { body: init.body } : {}),
+    });
+
+    if (response.status === 404 && init.allowNotFound) {
+      return null as T;
+    }
+    if (!response.ok) {
+      const raw = await response.text().catch(() => "");
+      let detail = raw;
+      try {
+        const parsed = JSON.parse(raw) as { message?: string };
+        if (parsed.message) {
+          detail = parsed.message;
+        }
+      } catch {
+        // Non-JSON error body; use the raw text.
+      }
+      throw new Error(
+        `GitHub API ${init.method} ${path} failed: ${response.status} ${detail || response.statusText}`,
+      );
+    }
+    return (await response.json()) as T;
+  }
+}
+
+/**
+ * Environment-driven provider selection: when GITHUB_TOKEN and GITHUB_REPOSITORY
+ * are set, Patchbay opens real draft PRs; otherwise it falls back to the local
+ * workspace mock so the demo keeps working offline.
+ */
+export function createGitProviderFromEnv(env: NodeJS.ProcessEnv = process.env): GitProvider {
+  const token = env.GITHUB_TOKEN;
+  const repository = env.GITHUB_REPOSITORY;
+  if (token && repository) {
+    return new GitHubProvider({ token, repository });
+  }
+  return new LocalGitProvider();
+}

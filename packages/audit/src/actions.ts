@@ -1,0 +1,40 @@
+/**
+ * Canonical audit action identifiers. Every mutation across web and worker must use one of
+ * these so the audit trail is queryable and consistent.
+ */
+export const AuditAction = {
+  ORGANIZATION_CREATED: "organization.created",
+  USER_LOGIN: "user.login",
+  USER_LOGOUT: "user.logout",
+  REPOSITORY_REGISTERED: "repository.registered",
+  REPOSITORY_ARCHIVED: "repository.archived",
+  SCAN_QUEUED: "scan.queued",
+  SCAN_STARTED: "scan.started",
+  SCAN_COMPLETED: "scan.completed",
+  SCAN_FAILED: "scan.failed",
+  CHANGE_DETECTED: "change.detected",
+  CHANGE_TRIAGED: "change.triaged",
+  CHANGE_NORMALIZED: "change.normalized",
+  CHANGE_ANALYZED: "change.analyzed",
+  CHANGE_IGNORED: "change.ignored",
+  CHANGE_RESOLVED: "change.resolved",
+  IMPACT_ASSESSED: "impact.assessed",
+  PLAN_CREATED: "plan.created",
+  PLAN_VALIDATION_QUEUED: "plan.validation_queued",
+  PLAN_VALIDATION_STARTED: "plan.validation_started",
+  PLAN_VALIDATION_PASSED: "plan.validation_passed",
+  PLAN_VALIDATION_FAILED: "plan.validation_failed",
+  POLICY_DECISION: "policy.decision",
+  POLICY_BLOCKED: "policy.blocked",
+  APPROVAL_RECORDED: "approval.recorded",
+  PR_CREATED: "pull_request.created",
+  PR_FAILED: "pull_request.failed",
+  POLICY_CREATED: "policy.created",
+  POLICY_UPDATED: "policy.updated",
+  VENDOR_TOGGLED: "vendor.toggled",
+  AGENT_EVENT_RECEIVED: "agent.event_received",
+  AGENT_KEY_ISSUED: "agent.key_issued",
+  DEMO_RUN: "demo.run",
+  DEMO_RESET: "demo.reset",
+} as const;
+export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];

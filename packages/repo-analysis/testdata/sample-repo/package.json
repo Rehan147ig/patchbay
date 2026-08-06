@@ -1,0 +1,8 @@
+{
+  "name": "@acme/sample-repo",
+  "private": true,
+  "version": "0.1.0",
+  "dependencies": {
+    "stripe": "^16.12.0"
+  }
+}

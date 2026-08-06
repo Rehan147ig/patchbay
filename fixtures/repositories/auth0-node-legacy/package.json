@@ -1,0 +1,17 @@
+{
+  "name": "@acme/auth-gateway",
+  "private": true,
+  "type": "module",
+  "version": "3.2.1",
+  "dependencies": {
+    "auth0": "3.3.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "pino": "^9.2.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "tsx": "^4.15.0",
+    "typescript": "^5.4.5"
+  }
+}

@@ -1,0 +1,472 @@
+// ---------------------------------------------------------------------------
+// Patchbay domain model.
+// Enum values MUST mirror packages/domain/src/enums.ts (enforced by a drift test).
+// ---------------------------------------------------------------------------
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum RepositoryProvider {
+  GITHUB
+  LOCAL
+}
+
+enum RepositoryStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum ScanStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum VendorChangeSource {
+  MANUAL
+  SDK_RELEASE
+  OPENAPI_DIFF
+  CHANGELOG
+  WEBHOOK
+}
+
+enum VendorChangeStatus {
+  DETECTED
+  TRIAGED
+  REMEDIATION_STARTED
+  RESOLVED
+  IGNORED
+}
+
+enum ChangeType {
+  SDK_VERSION_UPGRADE
+  METHOD_RENAMED
+  METHOD_REMOVED
+  PARAMETER_RENAMED
+  PARAMETER_REMOVED
+  PARAMETER_REQUIRED
+  RESPONSE_FIELD_REMOVED
+  RESPONSE_FIELD_TYPE_CHANGED
+  ENDPOINT_REMOVED
+  AUTH_CHANGE
+  WEBHOOK_CHANGE
+  NEW_CAPABILITY
+  OTHER
+}
+
+enum Severity {
+  INFO
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum UsageType {
+  IMPORT
+  INITIALIZATION
+  METHOD_CALL
+  ENDPOINT_CALL
+  CONFIG
+  WEBHOOK
+  ENVIRONMENT_REFERENCE
+}
+
+enum RiskTag {
+  PAYMENT
+  AUTH
+  PII
+  WEBHOOK
+  INFRASTRUCTURE
+  TEST_ONLY
+  OTHER
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum ImpactStatus {
+  NOT_AFFECTED
+  POSSIBLY_AFFECTED
+  AFFECTED
+  NEEDS_REVIEW
+}
+
+enum PlanStatus {
+  DRAFT
+  READY_FOR_VALIDATION
+  VALIDATING
+  VALIDATED
+  BLOCKED
+  PR_CREATED
+  FAILED
+}
+
+enum GenerationMethod {
+  RULE_BASED
+  AI_ASSISTED
+  MANUAL
+}
+
+enum ValidationStatus {
+  QUEUED
+  RUNNING
+  PASSED
+  FAILED
+  SKIPPED
+}
+
+enum PullRequestStatus {
+  DRAFT
+  OPEN
+  MERGED
+  CLOSED
+}
+
+enum ApprovalDecision {
+  APPROVED
+  REJECTED
+}
+
+enum ActorType {
+  USER
+  SYSTEM
+  AGENT
+}
+
+// ---------------------------------------------------------------------------
+// Entities
+// ---------------------------------------------------------------------------
+
+model Organization {
+  id String @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  users         User[]
+  repositories  Repository[]
+  policies      Policy[]
+  auditEvents   AuditEvent[]
+}
+
+model User {
+  id String @id @default(uuid())
+  organizationId String
+  email          String   @unique
+  name           String
+  role           Role
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  approvals    Approval[]
+
+  @@index([organizationId])
+}
+
+model Repository {
+  id String @id @default(uuid())
+  organizationId  String
+  provider        RepositoryProvider
+  externalId      String
+  name            String
+  fullName        String
+  defaultBranch   String             @default("main")
+  languageProfile Json
+  status          RepositoryStatus   @default(ACTIVE)
+  metadata        Json
+  createdAt       DateTime           @default(now())
+
+  organization       Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  scans              RepositoryScan[]
+  usages             IntegrationUsage[]
+  impactAssessments  ImpactAssessment[]
+
+  @@unique([organizationId, externalId])
+  @@index([organizationId])
+  @@index([name])
+}
+
+model RepositoryScan {
+  id String @id @default(uuid())
+  repositoryId String
+  commitSha    String
+  status       ScanStatus  @default(QUEUED)
+  startedAt    DateTime?
+  completedAt  DateTime?
+  summary      Json?
+  error        String?
+  createdAt    DateTime    @default(now())
+
+  repository Repository     @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  usages     IntegrationUsage[]
+
+  @@index([repositoryId, status])
+  @@index([repositoryId, createdAt])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Vendor {
+  id String @id @default(uuid())
+  slug    String  @unique
+  name    String
+  category String
+  docsUrl String?
+  enabled Boolean @default(true)
+  /** Owning organization; required once provider-agent mode is enabled. */
+  organizationId String?
+  /** sha256 hash of the agent API key used for POST /api/vendors/:slug/events. */
+  agentKeyHash String?
+
+  changeEvents VendorChangeEvent[]
+  usages       IntegrationUsage[]
+}
+
+model VendorChangeEvent {
+  id String @id @default(uuid())
+  vendorId         String
+  /** Owning organization; all reads/writes are scoped by it (multi-tenant). */
+  organizationId   String?
+  externalReference String?
+  sourceType       VendorChangeSource
+  detectedAt       DateTime           @default(now())
+  effectiveAt      DateTime?
+  title            String
+  sourceUrl        String?
+  rawPayload       Json?
+  severity         Severity           @default(MEDIUM)
+  status           VendorChangeStatus @default(DETECTED)
+  createdAt        DateTime           @default(now())
+
+  vendor          Vendor             @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  normalizations  NormalizedChange[]
+  impactAssessments ImpactAssessment[]
+
+  @@index([vendorId, status])
+  @@index([status, createdAt])
+  @@index([detectedAt])
+  @@index([organizationId, status])
+}
+
+model NormalizedChange {
+  id String @id @default(uuid())
+  changeEventId String
+  changeType    ChangeType
+  oldValue      String?
+  newValue      String?
+  description   String?
+  breaking      Boolean    @default(false)
+  evidence      Json?
+  createdAt     DateTime   @default(now())
+
+  changeEvent     VendorChangeEvent  @relation(fields: [changeEventId], references: [id], onDelete: Cascade)
+
+  @@index([changeEventId])
+  @@index([changeType])
+}
+
+model IntegrationUsage {
+  id String @id @default(uuid())
+  repositoryId       String
+  scanId             String?
+  vendorId           String
+  filePath           String
+  symbol             String
+  usageType          UsageType
+  astLocation        Json?
+  surroundingCodeHash String?
+  codeExcerpt        Json?
+  metadata           Json?
+  ownerHint          String   @default("Unassigned")
+  riskTags           RiskTag[] @default([])
+  createdAt          DateTime @default(now())
+
+  repository  Repository   @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  scan        RepositoryScan? @relation(fields: [scanId], references: [id], onDelete: SetNull)
+  vendor      Vendor       @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  assessments ImpactAssessmentUsage[]
+
+  @@index([repositoryId, vendorId])
+  @@index([filePath])
+  @@index([symbol])
+  @@index([scanId])
+}
+
+model ImpactAssessment {
+  id String @id @default(uuid())
+  changeEventId      String
+  repositoryId       String
+  score              Int
+  confidence         Int
+  affectedUsageCount Int          @default(0)
+  riskLevel          RiskLevel
+  rationale          String
+  status             ImpactStatus
+  createdAt          DateTime     @default(now())
+
+  changeEvent  VendorChangeEvent @relation(fields: [changeEventId], references: [id], onDelete: Cascade)
+  repository   Repository        @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  affectedUsages ImpactAssessmentUsage[]
+  plans        RemediationPlan[]
+
+  @@unique([changeEventId, repositoryId])
+  @@index([repositoryId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model ImpactAssessmentUsage {
+  impactAssessmentId String
+  usageId            String
+
+  impactAssessment ImpactAssessment @relation(fields: [impactAssessmentId], references: [id], onDelete: Cascade)
+  usage            IntegrationUsage @relation(fields: [usageId], references: [id], onDelete: Cascade)
+
+  @@id([impactAssessmentId, usageId])
+  @@index([usageId])
+}
+
+model RemediationPlan {
+  id String @id @default(uuid())
+  impactAssessmentId  String
+  status              PlanStatus @default(DRAFT)
+  strategy            String
+  proposedChanges     Json?
+  confidence          Int
+  requiresHumanReview Boolean    @default(false)
+  policyDecision      Json?
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  impactAssessment ImpactAssessment @relation(fields: [impactAssessmentId], references: [id], onDelete: Cascade)
+  patches          PatchArtifact[]
+  validations      ValidationRun[]
+  pullRequests     PullRequest[]
+  approvals        Approval[]
+
+  @@index([impactAssessmentId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model PatchArtifact {
+  id String @id @default(uuid())
+  remediationPlanId String
+  filePath         String
+  unifiedDiff      String
+  originalContent  String
+  patchedContent   String
+  originalHash     String
+  patchedHash      String
+  generationMethod GenerationMethod
+  confidence       Int
+  createdAt        DateTime         @default(now())
+
+  remediationPlan RemediationPlan @relation(fields: [remediationPlanId], references: [id], onDelete: Cascade)
+
+  @@index([remediationPlanId])
+}
+
+model ValidationRun {
+  id String @id @default(uuid())
+  remediationPlanId String
+  status           ValidationStatus @default(QUEUED)
+  commands         Json
+  stdout           String?
+  stderr           String?
+  exitCode         Int?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime         @default(now())
+
+  remediationPlan RemediationPlan @relation(fields: [remediationPlanId], references: [id], onDelete: Cascade)
+
+  @@index([remediationPlanId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model PullRequest {
+  id String @id @default(uuid())
+  remediationPlanId String
+  provider         String
+  externalId       String?
+  url              String
+  branchName       String
+  status           PullRequestStatus @default(DRAFT)
+  createdAt        DateTime          @default(now())
+
+  remediationPlan RemediationPlan @relation(fields: [remediationPlanId], references: [id], onDelete: Cascade)
+
+  @@unique([remediationPlanId])
+  @@index([status])
+}
+
+model Policy {
+  id String @id @default(uuid())
+  organizationId String
+  name           String
+  enabled        Boolean  @default(true)
+  definitionJson Json
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+model Approval {
+  id String @id @default(uuid())
+  remediationPlanId String
+  userId           String
+  decision         ApprovalDecision
+  note             String?
+  createdAt        DateTime         @default(now())
+
+  remediationPlan RemediationPlan @relation(fields: [remediationPlanId], references: [id], onDelete: Cascade)
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([remediationPlanId, userId, decision])
+  @@index([remediationPlanId])
+}
+
+model AuditEvent {
+  id String @id @default(uuid())
+  organizationId String
+  actorType     ActorType
+  actorId       String?
+  action        String
+  entityType    String
+  entityId      String?
+  correlationId String?
+  beforeJson    Json?
+  afterJson     Json?
+  metadata      Json?
+  createdAt     DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([entityType, entityId])
+  @@index([action])
+  @@index([organizationId, createdAt])
+}

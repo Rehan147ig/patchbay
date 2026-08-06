@@ -1,0 +1,113 @@
+/**
+ * Dev-only signed session cookie. Edge-safe (WebCrypto + atob/btoa only) so it can run in
+ * Next middleware. Production auth (Clerk/Auth.js/SSO) replaces this behind the same seam.
+ */
+
+export const SESSION_COOKIE = "patchbay_session";
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+interface SessionPayload {
+  sub: string;
+  email: string;
+  exp: number;
+}
+
+const DEFAULT_SECRET = "local-dev-secret-change-me";
+
+export function getSecret(): string {
+  return process.env.DEV_AUTH_SECRET ?? DEFAULT_SECRET;
+}
+
+function bytesToBase64Url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function base64UrlToBytes(value: string): Uint8Array {
+  const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+function utf8ToBase64Url(value: string): string {
+  return bytesToBase64Url(new TextEncoder().encode(value));
+}
+
+function base64UrlToUtf8(value: string): string {
+  return new TextDecoder().decode(base64UrlToBytes(value));
+}
+
+async function importKey(secret: string): Promise<CryptoKey> {
+  const bytes = new TextEncoder().encode(secret);
+  return crypto.subtle.importKey("raw", bytes, { name: "HMAC", hash: "SHA-256" }, false, [
+    "sign",
+    "verify",
+  ]);
+}
+
+async function sign(data: string, secret: string): Promise<string> {
+  const key = await importKey(secret);
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data));
+  return bytesToBase64Url(new Uint8Array(signature));
+}
+
+async function verify(data: string, signature: string, secret: string): Promise<boolean> {
+  try {
+    const key = await importKey(secret);
+    const expected = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data));
+    const actual = base64UrlToBytes(signature);
+    if (expected.byteLength !== actual.byteLength) return false;
+    const expectedBytes = new Uint8Array(expected);
+    for (let i = 0; i < expectedBytes.length; i++) {
+      if (expectedBytes[i] !== actual[i]) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function createSessionCookie(
+  userId: string,
+  email: string,
+): Promise<{ name: string; value: string; options: Record<string, unknown> }> {
+  const payload: SessionPayload = {
+    sub: userId,
+    email,
+    exp: Date.now() + SESSION_TTL_MS,
+  };
+  const data = utf8ToBase64Url(JSON.stringify(payload));
+  const signature = await sign(data, getSecret());
+  return {
+    name: SESSION_COOKIE,
+    value: `${data}.${signature}`,
+    options: {
+      httpOnly: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge: Math.floor(SESSION_TTL_MS / 1000),
+      secure: process.env.NODE_ENV === "production",
+    },
+  };
+}
+
+export async function readSessionCookie(
+  cookieValue: string | undefined,
+): Promise<SessionPayload | null> {
+  if (!cookieValue) return null;
+  const [data, signature] = cookieValue.split(".");
+  if (!data || !signature) return null;
+  const valid = await verify(data, signature, getSecret());
+  if (!valid) return null;
+  try {
+    const payload = JSON.parse(base64UrlToUtf8(data)) as SessionPayload;
+    if (typeof payload.sub !== "string" || typeof payload.exp !== "number") return null;
+    if (payload.exp < Date.now()) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
