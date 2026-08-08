@@ -24,13 +24,11 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   if (!isPublic && !session) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
-    url.search = `?next=${encodeURIComponent(pathname)}`;
+    url.search = "";
     return NextResponse.redirect(url, { headers: requestHeaders });
   }
 
-  const response = isPublic
-    ? NextResponse.next({ request: { headers: requestHeaders } })
-    : NextResponse.next({ request: { headers: requestHeaders } });
+  const response = NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set(CORRELATION_HEADER, correlationId);
   return response;
 }

@@ -76,6 +76,24 @@ async function createDraftPR(
     throw new Error(`remediation plan not found: ${remediationPlanId}`);
   }
 
+  // Tenant boundary: a plan may only be acted on by the organization that
+  // owns its change event. Both the change event and the repository carry
+  // organizationId — verify the plan belongs to the job's org before doing
+  // anything (policy evaluation, git operations, audit writes).
+  const changeOrgId = plan.impactAssessment.changeEvent.organizationId;
+  const repositoryOrgId = plan.impactAssessment.repository.organizationId;
+  if (changeOrgId !== organizationId || repositoryOrgId !== organizationId) {
+    logger.warn("cross-tenant create-pr attempt blocked", {
+      remediationPlanId: plan.id,
+      requestedOrganizationId: organizationId,
+      changeEventOrganizationId: changeOrgId,
+      repositoryOrganizationId: repositoryOrgId,
+    });
+    throw new Error(
+      `remediation plan ${remediationPlanId} does not belong to organization ${organizationId}`,
+    );
+  }
+
   // Idempotency check: Return existing PR if already created by a prior attempt
   if (plan.pullRequests && plan.pullRequests.length > 0) {
     const existingPR = plan.pullRequests[0]!;

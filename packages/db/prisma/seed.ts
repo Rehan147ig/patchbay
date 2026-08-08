@@ -14,7 +14,6 @@ import type { Prisma } from "@prisma/client";
 
 const ORG_ID = "org-acme";
 const DEMO_USER_EMAIL = process.env.DEMO_USER_EMAIL ?? "demo@patchbay.dev";
-const DEMO_USER_PASSWORD = process.env.DEMO_USER_PASSWORD ?? "dev-only";
 
 async function main(): Promise<void> {
   console.log("[seed] starting");
@@ -59,7 +58,7 @@ async function main(): Promise<void> {
       role: "VIEWER",
     },
   });
-  console.log(`[seed] users (admin: ${admin.email} / ${DEMO_USER_PASSWORD})`);
+  console.log(`[seed] users (admin: ${admin.email})`);
 
   await seedVendors();
   await seedPolicies();

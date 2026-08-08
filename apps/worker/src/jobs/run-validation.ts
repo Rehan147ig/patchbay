@@ -61,6 +61,24 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
     throw new Error(`remediation plan not found: ${remediationPlanId}`);
   }
 
+  // Tenant boundary: only the owning org may run validation on this plan.
+  const changeEvent = await prisma.vendorChangeEvent.findUnique({
+    where: { id: plan.impactAssessment.changeEventId },
+  });
+  if (
+    changeEvent?.organizationId !== organizationId ||
+    plan.impactAssessment.repository.organizationId !== organizationId
+  ) {
+    logger.warn("cross-tenant validation attempt blocked", {
+      validationRunId,
+      remediationPlanId,
+      requestedOrganizationId: organizationId,
+    });
+    throw new Error(
+      `remediation plan ${remediationPlanId} does not belong to organization ${organizationId}`,
+    );
+  }
+
   const entity = { entityType: "remediationPlan", entityId: remediationPlanId };
   const startedAt = new Date();
   const startedClock = Date.now();
@@ -99,7 +117,14 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
     });
 
     for (const patch of plan.patches) {
-      const target = path.join(workspace, patch.filePath);
+      // Path traversal guard: patch.filePath is derived from repository
+      // analysis but treat it as untrusted. Absolute paths and `..`
+      // traversal must never escape the disposable workspace.
+      const workspaceAbs = path.resolve(workspace);
+      const target = path.resolve(workspace, patch.filePath);
+      if (target !== workspaceAbs && !target.startsWith(workspaceAbs + path.sep)) {
+        throw new Error(`patch file path escapes the validation workspace: ${patch.filePath}`);
+      }
       mkdirSync(path.dirname(target), { recursive: true });
       writeFileSync(target, patch.patchedContent, "utf8");
     }

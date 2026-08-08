@@ -15,6 +15,9 @@ vi.mock("@patchbay/db", () => ({
       findUnique: vi.fn(),
       update: vi.fn(),
     },
+    vendorChangeEvent: {
+      findUnique: vi.fn(),
+    },
     $transaction: vi.fn((actions) => Promise.all(actions)),
   },
 }));
@@ -80,12 +83,18 @@ describe("processRunValidation", () => {
     vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValueOnce({
       id: "plan-1",
       impactAssessment: {
+        changeEventId: "change-1",
         repository: {
           id: "repo-1",
           metadata: { fixture: "openai-node-legacy" },
+          organizationId: "org-1",
         },
       },
       patches: [],
+    } as never);
+    vi.mocked(prisma.vendorChangeEvent.findUnique).mockResolvedValueOnce({
+      id: "change-1",
+      organizationId: "org-1",
     } as never);
     vi.mocked(resolveFixtureDir).mockReturnValue(process.cwd());
     vi.mocked(isAllowedCommand).mockReturnValue(false);
@@ -103,9 +112,11 @@ describe("processRunValidation", () => {
     vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValueOnce({
       id: "plan-1",
       impactAssessment: {
+        changeEventId: "change-1",
         repository: {
           id: "repo-1",
           metadata: { fixture: "openai-node-legacy" },
+          organizationId: "org-1",
         },
       },
       patches: [
@@ -114,6 +125,10 @@ describe("processRunValidation", () => {
           patchedContent: "console.log('patched');",
         },
       ],
+    } as never);
+    vi.mocked(prisma.vendorChangeEvent.findUnique).mockResolvedValueOnce({
+      id: "change-1",
+      organizationId: "org-1",
     } as never);
     vi.mocked(resolveFixtureDir).mockReturnValue(process.cwd());
     vi.mocked(isAllowedCommand).mockReturnValue(true);

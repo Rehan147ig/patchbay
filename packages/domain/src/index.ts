@@ -30,6 +30,7 @@ export {
   notFound,
   conflict,
   policyDenied,
+  tooManyRequests,
 } from "./errors";
 export type { ErrorCode, PatchbayErrorOptions } from "./errors";
 export { logger, getCorrelationId, runWithCorrelationId } from "./logger";

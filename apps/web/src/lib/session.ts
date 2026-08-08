@@ -12,10 +12,14 @@ interface SessionPayload {
   exp: number;
 }
 
-const DEFAULT_SECRET = "local-dev-secret-change-me";
-
 export function getSecret(): string {
-  return process.env.DEV_AUTH_SECRET ?? DEFAULT_SECRET;
+  const secret = process.env.DEV_AUTH_SECRET;
+  if (!secret || secret === "local-dev-secret-change-me") {
+    throw new Error(
+      "DEV_AUTH_SECRET is not set to a real secret. Refusing to sign session cookies with a known default.",
+    );
+  }
+  return secret;
 }
 
 function bytesToBase64Url(bytes: Uint8Array): string {
@@ -57,14 +61,17 @@ async function sign(data: string, secret: string): Promise<string> {
 async function verify(data: string, signature: string, secret: string): Promise<boolean> {
   try {
     const key = await importKey(secret);
-    const expected = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data));
+    // crypto.subtle.verify performs the comparison in constant time. Copy
+    // into a plain ArrayBuffer-backed view so it satisfies BufferSource.
     const actual = base64UrlToBytes(signature);
-    if (expected.byteLength !== actual.byteLength) return false;
-    const expectedBytes = new Uint8Array(expected);
-    for (let i = 0; i < expectedBytes.length; i++) {
-      if (expectedBytes[i] !== actual[i]) return false;
-    }
-    return true;
+    const signatureBuffer = new Uint8Array(actual.byteLength);
+    signatureBuffer.set(actual);
+    return await crypto.subtle.verify(
+      "HMAC",
+      key,
+      signatureBuffer.buffer as ArrayBuffer,
+      new TextEncoder().encode(data),
+    );
   } catch {
     return false;
   }
@@ -100,7 +107,14 @@ export async function readSessionCookie(
   if (!cookieValue) return null;
   const [data, signature] = cookieValue.split(".");
   if (!data || !signature) return null;
-  const valid = await verify(data, signature, getSecret());
+  let secret: string;
+  try {
+    secret = getSecret();
+  } catch {
+    // Misconfigured secret: fail closed — no session is valid.
+    return null;
+  }
+  const valid = await verify(data, signature, secret);
   if (!valid) return null;
   try {
     const payload = JSON.parse(base64UrlToUtf8(data)) as SessionPayload;

@@ -18,8 +18,10 @@ The MVP supports:
 - Local fixture repositories (Stripe, OpenAI, Twilio, Auth0, generic OpenAPI client)
 - Manually created or imported vendor change events (including OpenAPI document diffs)
 - Static TypeScript impact analysis (TypeScript compiler API)
-- Rule-based migration patches for known patterns (OpenAI legacy `createChatCompletion`,
-  Stripe customer creation fixture rule)
+- Rule-based migration patches for known patterns
+- **56 connector catalog** covering AI/LLM, cloud/infra, payments, auth, messaging, data/DB,
+  web frameworks, search, observability, and CRM SDKs (see [Connectors](#connectors))
+- Declarative connector SDK (`defineConnector`) so any vendor can author a connector in ~40 lines
 - Deterministic AI-assisted plan drafting through an abstraction (mock by default;
   OpenAI-compatible provider optional)
 - Allowlisted validation command execution with timeouts
@@ -35,15 +37,30 @@ high-risk changes.
 
 See [docs/architecture.md](docs/architecture.md) for the full picture.
 
+Patchbay is a **pnpm monorepo** — services and packages are split so each can be
+built, tested, and deployed independently:
+
 ```
-apps/web (Next.js, route handlers, dashboard)
-   |     packages/{domain, db, audit, ui}
-apps/worker (BullMQ)
-   |     packages/{repo-analysis, remediation-engine, policy-engine, git-provider,
-   |               sandbox-runner, ai-provider, vendor-connectors}
-fixtures/repositories  ->  analysis, demo, tests
-postgres (Prisma) + redis (BullMQ) via docker compose
+apps/web       Next.js dashboard + typed JSON API route handlers
+apps/worker    BullMQ job consumer (scan, analyze, validate, create-pr)
+packages/domain          enums, Zod schemas, typed errors, logger (zero deps)
+packages/db               Prisma schema + client singleton
+packages/audit            AuditEvent builder + secret redaction
+packages/ui               accessible UI primitives
+packages/queue            shared BullMQ queue def + Redis connection
+packages/vendor-connectors  56-connector catalog + defineConnector SDK
+packages/repo-analysis    TypeScript AST indexing → IntegrationUsage inventory
+packages/remediation-engine  deterministic migration rules → patches + diffs
+packages/policy-engine    deterministic policy decisions (allow/approve/deny)
+packages/sandbox-runner   allowlisted command execution with timeouts
+packages/git-provider     GitProvider interface; LocalGitProvider + GitHubProvider
+packages/ai-provider      AiProvider interface; MockAiProvider + OpenAI-compatible
+fixtures/repositories     sample legacy repos (openai-node-legacy, stripe-node-legacy, …)
 ```
+
+The web and worker are the deployable services; the engine packages are pure
+functions with no DB/network, so they stay independently testable and can be
+published as libraries (the distribution story).
 
 Key safety properties:
 
@@ -53,6 +70,36 @@ Key safety properties:
   encryption, secrets, and infrastructure changes.
 - Validation commands come from a fixed allowlist; AI can never execute commands.
 - Every important action writes an append-only `AuditEvent`.
+
+## Connectors
+
+Patchbay ships a **56-connector catalog** of vendor-specific migration knowledge, plus a
+declarative SDK for authoring new ones.
+
+**Connector SDK** (`packages/vendor-connectors/src/sdk.ts`): `defineConnector()` turns a
+declarative spec (identifiers, change rules, patch suggestions) into a full connector — a
+vendor or community member can add their SDK in ~40 lines with no knowledge of the rest of
+the codebase. Identifiers support globs (e.g. `@google-cloud/*`).
+
+**Catalog** (`packages/vendor-connectors/src/registry.ts`):
+
+| Group                  | Connectors                                                                                    |
+| ---------------------- | --------------------------------------------------------------------------------------------- |
+| AI / LLM               | openai, anthropic, gemini, mistral, deepseek, cohere, groq, replicate, langchain, huggingface |
+| Cloud & infra          | aws-sdk, google-cloud, azure-sdk, vercel, cloudflare, terraform, kubernetes, digitalocean     |
+| Payments               | stripe, paypal, square, plaid, adyen, lemon-squeezy                                           |
+| Auth & identity        | auth0, clerk, okta, keycloak, next-auth, passport                                             |
+| Messaging & comms      | twilio, slack, sendgrid, discord, telegram, socket.io                                         |
+| Data & DB              | prisma, drizzle, typeorm, sequelize, mongodb, mongoose, redis                                 |
+| Web frameworks         | express, react, next, vue, trpc                                                               |
+| Search & observability | elasticsearch, algolia, sentry                                                                |
+| CRM & product          | salesforce, hubspot                                                                           |
+| Generic                | generic-openapi (OpenAPI document diffs)                                                      |
+
+Each connector encodes: which raw payloads it understands (`supports`), how a change event
+normalizes into typed change rows (`normalizeChange`), and which patch rules apply to affected
+usage symbols (`buildPatchSuggestions`). Auth/payment/webhook-sensitive changes are
+risk-tagged and produce advisory-only patches requiring human review.
 
 ## Local setup
 
@@ -76,15 +123,16 @@ start Docker Desktop first; `docker compose ps` should show both services health
 
 See `.env.example` for the complete list with comments. Essentials:
 
-| Variable          | Purpose                                            | Local default            |
-| ----------------- | -------------------------------------------------- | ------------------------ |
-| `DATABASE_URL`    | PostgreSQL                                         | matches docker-compose   |
-| `REDIS_URL`       | Redis                                              | `redis://localhost:6380` |
-| `DEV_AUTH_SECRET` | signs the dev session cookie                       | dev-only value           |
-| `DEMO_USER_EMAIL` | seeded demo admin identity                         | `demo@patchbay.dev`      |
-| `AI_PROVIDER`     | `mock` (default), `openai`, or `openai-compatible` | `mock`                   |
-| `OPENAI_API_KEY`  | required when `AI_PROVIDER` is not `mock`          | empty                    |
-| `GITHUB_APP_*`    | optional real GitHub integration                   | empty = local provider   |
+| Variable             | Purpose                                                     | Local default            |
+| -------------------- | ----------------------------------------------------------- | ------------------------ |
+| `DATABASE_URL`       | PostgreSQL                                                  | matches docker-compose   |
+| `REDIS_URL`          | Redis                                                       | `redis://localhost:6380` |
+| `DEV_AUTH_SECRET`    | signs the dev session cookie — **required** (no default)    | generate one             |
+| `DEMO_USER_EMAIL`    | seeded demo admin identity                                  | `demo@patchbay.dev`      |
+| `DEMO_USER_PASSWORD` | seeded demo password — **required** for login (no fallback) | set one                  |
+| `AI_PROVIDER`        | `mock` (default), `openai`, or `openai-compatible`          | `mock`                   |
+| `OPENAI_API_KEY`     | required when `AI_PROVIDER` is not `mock`                   | empty                    |
+| `GITHUB_APP_*`       | optional real GitHub integration                            | empty = local provider   |
 
 ## Demo
 
@@ -123,7 +171,8 @@ Reset demo state: `pnpm db:reset` (or the "Reset demo data" action on `/demo`).
 
 - TypeScript/Node + npm manifests only; other ecosystems unsupported.
 - Static (repository-folder based) analysis; no live GitHub content analysis in the MVP.
-- Rule engine covers a small, explicitly fixture-marked set of migration patterns.
+- Connector migration rules encode known breaking changes for each SDK; the vendor-specific
+  facts are community-verifiable but not exhaustively validated against every SDK version.
 - Change-event and remediation-plan data is org-scoped in code, but the deployment is a single
   tenant; tenant isolation is designed for but not multi-tenant hardened.
 - Agent ingest keys are bearer secrets stored only as hashes; key management (rotation,

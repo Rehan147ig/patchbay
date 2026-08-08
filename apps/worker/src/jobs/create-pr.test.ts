@@ -60,8 +60,13 @@ describe("processCreatePR", () => {
         score: 50,
         rationale: "test",
         affectedUsages: [],
-        repository: { id: "repo-1", name: "app", metadata: { fixture: "openai" } },
-        changeEvent: { title: "Test Change" },
+        repository: {
+          id: "repo-1",
+          name: "app",
+          metadata: { fixture: "openai" },
+          organizationId: "org-1",
+        },
+        changeEvent: { title: "Test Change", organizationId: "org-1" },
       },
     } as never);
 
@@ -84,8 +89,13 @@ describe("processCreatePR", () => {
         score: 50,
         rationale: "test",
         affectedUsages: [],
-        repository: { id: "repo-1", name: "app", metadata: { fixture: "openai" } },
-        changeEvent: { title: "Test Change" },
+        repository: {
+          id: "repo-1",
+          name: "app",
+          metadata: { fixture: "openai" },
+          organizationId: "org-1",
+        },
+        changeEvent: { title: "Test Change", organizationId: "org-1" },
       },
     } as never);
 
@@ -106,8 +116,13 @@ describe("processCreatePR", () => {
         score: 50,
         rationale: "test",
         affectedUsages: [],
-        repository: { id: "repo-1", name: "app", metadata: { fixture: "openai" } },
-        changeEvent: { title: "Test Change" },
+        repository: {
+          id: "repo-1",
+          name: "app",
+          metadata: { fixture: "openai" },
+          organizationId: "org-1",
+        },
+        changeEvent: { title: "Test Change", organizationId: "org-1" },
       },
     } as never);
     vi.mocked(resolveFixtureDir).mockReturnValue(process.cwd());

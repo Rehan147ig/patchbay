@@ -49,6 +49,13 @@ export async function processScanRepository(job: Job): Promise<ScanRepositoryRes
   if (!scan) {
     throw new Error(`scan not found: ${scanId}`);
   }
+  // Integrity check: the scan must reference this repository. Prevents a
+  // mismatched job from replacing one repository's usage data with another's.
+  if (scan.repositoryId !== repositoryId) {
+    throw new Error(
+      `scan ${scanId} does not belong to repository ${repositoryId} (repositoryId=${scan.repositoryId})`,
+    );
+  }
 
   const organizationId = repository.organizationId;
   const entity = { entityType: "repository", entityId: repositoryId };
@@ -81,46 +88,52 @@ export async function processScanRepository(job: Job): Promise<ScanRepositoryRes
 
     const analysis = await analyzeRepository({ rootDir: fixtureDir, trackPackages });
 
-    const existing = await prisma.integrationUsage.findMany({
-      where: { repositoryId },
-      select: { filePath: true, symbol: true, usageType: true, ownerHint: true },
-    });
-    const ownerByKey = new Map(
-      existing.map((usage) => [
-        usageKey(usage.filePath, usage.symbol, usage.usageType),
-        usage.ownerHint,
-      ]),
-    );
+    // Read existing usages (for owner hints) and replace them inside a single
+    // transaction so a concurrent scan cannot interleave between the read and
+    // the delete/create — otherwise owner hints can be lost or stale rows
+    // merged with fresh ones.
+    const usages = await prisma.$transaction(async (tx) => {
+      const existing = await tx.integrationUsage.findMany({
+        where: { repositoryId },
+        select: { filePath: true, symbol: true, usageType: true, ownerHint: true },
+      });
+      const ownerByKey = new Map(
+        existing.map((usage) => [
+          usageKey(usage.filePath, usage.symbol, usage.usageType),
+          usage.ownerHint,
+        ]),
+      );
 
-    const usages = analysis.usages
-      .filter((usage) => vendorBySlug.has(usage.packageName))
-      .map((usage) => ({
-        repositoryId,
-        scanId,
-        vendorId: vendorBySlug.get(usage.packageName)!,
-        filePath: usage.filePath,
-        symbol: usage.symbol,
-        usageType: usage.usageType,
-        astLocation: { line: usage.line, column: usage.column },
-        surroundingCodeHash: hashCode(usage.excerpt),
-        codeExcerpt: { text: usage.excerpt, line: usage.line, column: usage.column },
-        ownerHint:
-          ownerByKey.get(usageKey(usage.filePath, usage.symbol, usage.usageType)) ?? "Unassigned",
-        riskTags: usage.riskTags,
-        metadata: { fixture },
-      }));
+      const nextUsages = analysis.usages
+        .filter((usage) => vendorBySlug.has(usage.packageName))
+        .map((usage) => ({
+          repositoryId,
+          scanId,
+          vendorId: vendorBySlug.get(usage.packageName)!,
+          filePath: usage.filePath,
+          symbol: usage.symbol,
+          usageType: usage.usageType,
+          astLocation: { line: usage.line, column: usage.column },
+          surroundingCodeHash: hashCode(usage.excerpt),
+          codeExcerpt: { text: usage.excerpt, line: usage.line, column: usage.column },
+          ownerHint:
+            ownerByKey.get(usageKey(usage.filePath, usage.symbol, usage.usageType)) ?? "Unassigned",
+          riskTags: usage.riskTags,
+          metadata: { fixture },
+        }));
 
-    await prisma.$transaction([
-      prisma.integrationUsage.deleteMany({ where: { repositoryId } }),
-      ...(usages.length > 0 ? [prisma.integrationUsage.createMany({ data: usages })] : []),
-      prisma.repositoryScan.update({
+      await tx.integrationUsage.deleteMany({ where: { repositoryId } });
+      if (nextUsages.length > 0) {
+        await tx.integrationUsage.createMany({ data: nextUsages });
+      }
+      await tx.repositoryScan.update({
         where: { id: scanId },
         data: {
           status: ScanStatus.COMPLETED,
           commitSha: analysis.commitSha,
           completedAt: new Date(),
           summary: {
-            usageCount: usages.length,
+            usageCount: nextUsages.length,
             filesScanned: analysis.filesScanned,
             typescriptFiles: analysis.typescriptFiles,
             packageCount: analysis.packageCount,
@@ -130,8 +143,9 @@ export async function processScanRepository(job: Job): Promise<ScanRepositoryRes
           },
           error: null,
         },
-      }),
-    ]);
+      });
+      return nextUsages;
+    });
 
     await writeAuditEvent({
       organizationId,

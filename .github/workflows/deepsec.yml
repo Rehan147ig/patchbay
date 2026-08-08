@@ -1,0 +1,76 @@
+name: deepsec
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0 # need history for `git diff origin/<base>`
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: 22, cache: pnpm }
+
+      - run: pnpm install --frozen-lockfile
+
+      # A deepsec workspace (.deepsec/) must already be committed to the repo
+      # (created locally via `npx deepsec init --scaffold-only`, config checked
+      # in). This runs the pattern scan + AI review on PR changes and writes a
+      # comment markdown when findings exist. Uses the NVIDIA NIM route via the
+      # Pi agent; set NIM_API_KEY as a repository secret.
+      - id: deepsec
+        env:
+          NIM_API_KEY: ${{ secrets.NIM_API_KEY }}
+        run: |
+          pnpm deepsec process \
+            --agent pi \
+            --model nvidia/thinkingmachines/inkling \
+            --ai-provider nvidia \
+            --ai-base-url https://integrate.api.nvidia.com/v1 \
+            --ai-api-key-env NIM_API_KEY \
+            --thinking-level low \
+            --diff origin/${{ github.event.pull_request.base.ref }} \
+            --comment-out comment.md
+
+      - if: always() && hashFiles('comment.md') != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: deepsec-comment
+          path: comment.md
+          retention-days: 1
+
+  comment:
+    needs: analyze
+    if: always() && needs.analyze.result == 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - id: dl
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: deepsec-comment
+
+      - if: steps.dl.outcome == 'success'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const fs = require('fs');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: fs.readFileSync('comment.md', 'utf8'),
+            });
