@@ -50,6 +50,20 @@ describe("redactSecrets", () => {
     expect(out).not.toContain("abc123.def456.ghi789");
     expect(out).toContain("[REDACTED]");
   });
+
+  it("redacts basic auth, stripe live keys, google api keys, and npm tokens", () => {
+    const text =
+      "Basic dXNlcjpwYXNzMTIzNA== sk_live_51Habc123def456ghi jwtauth ya29.abcdefghijklmnopqrstuvwxyz " +
+      "AIzaSyD-dGIVEVW4P9c6kIkOdH8jxM0x1FbRCA npm_AbCdEfGhIjKlMnOpQrStUvWxYz1234567 whsec_9f8a7b6c5d4e3f2a";
+    const out = sanitizeText(text);
+    expect(out).not.toContain("dXNlcjpwYXNzMTIzNA==");
+    expect(out).not.toContain("sk_live_51Habc123def456ghi");
+    expect(out).not.toContain("ya29.abcdefghijklmnopqrstuvwxyz");
+    expect(out).not.toContain("AIzaSyD-dGIVEVW4P9c6kIkOdH8jxM0x1FbRCA");
+    expect(out).not.toContain("npm_AbCdEfGhIjKlMnOpQrStUvWxYz1234567");
+    expect(out).not.toContain("whsec_9f8a7b6c5d4e3f2a");
+    expect(out).toContain("[REDACTED]");
+  });
 });
 
 describe("isSensitiveKey", () => {
@@ -63,13 +77,29 @@ describe("isSensitiveKey", () => {
       "private_key",
       "accessToken",
       "Bearer",
+      "jwtToken",
+      "sessionId",
+      "sid",
+      "clientSecret",
+      "otpCode",
+      "verificationCode",
     ]) {
       expect(isSensitiveKey(key), key).toBe(true);
     }
   });
 
   it("ignores benign keys", () => {
-    for (const key of ["title", "filePath", "diff", "line", "email"]) {
+    for (const key of [
+      "title",
+      "filePath",
+      "diff",
+      "line",
+      "email",
+      "userId",
+      "side",
+      "top",
+      "opt",
+    ]) {
       expect(isSensitiveKey(key), key).toBe(false);
     }
   });
