@@ -8,7 +8,7 @@ import {
   type ChangeType,
 } from "@patchbay/domain";
 import { getConnector, type NormalizedChangeDraft } from "@patchbay/vendor-connectors";
-import { generatePlan } from "@patchbay/remediation-engine";
+import { generatePlan, scanPatches } from "@patchbay/remediation-engine";
 import { createAiProvider, type AiPlanDraftInput } from "@patchbay/ai-provider";
 import { resolveFixtureDir } from "@patchbay/repo-analysis";
 import type { NextRequest } from "next/server";
@@ -90,6 +90,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         assessmentConfidence: assessment.confidence,
       });
 
+      // Patches are generated from repository content that may be hostile.
+      // Never persist a patch whose patched content contains execution,
+      // shell, escape or credential constructs; record why it was skipped.
+      const safetyVerdict = scanPatches(result.patches);
+      const safePatches = result.patches.filter(
+        (patch) => !safetyVerdict.findings.some((finding) => finding.filePath === patch.filePath),
+      );
+
       const aiNote = await draftAiNote(aiProvider, drafts, usages);
 
       const planId = crypto.randomUUID();
@@ -106,7 +114,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             requiresHumanReview: result.requiresHumanReview,
           },
         }),
-        ...result.patches.map((patch) =>
+        ...safePatches.map((patch) =>
           prisma.patchArtifact.create({
             data: {
               remediationPlanId: planId,
@@ -128,7 +136,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         id: planId,
         impactAssessmentId: assessment.id,
         repositoryName: assessment.repository.name,
-        patchCount: result.patches.length,
+        patchCount: safePatches.length,
         confidence: result.confidence,
         requiresHumanReview: result.requiresHumanReview,
       });
@@ -145,8 +153,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           changeEventId: event.id,
           vendorSlug: event.vendor.slug,
           repositoryName: assessment.repository.name,
-          patchCount: result.patches.length,
+          patchCount: safePatches.length,
           skippedFiles: result.skippedFiles,
+          unsafePatchesSkipped: safetyVerdict.findings,
           confidence: result.confidence,
           requiresHumanReview: result.requiresHumanReview,
           aiNote,

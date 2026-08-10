@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { aiPlanDraftSchema, type AiPlanDraft, type ChangeType } from "@patchbay/domain";
+import { sanitizeField, wrapUntrusted } from "./prompt-safety";
 
 /** Redacted, size-bounded context for the AI provider. Never contains secrets. */
 export interface AiPlanDraftInput {
@@ -126,16 +127,17 @@ export class OpenAiCompatibleProvider implements AiProvider {
 
 function buildUserPrompt(input: AiPlanDraftInput): string {
   const usageLines = input.usages
-    .map((usage) => `- ${usage.filePath}: ${usage.excerpt}`)
+    .map((usage) => `- file: ${sanitizeField(usage.filePath)}\n${wrapUntrusted(usage.excerpt)}`)
     .join("\n");
   return [
-    `Vendor: ${input.vendorSlug}`,
-    `Change type: ${input.changeType}`,
-    `Old value: ${input.oldValue ?? "n/a"}`,
-    `New value: ${input.newValue ?? "n/a"}`,
-    `Description: ${input.description ?? "n/a"}`,
-    `Affected symbols: ${input.affectedSymbols.join(", ") || "n/a"}`,
-    `Affected usages:\n${usageLines || "- none"}`,
+    `Vendor: ${sanitizeField(input.vendorSlug)}`,
+    `Change type: ${sanitizeField(input.changeType)}`,
+    `Old value: ${input.oldValue === undefined ? "n/a" : wrapUntrusted(input.oldValue)}`,
+    `New value: ${input.newValue === undefined ? "n/a" : wrapUntrusted(input.newValue)}`,
+    `Description: ${sanitizeField(input.description ?? "n/a")}`,
+    `Affected symbols: ${input.affectedSymbols.map(sanitizeField).join(", ") || "n/a"}`,
+    "Affected usages:",
+    usageLines || "- none",
     "",
     "Return a JSON remediation plan draft with fields: rationale, steps, confidence, requiresHumanReview, riskLevel, riskTags, suggestedEdits, applicableChangeTypes.",
   ].join("\n");
