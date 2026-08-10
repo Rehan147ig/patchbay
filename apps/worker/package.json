@@ -13,6 +13,7 @@
     "@patchbay/audit": "workspace:*",
     "@patchbay/db": "workspace:*",
     "@patchbay/domain": "workspace:*",
+    "@patchbay/env": "workspace:*",
     "@patchbay/git-provider": "workspace:*",
     "@patchbay/policy-engine": "workspace:*",
     "@patchbay/queue": "workspace:*",

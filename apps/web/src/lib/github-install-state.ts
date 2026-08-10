@@ -1,5 +1,6 @@
 import "server-only";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { env } from "@/lib/env";
 
 export const GITHUB_INSTALL_STATE_COOKIE = "patchbay_github_install_state";
 const STATE_TTL_MS = 10 * 60 * 1000;
@@ -12,7 +13,7 @@ interface InstallState {
 }
 
 function secret(): string {
-  const value = process.env.NEXTAUTH_SECRET ?? process.env.DEV_AUTH_SECRET;
+  const value = env.NEXTAUTH_SECRET ?? env.DEV_AUTH_SECRET;
   if (!value) throw new Error("NEXTAUTH_SECRET or DEV_AUTH_SECRET is required for GitHub installs");
   return value;
 }

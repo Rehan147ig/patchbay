@@ -61,6 +61,9 @@ importers:
       "@patchbay/domain":
         specifier: workspace:*
         version: link:../../packages/domain
+      "@patchbay/env":
+        specifier: workspace:*
+        version: link:../../packages/env
       "@patchbay/git-provider":
         specifier: workspace:*
         version: link:../../packages/git-provider
@@ -137,6 +140,9 @@ importers:
       "@patchbay/domain":
         specifier: workspace:*
         version: link:../../packages/domain
+      "@patchbay/env":
+        specifier: workspace:*
+        version: link:../../packages/env
       "@patchbay/git-provider":
         specifier: workspace:*
         version: link:../../packages/git-provider
@@ -244,6 +250,22 @@ importers:
       "@prisma/client":
         specifier: ^6.10.0
         version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)
+      "@types/node":
+        specifier: ^22.15.0
+        version: 22.20.1
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.7(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.5)
+
+  packages/env:
+    dependencies:
+      zod:
+        specifier: ^4.0.0
+        version: 4.4.3
+    devDependencies:
       "@types/node":
         specifier: ^22.15.0
         version: 22.20.1

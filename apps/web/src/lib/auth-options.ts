@@ -7,6 +7,7 @@ import { prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import { ActorType, type Role } from "@patchbay/domain";
 import { buildAuditEvent } from "@patchbay/audit";
+import { env } from "@/lib/env";
 
 /**
  * NextAuth (Auth.js v4) configuration for GitHub OAuth sign-in.
@@ -74,8 +75,8 @@ export const authOptions: NextAuthOptions = {
   adapter: createPatchbayAdapter(),
   providers: [
     GithubProvider({
-      clientId: process.env.GITHUB_CLIENT_ID ?? "",
-      clientSecret: process.env.GITHUB_CLIENT_SECRET ?? "",
+      clientId: env.GITHUB_CLIENT_ID ?? "",
+      clientSecret: env.GITHUB_CLIENT_SECRET ?? "",
       authorization: { params: { scope: "read:user user:email" } },
     }),
   ],

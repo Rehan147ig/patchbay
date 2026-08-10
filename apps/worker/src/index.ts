@@ -11,6 +11,7 @@
  * Remaining processors arrive with their engine phases (docs/implementation-plan.md).
  */
 import { Worker } from "bullmq";
+import { parseEnv } from "@patchbay/env";
 import { logger } from "@patchbay/domain";
 import { JobType, QUEUE_NAME, connection, queue } from "@patchbay/queue";
 import { processAnalyzeChange } from "./jobs/analyze-change";
@@ -18,6 +19,9 @@ import { processCreatePR } from "./jobs/create-pr";
 import { processPollNpmRegistry } from "./jobs/poll-npm-registry";
 import { processRunValidation } from "./jobs/run-validation";
 import { processScanRepository } from "./jobs/scan-repository";
+
+// Fail fast at boot: refuse to start with a missing or invalid configuration.
+parseEnv();
 
 async function main(): Promise<void> {
   logger.info("patchbay-worker starting", { queue: QUEUE_NAME, redis: connection.options.host });

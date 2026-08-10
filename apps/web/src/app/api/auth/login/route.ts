@@ -3,13 +3,14 @@ import { AuditAction } from "@patchbay/audit";
 import { loginRequestSchema, tooManyRequests, unauthorized } from "@patchbay/domain";
 import type { NextRequest } from "next/server";
 import { getCorrelationId, jsonError, jsonOk, parseBody, writeAuditEvent } from "@/lib/api";
+import { env } from "@/lib/env";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { createSessionCookie } from "@/lib/session";
 
 export async function POST(request: NextRequest) {
   const correlationId = getCorrelationId(request);
   try {
-    if (process.env.NODE_ENV === "production") {
+    if (env.NODE_ENV === "production") {
       throw unauthorized("Password login is disabled in production");
     }
     // Brute-force protection: keyed by client IP. Do NOT trust
@@ -41,7 +42,7 @@ export async function POST(request: NextRequest) {
     // Local-development credential check only. Replaced by a real identity
     // provider later. Fail closed: no hardcoded fallback password — a single
     // shared default would let anyone authenticate as any user.
-    const expectedPassword = process.env.DEMO_USER_PASSWORD;
+    const expectedPassword = env.DEMO_USER_PASSWORD;
     if (!expectedPassword) {
       throw unauthorized("Invalid email or password");
     }
@@ -91,7 +92,7 @@ function serializeCookie(cookie: {
  */
 function isTrustedProxyIp(forwardedFor: string | null): boolean {
   if (!forwardedFor) return false;
-  const trustedProxies = (process.env.TRUSTED_PROXY_CIDRS ?? "").split(",").map((s) => s.trim());
+  const trustedProxies = env.TRUSTED_PROXY_CIDRS.split(",").map((s) => s.trim());
   if (trustedProxies.length === 0) return false;
   const forwardedIp = forwardedFor.split(",")[0]?.trim();
   if (!forwardedIp) return false;
