@@ -3,15 +3,10 @@ import type { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
-import {
-  ActorType,
-  PatchbayError,
-  PullRequestStatus,
-  logger,
-  unauthorized,
-} from "@patchbay/domain";
+import { ActorType, PatchbayError, logger, unauthorized } from "@patchbay/domain";
 import { getCorrelationId, jsonError, jsonOk, writeAuditEvent } from "@/lib/api";
 import { verifyGitHubWebhookSignature } from "@/lib/github-webhook";
+import { isAllowedPullRequestTransition, resolveNextPullRequestStatus } from "@/lib/pr-status";
 
 /**
  * POST /api/webhooks/github
@@ -44,6 +39,9 @@ const PullRequestPayloadSchema = z.object({
   }),
 });
 
+/** Replays of an identical payload inside this window are dropped. */
+const REPLAY_WINDOW_MS = 10 * 60 * 1000;
+
 export async function POST(request: NextRequest): Promise<Response> {
   const correlationId = getCorrelationId(request);
   const deliveryId = request.headers.get("x-github-delivery") ?? "";
@@ -61,12 +59,29 @@ export async function POST(request: NextRequest): Promise<Response> {
     return jsonError(unauthorized("Missing GitHub delivery ID"), correlationId);
   }
 
+  const payloadHash = createHash("sha256").update(payload).digest("hex");
+
+  // Replay window: GitHub retries an event with a NEW delivery ID, so the
+  // unique deliveryId alone cannot catch replays. Drop identical payloads
+  // processed within the window (an attacker replaying a captured delivery
+  // would have to do so inside the window AND with a fresh signature).
+  const recentReplay = await prisma.webhookDelivery.findFirst({
+    where: {
+      payloadHash,
+      receivedAt: { gt: new Date(Date.now() - REPLAY_WINDOW_MS) },
+    },
+    select: { id: true },
+  });
+  if (recentReplay) {
+    return jsonOk({ received: true, deliveryId, event, duplicate: true }, correlationId);
+  }
+
   const receipt = await prisma.webhookDelivery
     .create({
       data: {
         deliveryId,
         event,
-        payloadHash: createHash("sha256").update(payload).digest("hex"),
+        payloadHash,
       },
     })
     .catch((error: unknown) => {
@@ -192,20 +207,11 @@ async function handlePullRequest(
 ): Promise<void> {
   const { action, repository, pull_request: pr } = payload;
 
-  const nextStatus =
-    action === "closed"
-      ? pr.merged
-        ? PullRequestStatus.MERGED
-        : PullRequestStatus.CLOSED
-      : action === "ready_for_review"
-        ? PullRequestStatus.OPEN
-        : action === "converted_to_draft"
-          ? PullRequestStatus.DRAFT
-          : action === "opened" || action === "reopened"
-            ? pr.draft
-              ? PullRequestStatus.DRAFT
-              : PullRequestStatus.OPEN
-            : null;
+  const nextStatus = resolveNextPullRequestStatus({
+    action,
+    merged: pr.merged,
+    draft: pr.draft,
+  });
   if (!nextStatus) return;
 
   // Scope by the GitHub repository id AND the PR number — PR numbers are only
@@ -220,13 +226,7 @@ async function handlePullRequest(
     select: { id: true, organizationId: true, status: true },
   });
   if (!pullRequest || pullRequest.status === nextStatus) return;
-  if (
-    pullRequest.status === PullRequestStatus.MERGED ||
-    (pullRequest.status === PullRequestStatus.CLOSED && nextStatus !== PullRequestStatus.MERGED) ||
-    (pullRequest.status === PullRequestStatus.OPEN && nextStatus === PullRequestStatus.DRAFT)
-  ) {
-    return;
-  }
+  if (!isAllowedPullRequestTransition(pullRequest.status, nextStatus)) return;
 
   await prisma.pullRequest.update({
     where: { id: pullRequest.id },

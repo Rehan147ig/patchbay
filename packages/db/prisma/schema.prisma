@@ -255,6 +255,7 @@ model WebhookDelivery {
 
   @@index([status, receivedAt])
   @@index([organizationId, receivedAt])
+  @@index([payloadHash, receivedAt])
 }
 
 // A GitHub App installation bound to a Patchbay organization. Created via the
