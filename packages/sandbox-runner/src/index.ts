@@ -6,9 +6,14 @@ import { sanitizeText } from "@patchbay/audit";
  * Allowlisted command execution for validation runs (ADR-0004).
  *
  * Only exact-string matches from the allowlist can execute; commands are never
- * constructed from external text. Output is bounded and redacted. This is NOT
- * a hardened multi-tenant sandbox: an allowlisted script name can run whatever
- * the target package.json defines.
+ * constructed from external text, so no metacharacters can reach a child. On
+ * POSIX the command runs with shell:false as [program, ...args] — no shell at
+ * all. Windows cannot spawn npm/pnpm (.cmd shims) without a shell, so it uses
+ * cmd.exe /d /s /c (AutoRun disabled) over the static allowlist string. Both
+ * paths pass a minimal allowlisted environment — the worker's secrets never
+ * reach the child. Output is bounded and redacted. This is NOT a hardened
+ * multi-tenant sandbox: an allowlisted script name can run whatever the target
+ * package.json defines.
  */
 
 export const ALLOWED_COMMANDS = [
@@ -59,6 +64,42 @@ export interface RunOptions {
   timeoutMs?: number;
 }
 
+/**
+ * Environment allowlist for child processes. The worker holds database URLs,
+ * GitHub tokens and webhook secrets; none of those must ever reach a
+ * validation command. CI=true keeps package managers in CI mode.
+ */
+function minimalChildEnv(): Record<string, string> {
+  const env: Record<string, string> = { CI: "true" };
+  if (process.platform === "win32") {
+    for (const key of [
+      "PATH",
+      "PATHEXT",
+      "SystemRoot",
+      "SystemDrive",
+      "USERPROFILE",
+      "APPDATA",
+      "LOCALAPPDATA",
+      "TEMP",
+      "TMP",
+    ]) {
+      const value = process.env[key];
+      if (value !== undefined) env[key] = value;
+    }
+  } else {
+    for (const key of ["PATH", "HOME", "LANG", "TERM", "TMPDIR"]) {
+      const value = process.env[key];
+      if (value !== undefined) env[key] = value;
+    }
+  }
+  return env;
+}
+
+/**
+ * Spawn an allowlisted command. On Windows npm/pnpm are .cmd shims that Node
+ * refuses to spawn without a shell (EINVAL), so cmd.exe /d /s /c is required;
+ * /d disables AutoRun and the command string is a static allowlist constant.
+ */
 export function runValidation(
   command: string,
   cwd: string,
@@ -68,18 +109,31 @@ export function runValidation(
     return Promise.reject(new SandboxError(command));
   }
 
+  const [program, ...args] = command.split(/\s+/).filter((part) => part.length > 0);
+  if (!program) {
+    return Promise.reject(new SandboxError(command));
+  }
+
   const timeoutMs = options.timeoutMs ?? SANDBOX_TIMEOUT_MS;
   const started = performance.now();
 
-  const shell = process.platform === "win32" ? ["cmd.exe", "/d", "/s", "/c"] : ["/bin/sh", "-c"];
-
-  const child = spawn(shell[0]!, [...shell.slice(1), command], {
-    cwd,
-    windowsHide: true,
-    detached: process.platform !== "win32",
-    env: { ...process.env, CI: "true" },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const child =
+    process.platform === "win32"
+      ? spawn("cmd.exe", ["/d", "/s", "/c", [program, ...args].join(" ")], {
+          cwd,
+          windowsHide: true,
+          shell: false,
+          env: minimalChildEnv(),
+          stdio: ["ignore", "pipe", "pipe"],
+        })
+      : spawn(program, args, {
+          cwd,
+          windowsHide: true,
+          detached: true,
+          shell: false,
+          env: minimalChildEnv(),
+          stdio: ["ignore", "pipe", "pipe"],
+        });
 
   let rawStdout = "";
   let rawStderr = "";

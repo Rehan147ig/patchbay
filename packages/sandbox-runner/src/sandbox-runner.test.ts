@@ -97,4 +97,18 @@ describe("runValidation", () => {
     expect(result.output).toContain("[REDACTED]");
     expect(result.output).not.toContain("sk-abcdefghijklmnopqrstuvwxyz");
   });
+
+  it("does not leak the parent process environment to child commands", async () => {
+    process.env.SANDBOX_LEAK_MARKER = "top-secret-marker";
+    const dir = makeWorkspace({
+      test: 'node -e "const e=process.env; console.log(Object.keys(e).sort().join(\\",\\")); console.log(\\"CI=\\"+e.CI)"',
+    });
+    const result = await runValidation("npm test", dir);
+
+    expect(result.ok).toBe(true);
+    expect(result.stdout).toContain("CI=true");
+    expect(result.stdout).toContain("PATH");
+    expect(result.stdout).not.toContain("SANDBOX_LEAK_MARKER");
+    delete process.env.SANDBOX_LEAK_MARKER;
+  });
 });
