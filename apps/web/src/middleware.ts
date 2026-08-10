@@ -1,7 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { buildSecurityHeaders } from "./lib/security-headers";
 import { isGitHubOAuthConfigured, NEXTAUTH_SESSION_COOKIES, SESSION_COOKIE } from "./lib/session";
 
 const CORRELATION_HEADER = "x-correlation-id";
+const NONCE_HEADER = "x-nonce";
 
 const PUBLIC_PATHS = ["/login", "/api/health"];
 
@@ -10,6 +12,12 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     request.headers.get(CORRELATION_HEADER) ??
     request.headers.get("x-vercel-id") ??
     crypto.randomUUID();
+
+  const nonce = crypto.randomUUID();
+  const securityHeaders = buildSecurityHeaders({
+    nonce,
+    isProduction: process.env.NODE_ENV === "production",
+  });
 
   const { pathname } = request.nextUrl;
   const isPublic =
@@ -40,6 +48,8 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set(CORRELATION_HEADER, correlationId);
+  // Next.js attaches this nonce to its inline RSC flight-payload script.
+  requestHeaders.set(NONCE_HEADER, nonce);
 
   if (!isPublic && !session) {
     const url = request.nextUrl.clone();
@@ -50,6 +60,9 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 
   const response = NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set(CORRELATION_HEADER, correlationId);
+  for (const [name, value] of Object.entries(securityHeaders)) {
+    response.headers.set(name, value);
+  }
   return response;
 }
 
