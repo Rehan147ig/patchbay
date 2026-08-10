@@ -5,6 +5,7 @@ import {
   createAppJwt,
   createGitHubAppProviderFromEnv,
   isGitHubAppConfigured,
+  redactGitHubSecrets,
 } from "./github-app-provider";
 
 const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -40,6 +41,28 @@ describe("createAppJwt", () => {
     expect(payload.iss).toBe("12345");
     expect(payload.iat).toBe(nowSec - 60);
     expect(payload.exp).toBe(nowSec - 60 + 600);
+    // 10-minute TTL is the GitHub hard maximum.
+    expect((payload.exp as number) - (payload.iat as number)).toBe(600);
+  });
+});
+
+describe("redactGitHubSecrets", () => {
+  it("masks PEM private keys, JWTs, and long base64 blobs", () => {
+    const jwt = createAppJwt("12345", PRIVATE_KEY_PEM);
+    const base64Key = Buffer.from(PRIVATE_KEY_PEM, "utf8").toString("base64");
+    const input = `jwt=${jwt} key=${PRIVATE_KEY_PEM} env=${base64Key} keep=${"x".repeat(20)}`;
+    const redacted = redactGitHubSecrets(input);
+    expect(redacted).toContain("[REDACTED JWT]");
+    expect(redacted).toContain("[REDACTED PRIVATE KEY]");
+    expect(redacted).toContain("[REDACTED BASE64 SECRET]");
+    expect(redacted).not.toContain("BEGIN RSA PRIVATE KEY");
+    expect(redacted).toContain(`keep=${"x".repeat(20)}`);
+  });
+
+  it("leaves ordinary error text untouched", () => {
+    expect(redactGitHubSecrets("GitHub API GET /repos/a/b failed: 404 Not Found")).toContain(
+      "404 Not Found",
+    );
   });
 });
 
@@ -167,6 +190,113 @@ describe("GitHubAppProvider", () => {
     expect(() => new GitHubAppProvider({ ...base, repositoryFullName: "no-slash" })).toThrow(
       "owner/name form",
     );
+  });
+
+  it("caches the installation token across calls within its TTL", async () => {
+    let tokenExchanges = 0;
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/app/installations/777/access_tokens")) {
+        tokenExchanges += 1;
+        return jsonResponse(201, { token: "inst-token", expires_at: "2030-01-01T00:00:00Z" });
+      }
+      if (url.endsWith("/repos/acme/app")) {
+        return jsonResponse(200, { default_branch: "main" });
+      }
+      if (url.includes("/git/ref/heads/main")) {
+        return jsonResponse(200, { object: { sha: "base-sha" } });
+      }
+      if (url.endsWith("/git/refs")) {
+        return jsonResponse(201, {});
+      }
+      if (url.includes("/contents/") && init?.method === "GET") {
+        return jsonResponse(404, { message: "Not Found" });
+      }
+      if (url.includes("/contents/") && init?.method === "PUT") {
+        return jsonResponse(201, {});
+      }
+      if (url.endsWith("/pulls")) {
+        return jsonResponse(201, { number: 1, html_url: "https://github.com/acme/app/pull/1" });
+      }
+      throw new Error(`unexpected request: ${init?.method} ${url}`);
+    }) as typeof fetch;
+
+    const provider = new GitHubAppProvider({
+      appId: "12345",
+      privateKey: PRIVATE_KEY_PEM,
+      installationId: 777,
+      repositoryFullName: "acme/app",
+      fetchImpl,
+    });
+    const input = {
+      repositoryName: "app",
+      fixtureDir: "",
+      branchName: "patchbay/fix-1",
+      title: "[Patchbay] Fix",
+      body: "Automated.",
+      patches: [{ filePath: "src/app.ts", patchedContent: "// patched" }],
+    };
+    await provider.createDraftPullRequest(input);
+    await provider.createDraftPullRequest(input);
+    expect(tokenExchanges).toBe(1);
+  });
+
+  it("invalidates the cached token and retries once after a 401", async () => {
+    let tokenExchanges = 0;
+    let pullRequests = 0;
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/app/installations/777/access_tokens")) {
+        tokenExchanges += 1;
+        return jsonResponse(201, {
+          token: `inst-token-${tokenExchanges}`,
+          expires_at: "2030-01-01T00:00:00Z",
+        });
+      }
+      if (url.endsWith("/repos/acme/app")) {
+        return jsonResponse(200, { default_branch: "main" });
+      }
+      if (url.includes("/git/ref/heads/main")) {
+        return jsonResponse(200, { object: { sha: "base-sha" } });
+      }
+      if (url.endsWith("/git/refs")) {
+        return jsonResponse(201, {});
+      }
+      if (url.includes("/contents/") && init?.method === "GET") {
+        return jsonResponse(404, { message: "Not Found" });
+      }
+      if (url.includes("/contents/") && init?.method === "PUT") {
+        return jsonResponse(201, {});
+      }
+      if (url.endsWith("/pulls")) {
+        pullRequests += 1;
+        if (pullRequests === 1) {
+          return jsonResponse(401, { message: "Bad credentials" });
+        }
+        return jsonResponse(201, {
+          number: 2,
+          html_url: "https://github.com/acme/app/pull/2",
+        });
+      }
+      throw new Error(`unexpected request: ${init?.method} ${url}`);
+    }) as typeof fetch;
+
+    const provider = new GitHubAppProvider({
+      appId: "12345",
+      privateKey: PRIVATE_KEY_PEM,
+      installationId: 777,
+      repositoryFullName: "acme/app",
+      fetchImpl,
+    });
+    const result = await provider.createDraftPullRequest({
+      repositoryName: "app",
+      fixtureDir: "",
+      branchName: "patchbay/fix-1",
+      title: "[Patchbay] Fix",
+      body: "Automated.",
+      patches: [{ filePath: "src/app.ts", patchedContent: "// patched" }],
+    });
+    expect(result.status).toBe("DRAFT");
+    expect(pullRequests).toBe(2);
+    expect(tokenExchanges).toBe(2); // fresh token minted for the retry
   });
 });
 

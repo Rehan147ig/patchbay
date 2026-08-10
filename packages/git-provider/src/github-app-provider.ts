@@ -46,8 +46,25 @@ export interface GitHubInstallationInfo {
 }
 
 const DEFAULT_API_URL = "https://api.github.com";
+const APP_JWT_TTL_SECONDS = 600; // GitHub accepts at most 10 minutes
+const TOKEN_CACHE_TTL_MS = 50 * 60 * 1000; // installation tokens live 1h; refresh 10 min early
 
-/** Mints a GitHub App JWT: RS256 over { iss: appId, iat: now-60s, exp: now+10m }. */
+/**
+ * Masks secret material that must never reach logs, audit events, or AI
+ * prompts: PEM private keys, JWT signatures, and long base64 blobs (the
+ * single-line base64 form of the App key used in env files).
+ */
+export function redactGitHubSecrets(value: string): string {
+  return value
+    .replace(
+      /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+      "[REDACTED PRIVATE KEY]",
+    )
+    .replace(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g, "[REDACTED JWT]")
+    .replace(/[A-Za-z0-9+/]{500,}={0,2}/g, "[REDACTED BASE64 SECRET]");
+}
+
+/** Mints a GitHub App JWT: RS256 over { iss, iat, exp } with a 10-minute TTL. */
 export function createAppJwt(appId: string, privateKeyPem: string, now = new Date()): string {
   const issuedAt = Math.floor(now.getTime() / 1000) - 60; // clock-skew allowance
   const encode = (value: object) =>
@@ -55,16 +72,21 @@ export function createAppJwt(appId: string, privateKeyPem: string, now = new Dat
   const unsigned = `${encode({ alg: "RS256", typ: "JWT" })}.${encode({
     iss: appId,
     iat: issuedAt,
-    exp: issuedAt + 600,
+    exp: issuedAt + APP_JWT_TTL_SECONDS,
   })}`;
   const signature = createSign("RSA-SHA256").update(unsigned).sign(privateKeyPem, "base64url");
   return `${unsigned}.${signature}`;
+}
+
+function isUnauthorized(error: unknown): boolean {
+  return error instanceof Error && /failed: 401\b/.test(error.message);
 }
 
 export class GitHubAppProvider implements GitProvider {
   private readonly config: GitHubAppConfig;
   private readonly fetchImpl: typeof fetch;
   private readonly apiUrl: string;
+  private readonly tokenCache = new Map<number, { token: string; expiresAt: number }>();
 
   constructor(config: GitHubAppConfig) {
     if (!config.appId) {
@@ -88,8 +110,19 @@ export class GitHubAppProvider implements GitProvider {
 
   async createDraftPullRequest(input: CreateDraftPRInput): Promise<PullRequestResult> {
     const token = await this.createInstallationToken();
-    const delegate = new GitHubProvider(this.delegateConfig(token));
-    return delegate.createDraftPullRequest(input);
+    try {
+      const delegate = new GitHubProvider(this.delegateConfig(token));
+      return await delegate.createDraftPullRequest(input);
+    } catch (error) {
+      // A 401 usually means the installation token was revoked or expired
+      // mid-flight: drop the cached token and retry once with a fresh one.
+      if (isUnauthorized(error) && this.tokenCache.delete(this.config.installationId)) {
+        const freshToken = await this.createInstallationToken();
+        const delegate = new GitHubProvider(this.delegateConfig(freshToken));
+        return delegate.createDraftPullRequest(input);
+      }
+      throw error;
+    }
   }
 
   /**
@@ -108,9 +141,12 @@ export class GitHubAppProvider implements GitProvider {
       },
     });
     if (!response.ok) {
+      if (response.status === 401) this.tokenCache.delete(this.config.installationId);
       const detail = await response.text().catch(() => "");
       throw new Error(
-        `GitHub API GET /repos/${owner}/${repo} failed: ${response.status} ${detail || response.statusText}`,
+        redactGitHubSecrets(
+          `GitHub API GET /repos/${owner}/${repo} failed: ${response.status} ${detail || response.statusText}`,
+        ),
       );
     }
     const data = (await response.json()) as {
@@ -140,6 +176,9 @@ export class GitHubAppProvider implements GitProvider {
   }
 
   private async createInstallationToken(): Promise<string> {
+    const cached = this.tokenCache.get(this.config.installationId);
+    if (cached && cached.expiresAt > Date.now()) return cached.token;
+
     const jwt = createAppJwt(this.config.appId, this.config.privateKey);
     const url = `${this.apiUrl}/app/installations/${this.config.installationId}/access_tokens`;
     const response = await this.fetchImpl(url, {
@@ -153,13 +192,26 @@ export class GitHubAppProvider implements GitProvider {
     if (!response.ok) {
       const detail = await response.text().catch(() => "");
       throw new Error(
-        `GitHub App token exchange failed for installation ${this.config.installationId}: ${response.status} ${detail || response.statusText}`,
+        redactGitHubSecrets(
+          `GitHub App token exchange failed for installation ${this.config.installationId}: ${response.status} ${detail || response.statusText}`,
+        ),
       );
     }
-    const data = (await response.json()) as { token?: string };
+    const data = (await response.json()) as { token?: string; expires_at?: string };
     if (!data.token) {
       throw new Error("GitHub App token exchange returned no token");
     }
+    let ttlMs = TOKEN_CACHE_TTL_MS;
+    if (data.expires_at) {
+      const serverTtlMs = new Date(data.expires_at).getTime() - Date.now();
+      if (Number.isFinite(serverTtlMs) && serverTtlMs > 0) {
+        ttlMs = Math.min(ttlMs, serverTtlMs - 10 * 60 * 1000);
+      }
+    }
+    this.tokenCache.set(this.config.installationId, {
+      token: data.token,
+      expiresAt: Date.now() + Math.max(ttlMs, 60_000),
+    });
     return data.token;
   }
 }
