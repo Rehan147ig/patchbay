@@ -31,6 +31,7 @@ export {
   conflict,
   policyDenied,
   tooManyRequests,
+  payloadTooLarge,
 } from "./errors";
 export type { ErrorCode, PatchbayErrorOptions } from "./errors";
 export { logger, getCorrelationId, runWithCorrelationId } from "./logger";

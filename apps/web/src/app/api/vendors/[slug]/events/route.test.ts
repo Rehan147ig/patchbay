@@ -32,8 +32,12 @@ const openAiPayload = {
   },
 };
 
-function request(body: unknown, key: string | null): NextRequest {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+function request(
+  body: unknown,
+  key: string | null,
+  extraHeaders: Record<string, string> = {},
+): NextRequest {
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...extraHeaders };
   if (key !== null) headers.Authorization = `Bearer ${key}`;
   return new Request("http://localhost/api/vendors/openai/events", {
     method: "POST",
@@ -125,6 +129,48 @@ describe("POST /api/vendors/[slug]/events", () => {
       params: Promise.resolve({ slug: "openai" }),
     });
     expect(response.status).toBe(422);
+    expect(prisma.vendorChangeEvent.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects a NaN Content-Length header as a bad request", async () => {
+    const response = await POST(request(openAiPayload, validKey, { "content-length": "abc" }), {
+      params: Promise.resolve({ slug: "openai" }),
+    });
+    expect(response.status).toBe(400);
+    expect(prisma.vendorChangeEvent.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects a negative Content-Length header", async () => {
+    const response = await POST(request(openAiPayload, validKey, { "content-length": "-7" }), {
+      params: Promise.resolve({ slug: "openai" }),
+    });
+    expect(response.status).toBe(400);
+    expect(prisma.vendorChangeEvent.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects a Content-Length that is a valid integer but over the limit", async () => {
+    const response = await POST(request(openAiPayload, validKey, { "content-length": "999999" }), {
+      params: Promise.resolve({ slug: "openai" }),
+    });
+    expect(response.status).toBe(413);
+    expect(prisma.vendorChangeEvent.create).not.toHaveBeenCalled();
+  });
+
+  it("caps the actual streamed body even when Content-Length lies", async () => {
+    const oversized = { rawPayload: { sdk: "openai", blob: "x".repeat(300 * 1024) } };
+    const response = await POST(request(oversized, validKey, { "content-length": "5" }), {
+      params: Promise.resolve({ slug: "openai" }),
+    });
+    expect(response.status).toBe(413);
+    expect(prisma.vendorChangeEvent.create).not.toHaveBeenCalled();
+  });
+
+  it("caps the streamed body when Content-Length is absent", async () => {
+    const oversized = { rawPayload: { sdk: "openai", blob: "x".repeat(300 * 1024) } };
+    const response = await POST(request(oversized, validKey), {
+      params: Promise.resolve({ slug: "openai" }),
+    });
+    expect(response.status).toBe(413);
     expect(prisma.vendorChangeEvent.create).not.toHaveBeenCalled();
   });
 });

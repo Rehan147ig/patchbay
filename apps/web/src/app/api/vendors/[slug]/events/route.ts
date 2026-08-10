@@ -1,11 +1,18 @@
 import { prisma, type Prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
-import { ActorType, notFound, unauthorized, validationFailed } from "@patchbay/domain";
+import {
+  ActorType,
+  badRequest,
+  notFound,
+  payloadTooLarge,
+  unauthorized,
+  validationFailed,
+} from "@patchbay/domain";
 import { agentIngestSchema } from "@patchbay/domain";
 import { getConnector } from "@patchbay/vendor-connectors";
 import { JobType, queue } from "@patchbay/queue";
 import type { NextRequest } from "next/server";
-import { getCorrelationId, jsonError, jsonOk, parseBody, writeAuditEvent } from "@/lib/api";
+import { getCorrelationId, jsonError, jsonOk, parseBodyBounded, writeAuditEvent } from "@/lib/api";
 import { verifyAgentKey } from "@/lib/agent-keys";
 import { checkRateLimit } from "@/lib/rate-limit";
 
@@ -26,9 +33,17 @@ export async function POST(
   const correlationId = getCorrelationId(request);
   try {
     const { slug } = await params;
-    const contentLength = Number(request.headers.get("content-length") ?? "0");
-    if (contentLength > MAX_AGENT_BODY_BYTES) {
-      throw validationFailed("Agent payload exceeds the 256 KB limit");
+    // Content-Length is advisory, never trusted: it must be a plain integer
+    // (reject NaN/negative/`Infinity` forms), and the real enforcement is the
+    // byte cap on the streamed body below.
+    const contentLengthHeader = request.headers.get("content-length");
+    if (contentLengthHeader !== null && contentLengthHeader.trim() !== "") {
+      if (!/^\d+$/.test(contentLengthHeader.trim())) {
+        throw badRequest("Content-Length must be a non-negative integer");
+      }
+      if (Number(contentLengthHeader.trim()) > MAX_AGENT_BODY_BYTES) {
+        throw payloadTooLarge("Agent payload exceeds the 256 KB limit");
+      }
     }
     const authorization = request.headers.get("authorization");
     const providedKey = authorization?.startsWith("Bearer ") ? authorization.slice(7) : null;
@@ -47,7 +62,7 @@ export async function POST(
       throw unauthorized("Agent rate limit exceeded");
     }
 
-    const input = await parseBody(request, agentIngestSchema);
+    const input = await parseBodyBounded(request, agentIngestSchema, MAX_AGENT_BODY_BYTES);
     const connector = getConnector(slug);
     if (!connector) throw validationFailed(`No connector is registered for vendor "${slug}"`);
 

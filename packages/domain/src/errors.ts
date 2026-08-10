@@ -12,6 +12,7 @@ export type ErrorCode =
   | "VALIDATION_FAILED"
   | "POLICY_DENIED"
   | "RATE_LIMITED"
+  | "PAYLOAD_TOO_LARGE"
   | "INTERNAL_ERROR";
 
 export interface PatchbayErrorOptions {
@@ -69,4 +70,8 @@ export function policyDenied(message: string, details?: unknown): PatchbayError 
 
 export function tooManyRequests(message = "Too many requests, slow down"): PatchbayError {
   return new PatchbayError(message, { statusCode: 429, code: "RATE_LIMITED" });
+}
+
+export function payloadTooLarge(message = "Request body exceeds the size limit"): PatchbayError {
+  return new PatchbayError(message, { statusCode: 413, code: "PAYLOAD_TOO_LARGE" });
 }
