@@ -1,10 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import {
-  isGitHubOAuthConfigured,
-  NEXTAUTH_SESSION_COOKIES,
-  readSessionCookie,
-  SESSION_COOKIE,
-} from "./lib/session";
+import { isGitHubOAuthConfigured, NEXTAUTH_SESSION_COOKIES, SESSION_COOKIE } from "./lib/session";
 
 const CORRELATION_HEADER = "x-correlation-id";
 
@@ -27,21 +22,20 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   // for presence (edge middleware cannot query the session table) — route
   // handlers and pages re-validate it through getServerSession.
   const developmentCookie = request.cookies.get(SESSION_COOKIE)?.value;
-  // Server pages and API handlers verify the signed development cookie before
-  // accessing data. In development the Edge runtime cannot reliably access the
-  // local HMAC secret, so middleware only uses presence to avoid redirect loops.
-  // Production rejects development sessions in getSessionUser regardless.
-  let session =
-    process.env.NODE_ENV === "production"
-      ? await readSessionCookie(developmentCookie)
-      : developmentCookie
-        ? { sub: "dev", email: "", exp: Number.POSITIVE_INFINITY }
-        : null;
-  if (!session && isGitHubOAuthConfigured()) {
-    const hasOAuthSession = NEXTAUTH_SESSION_COOKIES.some((name) => request.cookies.has(name));
-    if (hasOAuthSession) {
-      session = { sub: "oauth", email: "", exp: Number.POSITIVE_INFINITY };
+  // In development the Edge runtime cannot reliably access the local HMAC
+  // secret, so middleware only uses presence to avoid redirect loops.
+  // In production the dev session cookie is NEVER accepted — production
+  // authentication is GitHub OAuth only.
+  let session: { sub: string; email: string; exp: number } | null = null;
+  if (process.env.NODE_ENV === "production") {
+    if (isGitHubOAuthConfigured()) {
+      const hasOAuthSession = NEXTAUTH_SESSION_COOKIES.some((name) => request.cookies.has(name));
+      if (hasOAuthSession) {
+        session = { sub: "oauth", email: "", exp: Number.POSITIVE_INFINITY };
+      }
     }
+  } else if (developmentCookie) {
+    session = { sub: "dev", email: "", exp: Number.POSITIVE_INFINITY };
   }
 
   const requestHeaders = new Headers(request.headers);

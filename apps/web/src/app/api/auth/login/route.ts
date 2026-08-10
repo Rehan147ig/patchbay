@@ -1,6 +1,6 @@
 import { prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
-import { loginRequestSchema, tooManyRequests, unauthorized } from "@patchbay/domain";
+import { loginRequestSchema, notFound, tooManyRequests, unauthorized } from "@patchbay/domain";
 import type { NextRequest } from "next/server";
 import { getCorrelationId, jsonError, jsonOk, parseBody, writeAuditEvent } from "@/lib/api";
 import { env } from "@/lib/env";
@@ -10,8 +10,11 @@ import { createSessionCookie } from "@/lib/session";
 export async function POST(request: NextRequest) {
   const correlationId = getCorrelationId(request);
   try {
+    // Password login is a local-development convenience. In production it
+    // must not exist at all — respond 404 so the endpoint is indistinguishable
+    // from a route that was never deployed.
     if (env.NODE_ENV === "production") {
-      throw unauthorized("Password login is disabled in production");
+      throw notFound("This endpoint is not available");
     }
     // Brute-force protection: keyed by client IP. Do NOT trust
     // x-forwarded-for blindly — it is client-spoofable unless set by a
