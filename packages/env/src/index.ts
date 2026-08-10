@@ -113,3 +113,6 @@ export function parseEnv(source: NodeJS.ProcessEnv = process.env): Env {
   }
   return result.data;
 }
+
+export { EnvSecretStore, getSecretStore } from "./secrets";
+export type { SecretStore, SecretStoreOptions } from "./secrets";

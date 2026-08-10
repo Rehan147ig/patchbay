@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import { ActorType, PatchbayError, logger, unauthorized } from "@patchbay/domain";
+import { getSecretStore } from "@patchbay/env";
 import { getCorrelationId, jsonError, jsonOk, writeAuditEvent } from "@/lib/api";
 import { verifyGitHubWebhookSignature } from "@/lib/github-webhook";
 import { isAllowedPullRequestTransition, resolveNextPullRequestStatus } from "@/lib/pr-status";
@@ -49,7 +50,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   const signature = request.headers.get("x-hub-signature-256") ?? "";
   const payload = await request.text();
 
-  const secret = process.env.GITHUB_APP_WEBHOOK_SECRET ?? "";
+  const secret = (await getSecretStore().get("GITHUB_APP_WEBHOOK_SECRET")) ?? "";
   if (!verifyGitHubWebhookSignature(payload, signature, secret)) {
     logger.warn("github webhook rejected: invalid signature", { correlationId, deliveryId });
     return jsonError(unauthorized("Invalid webhook signature"), correlationId);

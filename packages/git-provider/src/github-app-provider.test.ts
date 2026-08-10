@@ -1,15 +1,30 @@
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import { EnvSecretStore, type SecretStore } from "@patchbay/env";
 import {
   GitHubAppProvider,
   createAppJwt,
   createGitHubAppProviderFromEnv,
+  createGitHubAppProviderFromStore,
+  fetchGitHubInstallationInfo,
+  fetchGitHubInstallationInfoFromStore,
+  getGitHubAppCredentials,
   isGitHubAppConfigured,
   redactGitHubSecrets,
 } from "./github-app-provider";
 
 const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const PRIVATE_KEY_PEM = privateKey.export({ format: "pem", type: "pkcs1" }).toString();
+
+function appStore(extra: Record<string, string> = {}): SecretStore {
+  return new EnvSecretStore({
+    source: {
+      GITHUB_APP_ID: "12345",
+      GITHUB_APP_PRIVATE_KEY: Buffer.from(PRIVATE_KEY_PEM, "utf8").toString("base64"),
+      ...extra,
+    },
+  });
+}
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -333,5 +348,114 @@ describe("isGitHubAppConfigured", () => {
         GITHUB_APP_PRIVATE_KEY: "x",
       } as NodeJS.ProcessEnv),
     ).toBe(true);
+  });
+});
+
+describe("getGitHubAppCredentials", () => {
+  it("returns credentials when both parts exist", async () => {
+    const credentials = await getGitHubAppCredentials(appStore());
+    expect(credentials?.appId).toBe("12345");
+    expect(Buffer.from(credentials?.privateKey ?? "", "base64").toString("utf8")).toContain(
+      "BEGIN",
+    );
+  });
+
+  it("returns null when either part is missing", async () => {
+    expect(await getGitHubAppCredentials(new EnvSecretStore({ source: {} }))).toBeNull();
+    expect(
+      await getGitHubAppCredentials(new EnvSecretStore({ source: { GITHUB_APP_ID: "1" } })),
+    ).toBeNull();
+  });
+});
+
+describe("createGitHubAppProviderFromStore", () => {
+  it("decodes the base64 private key and builds a provider", async () => {
+    const provider = await createGitHubAppProviderFromStore(
+      { installationId: 777, repositoryFullName: "acme/app" },
+      appStore(),
+    );
+    expect(provider).toBeInstanceOf(GitHubAppProvider);
+  });
+
+  it("throws a clear error without leaking values when unconfigured", async () => {
+    await expect(
+      createGitHubAppProviderFromStore(
+        { installationId: 777, repositoryFullName: "acme/app" },
+        new EnvSecretStore({ source: { GITHUB_APP_PRIVATE_KEY: "supersecret" } }),
+      ),
+    ).rejects.toThrow("GitHub App is not configured");
+  });
+});
+
+describe("fetchGitHubInstallationInfoFromStore", () => {
+  it("fetches installation metadata with an App JWT from the store", async () => {
+    const authorizations: string[] = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      expect(url).toContain("/app/installations/777");
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      authorizations.push(headers.Authorization ?? "");
+      return jsonResponse(200, {
+        id: 777,
+        account: { login: "acme", type: "Organization" },
+        repository_selection: "all",
+        permissions: { pull_requests: "write" },
+        suspended_at: null,
+      });
+    }) as typeof fetch;
+
+    const info = await fetchGitHubInstallationInfoFromStore(777, appStore(), fetchImpl);
+    expect(info.accountLogin).toBe("acme");
+    expect(info.repositorySelection).toBe("all");
+    expect(authorizations[0]?.startsWith("Bearer ")).toBe(true);
+  });
+
+  it("rejects when the store has no App credentials", async () => {
+    await expect(
+      fetchGitHubInstallationInfoFromStore(777, new EnvSecretStore({ source: {} })),
+    ).rejects.toThrow("GitHub App is not configured");
+  });
+
+  it("uses the store-provided API URL", async () => {
+    const fetchImpl = (async (url: string) => {
+      expect(url.startsWith("https://github.enterprise.local")).toBe(true);
+      return jsonResponse(200, {
+        id: 1,
+        account: { login: "x", type: "User" },
+        repository_selection: "selected",
+        permissions: {},
+        suspended_at: null,
+      });
+    }) as typeof fetch;
+    await fetchGitHubInstallationInfoFromStore(
+      1,
+      appStore({ GITHUB_API_URL: "https://github.enterprise.local/" }),
+      fetchImpl,
+    );
+  });
+
+  it("mirrors the env-based path for equivalent inputs", async () => {
+    const env = {
+      GITHUB_APP_ID: "12345",
+      GITHUB_APP_PRIVATE_KEY: Buffer.from(PRIVATE_KEY_PEM, "utf8").toString("base64"),
+    } as NodeJS.ProcessEnv;
+    const envInfo = await fetchGitHubInstallationInfo(1, env, async () =>
+      jsonResponse(200, {
+        id: 1,
+        account: { login: "y", type: "User" },
+        repository_selection: "selected",
+        permissions: {},
+        suspended_at: null,
+      }),
+    );
+    const storeInfo = await fetchGitHubInstallationInfoFromStore(1, appStore(), async () =>
+      jsonResponse(200, {
+        id: 1,
+        account: { login: "y", type: "User" },
+        repository_selection: "selected",
+        permissions: {},
+        suspended_at: null,
+      }),
+    );
+    expect(storeInfo).toEqual(envInfo);
   });
 });

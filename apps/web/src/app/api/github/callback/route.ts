@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@patchbay/db";
 import { requireUser } from "@/lib/auth";
-import { fetchGitHubInstallationInfo } from "@patchbay/git-provider";
+import { fetchGitHubInstallationInfoFromStore } from "@patchbay/git-provider";
+import { getSecretStore } from "@patchbay/env";
 import { GITHUB_INSTALL_STATE_COOKIE, verifyGitHubInstallState } from "@/lib/github-install-state";
 
 /**
@@ -44,7 +45,10 @@ export async function GET(request: NextRequest) {
         new URL("/settings/github?error=installation_already_bound", request.url),
       );
     }
-    const installation = await fetchGitHubInstallationInfo(installationId);
+    const installation = await fetchGitHubInstallationInfoFromStore(
+      installationId,
+      getSecretStore(),
+    );
     await prisma.gitHubInstallation.upsert({
       where: { installationId },
       update: { organizationId: user.organizationId, suspendedAt: null },

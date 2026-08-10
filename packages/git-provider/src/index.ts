@@ -13,7 +13,15 @@ export {
   GitHubAppProvider,
   createAppJwt,
   createGitHubAppProviderFromEnv,
+  createGitHubAppProviderFromStore,
   fetchGitHubInstallationInfo,
+  fetchGitHubInstallationInfoFromStore,
+  getGitHubAppCredentials,
   isGitHubAppConfigured,
 } from "./github-app-provider";
-export type { GitHubAppConfig, GitHubAppTarget, GitHubRepositoryInfo } from "./github-app-provider";
+export type {
+  GitHubAppConfig,
+  GitHubAppCredentials,
+  GitHubAppTarget,
+  GitHubRepositoryInfo,
+} from "./github-app-provider";

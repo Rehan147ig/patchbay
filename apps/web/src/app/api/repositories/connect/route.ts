@@ -2,7 +2,8 @@ import { NextRequest } from "next/server";
 import { prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import { ActorType, RepositoryProvider, validationFailed } from "@patchbay/domain";
-import { createGitHubAppProviderFromEnv } from "@patchbay/git-provider";
+import { createGitHubAppProviderFromStore } from "@patchbay/git-provider";
+import { getSecretStore } from "@patchbay/env";
 import { getCorrelationId, jsonError, jsonOk, writeAuditEvent } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
 import { assertCsrfToken } from "@/lib/csrf";
@@ -41,7 +42,10 @@ export async function POST(request: NextRequest) {
       throw validationFailed("GitHub installation not found for your organization");
     }
 
-    const provider = createGitHubAppProviderFromEnv({ installationId, repositoryFullName });
+    const provider = await createGitHubAppProviderFromStore(
+      { installationId, repositoryFullName },
+      getSecretStore(),
+    );
     const githubRepository = await provider.fetchRepositoryInfo();
     const externalId = `github:${githubRepository.externalId}`;
 

@@ -1,4 +1,5 @@
 import { createSign } from "node:crypto";
+import type { SecretStore } from "@patchbay/env";
 import { GitHubProvider, type GitHubConfig } from "./github-provider";
 import type { CreateDraftPRInput, GitProvider, PullRequestResult } from "./local-provider";
 
@@ -298,4 +299,95 @@ export function createGitHubAppProviderFromEnv(
     ...(target.baseBranch ? { baseBranch: target.baseBranch } : {}),
     ...(env.GITHUB_API_URL ? { apiUrl: env.GITHUB_API_URL } : {}),
   });
+}
+
+export interface GitHubAppCredentials {
+  appId: string;
+  privateKey: string;
+}
+
+/**
+ * Resolves GitHub App credentials through a SecretStore. Returns null when
+ * either part is missing; never includes values in messages.
+ */
+export async function getGitHubAppCredentials(
+  store: SecretStore,
+): Promise<GitHubAppCredentials | null> {
+  const appId = await store.get("GITHUB_APP_ID");
+  const privateKey = await store.get("GITHUB_APP_PRIVATE_KEY");
+  if (appId === null || privateKey === null) return null;
+  return { appId, privateKey };
+}
+
+function decodeAppPrivateKey(base64Pem: string): string {
+  return Buffer.from(base64Pem, "base64").toString("utf8");
+}
+
+/** Store-backed variant of createGitHubAppProviderFromEnv. */
+export async function createGitHubAppProviderFromStore(
+  target: GitHubAppTarget,
+  store: SecretStore,
+): Promise<GitHubAppProvider> {
+  const credentials = await getGitHubAppCredentials(store);
+  if (credentials === null) {
+    throw new Error(
+      "GitHub App is not configured: set GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY (base64 PEM)",
+    );
+  }
+  const apiUrl = await store.get("GITHUB_API_URL");
+  return new GitHubAppProvider({
+    appId: credentials.appId,
+    privateKey: decodeAppPrivateKey(credentials.privateKey),
+    installationId: target.installationId,
+    repositoryFullName: target.repositoryFullName,
+    ...(target.baseBranch ? { baseBranch: target.baseBranch } : {}),
+    ...(apiUrl !== null ? { apiUrl } : {}),
+  });
+}
+
+/** Store-backed variant of fetchGitHubInstallationInfo. */
+export async function fetchGitHubInstallationInfoFromStore(
+  installationId: number,
+  store: SecretStore,
+  fetchImpl: typeof fetch = globalThis.fetch,
+): Promise<GitHubInstallationInfo> {
+  const credentials = await getGitHubAppCredentials(store);
+  if (credentials === null) {
+    throw new Error("GitHub App is not configured");
+  }
+  if (!Number.isSafeInteger(installationId) || installationId <= 0) {
+    throw new Error("installationId must be a positive safe integer");
+  }
+  const apiUrl = (await store.get("GITHUB_API_URL")) ?? DEFAULT_API_URL;
+  const cleanApiUrl = apiUrl.replace(/\/+$/, "");
+  const jwt = createAppJwt(credentials.appId, decodeAppPrivateKey(credentials.privateKey));
+  const response = await fetchImpl(`${cleanApiUrl}/app/installations/${installationId}`, {
+    method: "GET",
+    headers: {
+      Accept: "application/vnd.github+json",
+      Authorization: `Bearer ${jwt}`,
+      "X-GitHub-Api-Version": "2022-11-28",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`GitHub installation lookup failed: ${response.status}`);
+  }
+  const data = (await response.json()) as {
+    id: number;
+    account?: { login?: string; type?: string };
+    repository_selection?: string;
+    permissions?: Record<string, string>;
+    suspended_at?: string | null;
+  };
+  if (!data.account?.login || !data.account.type) {
+    throw new Error("GitHub installation lookup returned incomplete account data");
+  }
+  return {
+    id: data.id,
+    accountLogin: data.account.login,
+    accountType: data.account.type,
+    repositorySelection: data.repository_selection ?? "selected",
+    permissions: data.permissions ?? {},
+    suspendedAt: data.suspended_at ?? null,
+  };
 }
