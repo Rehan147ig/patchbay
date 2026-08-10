@@ -79,6 +79,8 @@ and fix everything before finishing.
 - Every org-scoped query must filter by `organizationId` (change events carry it; remediation
   plans scope through `impactAssessment.repository.organizationId`). Cross-org reads return
   404/422, never leak data.
-- Agent keys (`pb_agent_*`) are bearer secrets: only sha256 hashes are stored, comparison is
-  constant-time, plaintext is shown exactly once at issuance. The `/api/vendors/` prefix is
-  exempt from session middleware because agent ingest self-authenticates.
+- Agent keys (`pb_agent_*`) are bearer secrets: only argon2id hashes are stored (legacy
+  sha256 hashes verify during the migration window), comparison is constant-time,
+  plaintext is shown exactly once at issuance, and rotation keeps the previous hash
+  valid until the next rotation. The `/api/vendors/` prefix is exempt from session
+  middleware because agent ingest self-authenticates.

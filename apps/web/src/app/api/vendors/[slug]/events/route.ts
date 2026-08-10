@@ -54,7 +54,12 @@ export async function POST(
     if (!vendor.organizationId || !vendor.agentKeyHash) {
       throw unauthorized(`Agent mode is not enabled for vendor "${slug}"`);
     }
-    if (!verifyAgentKey(providedKey, vendor.agentKeyHash)) {
+    const keyValid =
+      (await verifyAgentKey(providedKey, vendor.agentKeyHash)) ||
+      (vendor.agentKeyHashPrevious
+        ? await verifyAgentKey(providedKey, vendor.agentKeyHashPrevious)
+        : false);
+    if (!keyValid) {
       throw unauthorized("Invalid agent API key");
     }
     const rate = checkRateLimit(`agent:${vendor.organizationId}:${slug}`);

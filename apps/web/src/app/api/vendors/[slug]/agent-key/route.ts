@@ -28,9 +28,16 @@ export async function POST(
     }
 
     const agentKey = generateAgentKey();
+    const agentKeyHash = await hashAgentKey(agentKey);
     await prisma.vendor.update({
       where: { id: vendor.id },
-      data: { organizationId: user.organizationId, agentKeyHash: hashAgentKey(agentKey) },
+      data: {
+        organizationId: user.organizationId,
+        // Rotation: the current hash becomes the previous hash so agents still
+        // holding the old key keep authenticating during the rollout window.
+        agentKeyHash,
+        agentKeyHashPrevious: vendor.agentKeyHash,
+      },
     });
 
     await writeAuditEvent({

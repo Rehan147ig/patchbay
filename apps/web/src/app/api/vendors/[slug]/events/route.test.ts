@@ -4,7 +4,6 @@ import { POST } from "./route";
 import { hashAgentKey } from "@/lib/agent-keys";
 
 const validKey = "pb_agent_test_key";
-const storedHash = hashAgentKey(validKey);
 
 vi.mock("@patchbay/db", () => ({
   prisma: {
@@ -51,12 +50,14 @@ const mockVendor = {
   slug: "openai",
   name: "OpenAI",
   organizationId: "org-acme",
-  agentKeyHash: storedHash,
+  agentKeyHash: undefined as string | null | undefined,
+  agentKeyHashPrevious: null as string | null,
 };
 
 describe("POST /api/vendors/[slug]/events", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    mockVendor.agentKeyHash = await hashAgentKey(validKey);
     vi.mocked(prisma.vendor.findUnique).mockResolvedValue(mockVendor as never);
     vi.mocked(prisma.vendorChangeEvent.create).mockResolvedValue({
       id: "c-agent-1",
@@ -172,5 +173,16 @@ describe("POST /api/vendors/[slug]/events", () => {
     });
     expect(response.status).toBe(413);
     expect(prisma.vendorChangeEvent.create).not.toHaveBeenCalled();
+  });
+
+  it("accepts the previous key during the rotation window", async () => {
+    const previousKey = "pb_agent_old_key";
+    mockVendor.agentKeyHash = await hashAgentKey("pb_agent_new_key");
+    mockVendor.agentKeyHashPrevious = await hashAgentKey(previousKey);
+    const response = await POST(request({ rawPayload: openAiPayload }, previousKey), {
+      params: Promise.resolve({ slug: "openai" }),
+    });
+    expect(response.status).toBe(201);
+    expect(prisma.vendorChangeEvent.create).toHaveBeenCalled();
   });
 });

@@ -330,8 +330,17 @@ model Vendor {
   enabled Boolean @default(true)
   /** Owning organization; required once provider-agent mode is enabled. */
   organizationId String?
-  /** sha256 hash of the agent API key used for POST /api/vendors/:slug/events. */
+  /**
+   * argon2id hash of the current agent API key (legacy sha256 hex hashes are
+   * verified during the migration window until the key is rotated).
+   */
   agentKeyHash String?
+  /**
+   * argon2id hash of the previous agent API key. Kept until rotation settles:
+   * agents authenticating with the old key still work while the new key is
+   * being rolled out, and the previous hash is dropped on the next rotation.
+   */
+  agentKeyHashPrevious String?
 
   changeEvents VendorChangeEvent[]
   usages       IntegrationUsage[]

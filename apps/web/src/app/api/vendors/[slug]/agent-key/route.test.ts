@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { NextRequest } from "next/server";
 import { forbidden } from "@patchbay/domain";
 import { POST } from "./route";
-import { hashAgentKey } from "@/lib/agent-keys";
+import { hashAgentKey, verifyAgentKey } from "@/lib/agent-keys";
 
 vi.mock("@patchbay/db", () => ({
   prisma: {
@@ -49,15 +49,35 @@ describe("POST /api/vendors/[slug]/agent-key", () => {
     expect(body.data.vendorSlug).toBe("openai");
     expect(body.data.agentKey.startsWith("pb_agent_")).toBe(true);
 
+    const updateCall = vi.mocked(prisma.vendor.update).mock.calls[0]?.[0] as {
+      data: { agentKeyHash: string };
+    };
+    expect(updateCall.data.agentKeyHash.startsWith("$argon2id$")).toBe(true);
+    expect(await verifyAgentKey(body.data.agentKey, updateCall.data.agentKeyHash)).toBe(true);
+  });
+
+  it("rotates: keeps the current hash as the previous hash", async () => {
+    const existingHash = await hashAgentKey("pb_agent_old_key");
+    vi.mocked(prisma.vendor.findUnique).mockResolvedValueOnce({
+      ...mockVendor,
+      organizationId: "org-acme",
+      agentKeyHash: existingHash,
+    } as never);
+    const response = await POST(
+      new Request("http://localhost/api/vendors/openai/agent-key") as NextRequest,
+      {
+        params: Promise.resolve({ slug: "openai" }),
+      },
+    );
+    expect(response.status).toBe(201);
     expect(prisma.vendor.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          organizationId: "org-acme",
-          agentKeyHash: hashAgentKey(body.data.agentKey),
+          agentKeyHash: expect.stringContaining("$argon2id$"),
+          agentKeyHashPrevious: existingHash,
         }),
       }),
     );
-    expect(hashAgentKey(body.data.agentKey)).not.toBe(body.data.agentKey);
   });
 
   it("rejects non-admins", async () => {
