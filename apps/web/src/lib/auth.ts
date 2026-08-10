@@ -4,7 +4,12 @@ import { getServerSession } from "next-auth";
 import { prisma } from "@patchbay/db";
 import { forbidden, unauthorized } from "@patchbay/domain";
 import { authOptions } from "./auth-options";
-import { isGitHubOAuthConfigured, readSessionCookie, SESSION_COOKIE } from "./session";
+import {
+  isGitHubOAuthConfigured,
+  isSessionCurrent,
+  readSessionCookie,
+  SESSION_COOKIE,
+} from "./session";
 
 export interface SessionUser {
   id: string;
@@ -41,8 +46,18 @@ export async function getSessionUser(): Promise<SessionUser | null> {
 
   const user = await prisma.user.findUnique({
     where: { id: session.sub },
-    select: { id: true, organizationId: true, email: true, name: true, role: true },
+    select: {
+      id: true,
+      organizationId: true,
+      email: true,
+      name: true,
+      role: true,
+      sessionVersion: true,
+    },
   });
+  // Privilege changes bump sessionVersion; an old cookie must not keep its
+  // old privileges, so treat a version mismatch as no session at all.
+  if (!user || !isSessionCurrent(session.ver, user.sessionVersion)) return null;
   return user;
 }
 

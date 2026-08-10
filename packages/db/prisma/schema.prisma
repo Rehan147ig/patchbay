@@ -191,6 +191,9 @@ model User {
   email          String   @unique
   name           String
   role           Role
+  // Bumped on privilege changes; sessions carry the version they were issued
+  // at, so demoted/removed users are forced to re-authenticate.
+  sessionVersion Int      @default(0)
   emailVerified  DateTime?
   image          String?
   createdAt      DateTime @default(now())

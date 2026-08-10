@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     }
     if (input.password !== expectedPassword) throw unauthorized("Invalid email or password");
 
-    const cookie = await createSessionCookie(user.id, user.email);
+    const cookie = await createSessionCookie(user.id, user.email, user.sessionVersion);
     await writeAuditEvent({
       organizationId: user.organizationId,
       actorType: "USER",

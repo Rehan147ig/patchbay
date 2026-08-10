@@ -26,6 +26,8 @@ interface SessionPayload {
   sub: string;
   email: string;
   exp: number;
+  /** Session version at issuance; privilege changes bump it and kill sessions. */
+  ver: number;
 }
 
 export function getSecret(): string {
@@ -96,11 +98,13 @@ async function verify(data: string, signature: string, secret: string): Promise<
 export async function createSessionCookie(
   userId: string,
   email: string,
+  sessionVersion = 0,
 ): Promise<{ name: string; value: string; options: Record<string, unknown> }> {
   const payload: SessionPayload = {
     sub: userId,
     email,
     exp: Date.now() + SESSION_TTL_MS,
+    ver: sessionVersion,
   };
   const data = utf8ToBase64Url(JSON.stringify(payload));
   const signature = await sign(data, getSecret());
@@ -133,11 +137,23 @@ export async function readSessionCookie(
   const valid = await verify(data, signature, secret);
   if (!valid) return null;
   try {
-    const payload = JSON.parse(base64UrlToUtf8(data)) as SessionPayload;
+    const payload = JSON.parse(base64UrlToUtf8(data)) as Partial<SessionPayload>;
     if (typeof payload.sub !== "string" || typeof payload.exp !== "number") return null;
     if (payload.exp < Date.now()) return null;
-    return payload;
+    // Cookies issued before sessionVersion existed carry no version; treat
+    // them as version 0 so they behave like a freshly rotated account.
+    return {
+      sub: payload.sub,
+      email: payload.email ?? "",
+      exp: payload.exp,
+      ver: payload.ver ?? 0,
+    };
   } catch {
     return null;
   }
+}
+
+/** A session is current only when issued at the user's current version. */
+export function isSessionCurrent(sessionVersion: number, currentVersion: number): boolean {
+  return sessionVersion === currentVersion;
 }
