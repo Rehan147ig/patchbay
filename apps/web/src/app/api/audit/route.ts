@@ -1,4 +1,4 @@
-import { prisma } from "@patchbay/db";
+import { prisma, withOrgContext } from "@patchbay/db";
 import { paginationSchema } from "@patchbay/domain";
 import type { NextRequest } from "next/server";
 import { getCorrelationId, jsonError, jsonOk, parseQuery } from "@/lib/api";
@@ -10,14 +10,19 @@ export async function GET(request: NextRequest) {
     const user = await requireRole("VIEWER");
     const { offset, limit } = parseQuery(request, paginationSchema);
 
+    // Structural tenant scoping: every auditEvent query is ANDed with the
+    // caller's organizationId, so a forgotten filter cannot leak the audit
+    // trail of another organization.
+    const db = withOrgContext(prisma, user.organizationId);
+
     const [events, total] = await Promise.all([
-      prisma.auditEvent.findMany({
+      db.auditEvent.findMany({
         where: { organizationId: user.organizationId },
         orderBy: { createdAt: "desc" },
         skip: offset,
         take: limit,
       }),
-      prisma.auditEvent.count({ where: { organizationId: user.organizationId } }),
+      db.auditEvent.count({ where: { organizationId: user.organizationId } }),
     ]);
 
     return jsonOk({ events, total, offset, limit }, correlationId);

@@ -12,6 +12,7 @@ vi.mock("@patchbay/db", () => ({
     remediationPlan: { findFirst: vi.fn() },
     auditEvent: { create: vi.fn() },
   },
+  withOrgContext: (client: unknown) => client,
 }));
 
 vi.mock("@patchbay/queue", () => ({

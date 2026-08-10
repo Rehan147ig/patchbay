@@ -1,4 +1,4 @@
-import { prisma, type Prisma } from "@patchbay/db";
+import { prisma, type Prisma, withOrgContext } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import { repositoryCreateSchema, validationFailed } from "@patchbay/domain";
 import type { NextRequest } from "next/server";
@@ -9,7 +9,8 @@ export async function GET(request: NextRequest) {
   const correlationId = getCorrelationId(request);
   try {
     const user = await requireRole("VIEWER");
-    const repositories = await prisma.repository.findMany({
+    const db = withOrgContext(prisma, user.organizationId);
+    const repositories = await db.repository.findMany({
       where: { organizationId: user.organizationId },
       orderBy: { createdAt: "asc" },
       include: {
