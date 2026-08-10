@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@patchbay/ui";
+import { apiFetch } from "@/lib/client-fetch";
 
 export function CreatePRButton({
   remediationPlanId,
@@ -18,7 +19,7 @@ export function CreatePRButton({
   function createPR() {
     setStatus(null);
     startTransition(async () => {
-      const response = await fetch(`/api/remediations/${remediationPlanId}/create-pr`, {
+      const response = await apiFetch(`/api/remediations/${remediationPlanId}/create-pr`, {
         method: "POST",
         headers: { "content-type": "application/json" },
       });

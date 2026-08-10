@@ -14,6 +14,7 @@ import { resolveFixtureDir } from "@patchbay/repo-analysis";
 import type { NextRequest } from "next/server";
 import { getCorrelationId, jsonError, jsonOk, writeAuditEvent } from "@/lib/api";
 import { requireRole } from "@/lib/auth";
+import { assertCsrfToken } from "@/lib/csrf";
 
 /**
  * POST /api/vendor-changes/[id]/plan
@@ -24,6 +25,7 @@ import { requireRole } from "@/lib/auth";
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const correlationId = getCorrelationId(request);
   try {
+    assertCsrfToken(request);
     const user = await requireRole("MEMBER");
     const { id } = await params;
 

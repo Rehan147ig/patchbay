@@ -37,6 +37,9 @@ function getRequest(url: string): NextRequest {
   return new Request(url) as NextRequest;
 }
 
+const CSRF_TOKEN = "test-csrf-token";
+const csrfHeaders = { Cookie: `pb_csrf=${CSRF_TOKEN}`, "x-csrf-token": CSRF_TOKEN };
+
 describe("org scoping across scoped routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -65,7 +68,7 @@ describe("org scoping across scoped routes", () => {
     const response = await createChange(
       new Request("http://localhost/api/vendor-changes", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...csrfHeaders },
         body: JSON.stringify({
           vendorSlug: "openai",
           sourceType: "MANUAL",
@@ -80,6 +83,25 @@ describe("org scoping across scoped routes", () => {
         data: expect.objectContaining({ organizationId: "org-acme" }),
       }),
     );
+  });
+
+  it("rejects mutations without a matching CSRF token", async () => {
+    const response = await createChange(
+      new Request("http://localhost/api/vendor-changes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: "pb_csrf=other-token" },
+        body: JSON.stringify({
+          vendorSlug: "openai",
+          sourceType: "MANUAL",
+          title: "test",
+          severity: "HIGH",
+        }),
+      }) as NextRequest,
+    );
+    expect(response.status).toBe(403);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("FORBIDDEN");
+    expect(prisma.vendorChangeEvent.create).not.toHaveBeenCalled();
   });
 
   it("returns 404 when fetching an event of another organization", async () => {
@@ -105,7 +127,9 @@ describe("org scoping across scoped routes", () => {
 
   it("refuses to enqueue analysis for an event of another organization", async () => {
     const response = await analyzeChange(
-      getRequest("http://localhost/api/vendor-changes/c-other/analyze"),
+      new Request("http://localhost/api/vendor-changes/c-other/analyze", {
+        headers: csrfHeaders,
+      }) as NextRequest,
       {
         params: Promise.resolve({ id: "c-other" }),
       },

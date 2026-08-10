@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@patchbay/ui";
+import { apiFetch } from "@/lib/client-fetch";
 
 /**
  * Runs a demo scenario through POST /api/demo/run, then navigates to the
@@ -16,7 +17,7 @@ export function DemoRunButton({ scenario, disabled }: { scenario: string; disabl
   function run() {
     setStatus(null);
     startTransition(async () => {
-      const response = await fetch("/api/demo/run", {
+      const response = await apiFetch("/api/demo/run", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ scenario }),

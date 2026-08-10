@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@patchbay/ui";
+import { apiFetch } from "@/lib/client-fetch";
 
 /**
  * Runs the remediation rule engine via the API and navigates to the first
@@ -22,7 +23,7 @@ export function GeneratePlanButton({
   function generate() {
     setStatus(null);
     startTransition(async () => {
-      const response = await fetch(`/api/vendor-changes/${changeEventId}/plan`, {
+      const response = await apiFetch(`/api/vendor-changes/${changeEventId}/plan`, {
         method: "POST",
         headers: { "content-type": "application/json" },
       });

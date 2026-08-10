@@ -2,10 +2,12 @@ import { AuditAction } from "@patchbay/audit";
 import type { NextRequest } from "next/server";
 import { getCorrelationId, jsonError, jsonOk, writeAuditEvent } from "@/lib/api";
 import { readSessionCookie, SESSION_COOKIE } from "@/lib/session";
+import { assertCsrfToken } from "@/lib/csrf";
 
 export async function POST(request: NextRequest) {
   const correlationId = getCorrelationId(request);
   try {
+    assertCsrfToken(request);
     const session = await readSessionCookie(request.cookies.get(SESSION_COOKIE)?.value);
     if (session) {
       const user = await import("@patchbay/db").then(({ prisma }) =>

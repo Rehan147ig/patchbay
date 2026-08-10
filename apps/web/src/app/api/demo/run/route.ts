@@ -6,6 +6,7 @@ import { demoRunSchema } from "@patchbay/domain";
 import type { NextRequest } from "next/server";
 import { getCorrelationId, jsonError, jsonOk, parseBody, writeAuditEvent } from "@/lib/api";
 import { requireRole } from "@/lib/auth";
+import { assertCsrfToken } from "@/lib/csrf";
 
 /**
  * OpenAI SDK v3 -> v4 change payload with a feature-adoption capability:
@@ -59,6 +60,7 @@ const openAiSdkV4Payload = {
 export async function POST(request: NextRequest) {
   const correlationId = getCorrelationId(request);
   try {
+    assertCsrfToken(request);
     const user = await requireRole("MEMBER");
     const input = await parseBody(request, demoRunSchema);
 

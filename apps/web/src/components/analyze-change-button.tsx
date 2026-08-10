@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@patchbay/ui";
+import { apiFetch } from "@/lib/client-fetch";
 
 /**
  * Enqueues change normalization + impact assessment via the API, then
@@ -22,7 +23,7 @@ export function AnalyzeChangeButton({
   function analyze() {
     setStatus(null);
     startTransition(async () => {
-      const response = await fetch(`/api/vendor-changes/${changeEventId}/analyze`, {
+      const response = await apiFetch(`/api/vendor-changes/${changeEventId}/analyze`, {
         method: "POST",
         headers: { "content-type": "application/json" },
       });

@@ -5,11 +5,13 @@ import type { NextRequest } from "next/server";
 import { getCorrelationId, jsonError, jsonOk, parseBody, writeAuditEvent } from "@/lib/api";
 import { env } from "@/lib/env";
 import { checkGlobalRateLimit, checkRateLimit } from "@/lib/rate-limit";
+import { assertCsrfToken } from "@/lib/csrf";
 import { createSessionCookie } from "@/lib/session";
 
 export async function POST(request: NextRequest) {
   const correlationId = getCorrelationId(request);
   try {
+    assertCsrfToken(request);
     // Password login is a local-development convenience. In production it
     // must not exist at all — respond 404 so the endpoint is indistinguishable
     // from a route that was never deployed.

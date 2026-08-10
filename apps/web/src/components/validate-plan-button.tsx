@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@patchbay/ui";
+import { apiFetch } from "@/lib/client-fetch";
 
 /**
  * Enqueues an allowlisted validation run for the plan, then refreshes the
@@ -22,7 +23,7 @@ export function ValidatePlanButton({
   function validate() {
     setStatus(null);
     startTransition(async () => {
-      const response = await fetch(`/api/remediations/${remediationPlanId}/validate`, {
+      const response = await apiFetch(`/api/remediations/${remediationPlanId}/validate`, {
         method: "POST",
         headers: { "content-type": "application/json" },
       });

@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { CSRF_COOKIE, createCsrfToken, csrfCookieOptions } from "./lib/csrf";
 import { buildSecurityHeaders } from "./lib/security-headers";
 import { isGitHubOAuthConfigured, NEXTAUTH_SESSION_COOKIES, SESSION_COOKIE } from "./lib/session";
 
@@ -55,7 +56,9 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.search = "";
-    return NextResponse.redirect(url, { headers: requestHeaders });
+    const redirect = NextResponse.redirect(url, { headers: requestHeaders });
+    setCsrfCookieIfMissing(request, redirect);
+    return redirect;
   }
 
   const response = NextResponse.next({ request: { headers: requestHeaders } });
@@ -63,7 +66,19 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   for (const [name, value] of Object.entries(securityHeaders)) {
     response.headers.set(name, value);
   }
+  setCsrfCookieIfMissing(request, response);
   return response;
+}
+
+/** Double-submit token: one stable cookie per browser, set when absent. */
+function setCsrfCookieIfMissing(request: NextRequest, response: NextResponse): void {
+  if (!request.cookies.get(CSRF_COOKIE)) {
+    response.cookies.set(
+      CSRF_COOKIE,
+      createCsrfToken(),
+      csrfCookieOptions(process.env.NODE_ENV === "production"),
+    );
+  }
 }
 
 export const config = {

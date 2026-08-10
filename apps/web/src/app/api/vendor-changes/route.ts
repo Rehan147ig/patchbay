@@ -4,6 +4,7 @@ import { notFound, vendorChangeCreateSchema } from "@patchbay/domain";
 import type { NextRequest } from "next/server";
 import { getCorrelationId, jsonError, jsonOk, parseBody, writeAuditEvent } from "@/lib/api";
 import { requireRole } from "@/lib/auth";
+import { assertCsrfToken } from "@/lib/csrf";
 
 export async function GET(request: NextRequest) {
   const correlationId = getCorrelationId(request);
@@ -25,6 +26,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const correlationId = getCorrelationId(request);
   try {
+    assertCsrfToken(request);
     const user = await requireRole("MEMBER");
     const input = await parseBody(request, vendorChangeCreateSchema);
 

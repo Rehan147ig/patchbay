@@ -3,6 +3,7 @@
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Badge, Button } from "@patchbay/ui";
+import { apiFetch } from "@/lib/client-fetch";
 
 export function PolicyToggle({ policyId, enabled }: { policyId: string; enabled: boolean }) {
   const router = useRouter();
@@ -10,7 +11,7 @@ export function PolicyToggle({ policyId, enabled }: { policyId: string; enabled:
 
   function toggle() {
     startTransition(async () => {
-      const response = await fetch(`/api/policies/${policyId}`, {
+      const response = await apiFetch(`/api/policies/${policyId}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ enabled: !enabled }),

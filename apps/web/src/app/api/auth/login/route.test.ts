@@ -21,7 +21,13 @@ describe("login route in production", () => {
     const { POST } = await import("./route");
 
     const request = {
-      headers: { get: () => null },
+      headers: {
+        get: (name: string) => {
+          if (name === "x-csrf-token") return "test-csrf";
+          if (name === "cookie") return "pb_csrf=test-csrf";
+          return null;
+        },
+      },
       json: async () => ({ email: "demo@patchbay.dev", password: "whatever" }),
     };
     const response = await POST(request as never);

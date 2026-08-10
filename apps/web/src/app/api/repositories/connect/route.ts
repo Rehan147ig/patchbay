@@ -5,6 +5,7 @@ import { ActorType, RepositoryProvider, validationFailed } from "@patchbay/domai
 import { createGitHubAppProviderFromEnv } from "@patchbay/git-provider";
 import { getCorrelationId, jsonError, jsonOk, writeAuditEvent } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
+import { assertCsrfToken } from "@/lib/csrf";
 
 /**
  * POST /api/repositories/connect
@@ -13,6 +14,7 @@ import { requireUser } from "@/lib/auth";
 export async function POST(request: NextRequest) {
   const correlationId = getCorrelationId(request);
   try {
+    assertCsrfToken(request);
     const user = await requireUser();
     const body = (await request.json().catch(() => ({}))) as {
       installationId?: number;

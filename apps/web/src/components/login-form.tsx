@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@patchbay/ui";
+import { apiFetch } from "@/lib/client-fetch";
 
 export function LoginForm() {
   const searchParams = useSearchParams();
@@ -16,7 +17,7 @@ export function LoginForm() {
     const password = String(formData.get("password") ?? "");
     setError(null);
     startTransition(async () => {
-      const response = await fetch("/api/auth/login", {
+      const response = await apiFetch("/api/auth/login", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ email, password }),

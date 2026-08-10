@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@patchbay/ui";
+import { apiFetch } from "@/lib/client-fetch";
 
 export function ApprovePlanButton({
   remediationPlanId,
@@ -18,7 +19,7 @@ export function ApprovePlanButton({
   function sendDecision(decision: "APPROVED" | "REJECTED") {
     setStatus(null);
     startTransition(async () => {
-      const response = await fetch(`/api/remediations/${remediationPlanId}/approve`, {
+      const response = await apiFetch(`/api/remediations/${remediationPlanId}/approve`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ decision }),

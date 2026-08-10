@@ -20,6 +20,9 @@ import { requireRole } from "@/lib/auth";
 
 const adminUser = { id: "u-admin", organizationId: "org-acme" };
 
+const CSRF_TOKEN = "test-csrf-token";
+const csrfHeaders = { Cookie: `pb_csrf=${CSRF_TOKEN}`, "x-csrf-token": CSRF_TOKEN };
+
 const mockVendor = {
   id: "v-openai",
   slug: "openai",
@@ -38,7 +41,9 @@ describe("POST /api/vendors/[slug]/agent-key", () => {
 
   it("issues an agent key to an ADMIN, storing only its hash", async () => {
     const response = await POST(
-      new Request("http://localhost/api/vendors/openai/agent-key") as NextRequest,
+      new Request("http://localhost/api/vendors/openai/agent-key", {
+        headers: csrfHeaders,
+      }) as NextRequest,
       {
         params: Promise.resolve({ slug: "openai" }),
       },
@@ -64,7 +69,9 @@ describe("POST /api/vendors/[slug]/agent-key", () => {
       agentKeyHash: existingHash,
     } as never);
     const response = await POST(
-      new Request("http://localhost/api/vendors/openai/agent-key") as NextRequest,
+      new Request("http://localhost/api/vendors/openai/agent-key", {
+        headers: csrfHeaders,
+      }) as NextRequest,
       {
         params: Promise.resolve({ slug: "openai" }),
       },
@@ -83,7 +90,9 @@ describe("POST /api/vendors/[slug]/agent-key", () => {
   it("rejects non-admins", async () => {
     vi.mocked(requireRole).mockRejectedValueOnce(forbidden("Requires admin role"));
     const response = await POST(
-      new Request("http://localhost/api/vendors/openai/agent-key") as NextRequest,
+      new Request("http://localhost/api/vendors/openai/agent-key", {
+        headers: csrfHeaders,
+      }) as NextRequest,
       {
         params: Promise.resolve({ slug: "openai" }),
       },
@@ -98,7 +107,9 @@ describe("POST /api/vendors/[slug]/agent-key", () => {
       organizationId: "org-other",
     } as never);
     const response = await POST(
-      new Request("http://localhost/api/vendors/openai/agent-key") as NextRequest,
+      new Request("http://localhost/api/vendors/openai/agent-key", {
+        headers: csrfHeaders,
+      }) as NextRequest,
       {
         params: Promise.resolve({ slug: "openai" }),
       },
@@ -110,7 +121,9 @@ describe("POST /api/vendors/[slug]/agent-key", () => {
   it("returns 404 for unknown vendors", async () => {
     vi.mocked(prisma.vendor.findUnique).mockResolvedValueOnce(null);
     const response = await POST(
-      new Request("http://localhost/api/vendors/openai/agent-key") as NextRequest,
+      new Request("http://localhost/api/vendors/openai/agent-key", {
+        headers: csrfHeaders,
+      }) as NextRequest,
       {
         params: Promise.resolve({ slug: "openai" }),
       },

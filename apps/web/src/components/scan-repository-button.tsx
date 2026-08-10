@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@patchbay/ui";
+import { apiFetch } from "@/lib/client-fetch";
 
 /**
  * Enqueues a repository scan via the API, then refreshes the page so the
@@ -22,7 +23,7 @@ export function ScanRepositoryButton({
   function scan() {
     setStatus(null);
     startTransition(async () => {
-      const response = await fetch(`/api/repositories/${repositoryId}/scan`, {
+      const response = await apiFetch(`/api/repositories/${repositoryId}/scan`, {
         method: "POST",
         headers: { "content-type": "application/json" },
       });
