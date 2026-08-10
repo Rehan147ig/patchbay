@@ -13,6 +13,7 @@ export const JobType = {
   ANALYZE_CHANGE: "analyze-change",
   RUN_VALIDATION: "run-validation",
   CREATE_PR: "create-pr",
+  POLL_NPM_REGISTRY: "poll-npm-registry",
 } as const;
 export type JobType = (typeof JobType)[keyof typeof JobType];
 

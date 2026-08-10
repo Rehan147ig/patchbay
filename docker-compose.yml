@@ -7,8 +7,8 @@ services:
       POSTGRES_PASSWORD: patchbay_dev_only
       POSTGRES_DB: patchbay
     ports:
-      # 5433 on the host to avoid clashes with other local stacks (5432 is commonly taken).
-      - "5433:5432"
+      # 5434 on the host to avoid clashes with other local stacks (5432/5433 are taken).
+      - "5434:5432"
     volumes:
       - patchbay_pgdata:/var/lib/postgresql/data
     healthcheck:

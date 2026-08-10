@@ -97,6 +97,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         prisma.remediationPlan.create({
           data: {
             id: planId,
+            organizationId: user.organizationId,
             impactAssessmentId: assessment.id,
             status: PlanStatus.DRAFT,
             strategy: result.strategy,
@@ -109,6 +110,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           prisma.patchArtifact.create({
             data: {
               remediationPlanId: planId,
+              organizationId: user.organizationId,
               filePath: patch.filePath,
               unifiedDiff: patch.unifiedDiff,
               originalContent: patch.original,

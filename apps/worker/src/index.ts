@@ -15,6 +15,7 @@ import { logger } from "@patchbay/domain";
 import { JobType, QUEUE_NAME, connection, queue } from "@patchbay/queue";
 import { processAnalyzeChange } from "./jobs/analyze-change";
 import { processCreatePR } from "./jobs/create-pr";
+import { processPollNpmRegistry } from "./jobs/poll-npm-registry";
 import { processRunValidation } from "./jobs/run-validation";
 import { processScanRepository } from "./jobs/scan-repository";
 
@@ -33,6 +34,8 @@ async function main(): Promise<void> {
           return processRunValidation(job);
         case JobType.CREATE_PR:
           return processCreatePR(job);
+        case JobType.POLL_NPM_REGISTRY:
+          return processPollNpmRegistry(job);
         default:
           throw new Error(`unknown job type: ${job.name}`);
       }

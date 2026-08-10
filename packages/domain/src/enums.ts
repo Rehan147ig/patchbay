@@ -192,6 +192,7 @@ export const ALL_ENUMS = {
   PullRequestStatus,
   ApprovalDecision,
   ActorType,
+  PolicyDecision,
 } as const;
 
 /** Confidence/impact scoring thresholds (shared by engines, policy, and UI). */

@@ -37,6 +37,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     const approval = await prisma.approval.create({
       data: {
+        organizationId: user.organizationId,
         remediationPlanId: plan.id,
         userId: user.id,
         decision: parsed.data.decision,

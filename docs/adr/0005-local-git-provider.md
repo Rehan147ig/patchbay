@@ -12,10 +12,13 @@ The MVP must demo the full PR workflow offline; real GitHub requires credentials
   `applyPatch`, `createDraftPullRequest`.
 - `LocalGitProvider` (default): copies fixture repos into a temp workspace, applies the patch,
   creates a branch + commit, and returns a stored mock `PullRequest` with a mock URL.
-- `GitHubProvider`: scaffolded behind env vars (`GITHUB_APP_ID`, private key, installation id),
-  GitHub-App style, tokens server-side only; never required for the demo.
+- `GitHubProvider`: PAT-based single-repository mode (legacy fallback).
+- `GitHubAppProvider`: real GitHub App mode behind env vars (`GITHUB_APP_ID`, base64 PEM key,
+  install flow, webhook secret) — RS256 App JWT, installation access tokens, draft PRs,
+  HMAC-verified webhook receiver, org-bound installations. Never required for the demo.
 
 ## Consequences
 
 - Full offline demo; acceptance test "local provider creates draft PR" runs in CI without network.
-- The interface makes the real provider a drop-in later.
+- The real App provider is a drop-in behind the same interface; the local provider remains the
+  default until GitHub credentials are configured.

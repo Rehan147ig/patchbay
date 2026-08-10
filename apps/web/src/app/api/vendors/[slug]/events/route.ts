@@ -7,6 +7,9 @@ import { JobType, queue } from "@patchbay/queue";
 import type { NextRequest } from "next/server";
 import { getCorrelationId, jsonError, jsonOk, parseBody, writeAuditEvent } from "@/lib/api";
 import { verifyAgentKey } from "@/lib/agent-keys";
+import { checkRateLimit } from "@/lib/rate-limit";
+
+const MAX_AGENT_BODY_BYTES = 256 * 1024;
 
 /**
  * POST /api/vendors/:slug/events
@@ -23,6 +26,10 @@ export async function POST(
   const correlationId = getCorrelationId(request);
   try {
     const { slug } = await params;
+    const contentLength = Number(request.headers.get("content-length") ?? "0");
+    if (contentLength > MAX_AGENT_BODY_BYTES) {
+      throw validationFailed("Agent payload exceeds the 256 KB limit");
+    }
     const authorization = request.headers.get("authorization");
     const providedKey = authorization?.startsWith("Bearer ") ? authorization.slice(7) : null;
     if (!providedKey) throw unauthorized("Agent API key required (Authorization: Bearer <key>)");
@@ -34,6 +41,10 @@ export async function POST(
     }
     if (!verifyAgentKey(providedKey, vendor.agentKeyHash)) {
       throw unauthorized("Invalid agent API key");
+    }
+    const rate = checkRateLimit(`agent:${vendor.organizationId}:${slug}`);
+    if (!rate.allowed) {
+      throw unauthorized("Agent rate limit exceeded");
     }
 
     const input = await parseBody(request, agentIngestSchema);

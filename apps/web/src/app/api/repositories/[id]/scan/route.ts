@@ -27,6 +27,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     const scan = await prisma.repositoryScan.create({
       data: {
+        organizationId: user.organizationId,
         repositoryId: repository.id,
         commitSha: "pending",
         status: "QUEUED",

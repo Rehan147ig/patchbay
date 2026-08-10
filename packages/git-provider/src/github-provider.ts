@@ -5,6 +5,7 @@ import {
   type GitProvider,
   type PullRequestResult,
 } from "./local-provider";
+import { createGitHubAppProviderFromEnv, isGitHubAppConfigured } from "./github-app-provider";
 
 export interface GitHubConfig {
   /** Personal access token with `repo` scope. */
@@ -188,7 +189,28 @@ export class GitHubProvider implements GitProvider {
  * are set, Patchbay opens real draft PRs; otherwise it falls back to the local
  * workspace mock so the demo keeps working offline.
  */
-export function createGitProviderFromEnv(env: NodeJS.ProcessEnv = process.env): GitProvider {
+type GitHubAppTarget = {
+  installationId: number;
+  repositoryFullName: string;
+  baseBranch?: string;
+};
+
+export function createGitProviderFromEnv(env?: NodeJS.ProcessEnv): GitProvider;
+export function createGitProviderFromEnv(
+  target: GitHubAppTarget,
+  env?: NodeJS.ProcessEnv,
+): GitProvider;
+export function createGitProviderFromEnv(
+  targetOrEnv: GitHubAppTarget | NodeJS.ProcessEnv = process.env,
+  providedEnv?: NodeJS.ProcessEnv,
+): GitProvider {
+  const target = "repositoryFullName" in targetOrEnv ? (targetOrEnv as GitHubAppTarget) : undefined;
+  const env: NodeJS.ProcessEnv = target
+    ? (providedEnv ?? process.env)
+    : (targetOrEnv as NodeJS.ProcessEnv);
+  if (target && isGitHubAppConfigured(env)) {
+    return createGitHubAppProviderFromEnv(target, env);
+  }
   const token = env.GITHUB_TOKEN;
   const repository = env.GITHUB_REPOSITORY;
   if (token && repository) {

@@ -38,6 +38,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     const validationRun = await prisma.validationRun.create({
       data: {
+        organizationId: user.organizationId,
         remediationPlanId: plan.id,
         status: ValidationStatus.QUEUED,
         commands: VALIDATION_COMMANDS as never,

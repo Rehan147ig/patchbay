@@ -475,6 +475,7 @@ async function seedScanAndUsages(
     },
     create: {
       id: `s-${repositoryId}`,
+      organizationId: ORG_ID,
       repositoryId,
       commitSha: "demo-commit",
       status: "COMPLETED",
@@ -495,6 +496,7 @@ async function seedScanAndUsages(
     await prisma.integrationUsage.upsert({
       where: { id: `u-${repositoryId}-${u.symbol}-${u.usageType}-${u.line}` },
       update: {
+        organizationId: ORG_ID,
         filePath: u.filePath,
         symbol: u.symbol,
         usageType: u.usageType,
@@ -507,6 +509,7 @@ async function seedScanAndUsages(
       },
       create: {
         id: `u-${repositoryId}-${u.symbol}-${u.usageType}-${u.line}`,
+        organizationId: ORG_ID,
         repositoryId,
         scanId: scan.id,
         vendorId,

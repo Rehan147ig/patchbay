@@ -21,7 +21,7 @@ README updated. Status legend: [x] done, [ ] pending.
 - [x] `packages/db`: client singleton, generate/migrate/seed/reset scripts
 - [x] Dashboard shell: layout/nav, overview, repositories, changes, remediations, policies,
       audit, settings, login; typed GET API + health; policy toggle mutation
-- [ ] (`demo` route ships with Phase 3's demo engine)
+- [x] (`demo` route ships with Phase 3's demo engine)
 
 ## Phase 2 - Repository analysis [x]
 
@@ -87,7 +87,24 @@ README updated. Status legend: [x] done, [ ] pending.
 - [x] Cross-org scoping unit tests (`apps/web/src/app/api/vendor-changes/scoping.test.ts`),
       agent key + ingest + key-issuance test suites
 - [x] Live verification: agent ingest → TRIAGED, per-org demo event, org-scoped lists; full gates
-      green (format/lint/typecheck/test 218, e2e)
+      green (format/lint/typecheck/test 252, e2e)
+
+## Phase 9 - GitHub App integration and production hardening [x]
+
+- [x] `GitHubAppProvider`: RS256 App JWT (node:crypto), installation access tokens, draft PRs,
+      live repository metadata; `GitHubProvider` PAT mode kept as legacy fallback
+- [x] Install flow: `/settings/github` → signed expiring state cookie → `/api/github/callback`
+      (API-validated, org-bound, single-binding); webhooks can enrich/suspend but never bind
+- [x] Webhook receiver `/api/webhooks/github`: HMAC `x-hub-signature-256`, delivery dedup
+      (`WebhookDelivery` unique on `x-github-delivery`, migration
+      `20260810100000_webhook_delivery_deduplication`), monotonic PR status sync + audit
+- [x] Tenant schema migration `20260809091648_tenant_scoping_github_app`: direct
+      `organizationId` on operational tables with indexes + seed backfill
+- [x] Worker: `create-pr` resolves repository installation per plan, tenant-checked before acting
+- [x] Auth: NextAuth GitHub OAuth (per-signup org via custom adapter) when configured; dev cookie
+      fails closed in production (no default secret, no fallback password, login rate-limited)
+- [x] Agent ingest hardening: oversized payload rejection + rate limiting
+- [x] Verified: 260 tests, typecheck, lint, format, production build, browser E2E
 
 ## Definition of Done (overall)
 

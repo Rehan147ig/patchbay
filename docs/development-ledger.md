@@ -1,7 +1,7 @@
 # Patchbay — Development Ledger
 
 Status as of this commit. Everything under **DONE** is implemented, tested, and
-passing (`pnpm typecheck`, `pnpm lint`, `pnpm test` = 245 tests). Everything
+passing (`pnpm typecheck`, `pnpm lint`, `pnpm test` = 260 tests). Everything
 under **PENDING** is scoped but requires money, credentials, or infra — do them
 after funding.
 
@@ -47,6 +47,27 @@ after funding.
 - Tests: `connector-catalog.test.ts` + `connector-pack.test.ts` (34 connector
   tests total).
 
+### GitHub App integration (real PRs, webhooks, OAuth)
+
+- **`GitHubAppProvider`** (`packages/git-provider/src/github-app-provider.ts`) — App RS256 JWT
+  (`createAppJwt`, node:crypto, no Octokit dep), installation access tokens, draft PR creation
+  via delegated PAT provider, live repository metadata fetch (connect flow). 8 unit tests.
+- **Install binding** — `/api/github/install` → signed expiring state cookie →
+  `/api/github/callback` (state + API-validated, org-bound, single-binding per installation).
+  Webhooks can enrich/suspend but never create bindings.
+- **Webhook receiver** (`/api/webhooks/github`) — HMAC `x-hub-signature-256` verification,
+  delivery dedup via unique `WebhookDelivery` (migration
+  `20260810100000_webhook_delivery_deduplication`), installation lifecycle sync, monotonic PR
+  status (`DRAFT → OPEN → MERGED/CLOSED`, no regressions), `PR_STATUS_SYNCED` audit events.
+- **Worker wiring** — `create-pr.ts` resolves the repository installation and builds the App
+  provider per plan; tenant check (event + repository org) verified before acting.
+- **NextAuth OAuth sign-in** — `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` enable "Continue with
+  GitHub"; custom Prisma adapter creates a dedicated org per first-time signup; dev cookie
+  remains the default and fails closed in production.
+- **Tenant scoping migration** `20260809091648_tenant_scoping_github_app` — direct
+  `organizationId` columns on operational tables (Repository, ImpactAssessment, RemediationPlan,
+  PullRequest, ValidationRun, …) with indexes and seed backfill.
+
 ### CI / supply chain
 
 - `ci.yml` actions pinned to verified commit SHAs.
@@ -56,9 +77,9 @@ after funding.
 
 ### Critical path (the product is not sellable without these)
 
-- [ ] **Real GitHub App** — install flow, webhooks (push/PR/release), check
-      runs, review comments, real draft PRs, commit signing.
-      (`packages/git-provider/src/github-provider.ts` is a scaffold.)
+- [ ] **GitHub App depth** — check runs, review comments, commit signing, PR merge (policy-gated),
+      token rotation/revocation UI.
+      (Install flow, webhooks, draft PRs, and OAuth sign-in are DONE — see above.)
 - [ ] **Sandbox hardening** — container/microVM isolation per validation run,
       network egress control, resource limits. Current code explicitly says
       "NOT a hardened multi-tenant sandbox".
@@ -108,8 +129,8 @@ after funding.
 
 ## Suggested order after funding
 
-1. Real GitHub App + real auth → pilot with 1–2 orgs.
-2. Sandbox hardening → unblocks enterprise + auto-merge.
+1. Sandbox hardening → unblocks enterprise + auto-merge.
+2. SSO (SAML/OIDC/SCIM) + team invites on top of GitHub OAuth.
 3. AI-generated patches + feedback loop → the differentiator.
 4. Slack + SARIF + webhooks → cheap, high-perception integrations.
 5. Connector marketplace + AI-generated connectors → the moat.

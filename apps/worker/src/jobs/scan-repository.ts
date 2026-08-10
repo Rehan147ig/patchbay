@@ -107,6 +107,7 @@ export async function processScanRepository(job: Job): Promise<ScanRepositoryRes
       const nextUsages = analysis.usages
         .filter((usage) => vendorBySlug.has(usage.packageName))
         .map((usage) => ({
+          organizationId: repository.organizationId,
           repositoryId,
           scanId,
           vendorId: vendorBySlug.get(usage.packageName)!,

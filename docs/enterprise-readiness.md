@@ -36,14 +36,14 @@ A rigorous architectural review reveals the following key gaps between the local
 
 ### 2. Mock Git Provider & Real GitHub App
 
-- **Current State**: `LocalGitProvider` ([`packages/git-provider/src/index.ts`](file:///C:/Users/SHAIK%20MOHAMMAD%20REHAN/patchbay/packages/git-provider/src/index.ts)) makes a local temp folder copy and returns `file:///...` URLs.
-- **Fix Required**: Implement a real `GitHubProvider` with RS256 JWT App authentication, installation access tokens, HMAC SHA-256 webhook verification, and PR creation over GitHub REST API.
+- **Current State**: `LocalGitProvider` ([`packages/git-provider/src/index.ts`](file:///C:/Users/SHAIK%20MOHAMMAD%20REHAN/patchbay/packages/git-provider/src/index.ts)) makes a local temp folder copy and returns `file:///...` URLs; it remains the offline default.
+- **Implemented**: `GitHubAppProvider` with RS256 App JWT signing (`createAppJwt`, node:crypto), installation access tokens, HMAC SHA-256 webhook verification (`x-hub-signature-256`), delivery dedup by `x-github-delivery`, and draft PR creation over the GitHub REST API. Installations are org-bound only through the authenticated callback (signed state cookie + API validation).
+- **Remaining**: token rotation/revocation UI, check runs, review comments, commit signing, and a hardened execution plane before auto-merge.
 
 ### 3. Multi-Tenant Database Schema Prerequisites (RLS)
 
-- **Current State**: `RemediationPlan`, `ValidationRun`, `PullRequest`, `PatchArtifact`, and `Approval` tables do **not** have a direct `organizationId` foreign key. Organization context is reached transitively via `ImpactAssessment -> Repository -> Organization`.
-- **Database Flaw**: PostgreSQL Row-Level Security (RLS) policies cannot performantly enforce tenant isolation without a direct `organizationId` column on every operational table.
-- **Fix Required**: Migration to add explicit `organizationId` to all operational tables before enabling PostgreSQL RLS policies.
+- **Current State**: Direct `organizationId` columns with indexes now exist on all operational tables (Repository, RepositoryScan, IntegrationUsage, ImpactAssessment, ImpactAssessmentUsage, RemediationPlan, PatchArtifact, ValidationRun, PullRequest, Policy, Approval, GitHubInstallation, VendorChangeEvent; WebhookDelivery carries an optional org) via migration `20260809091648_tenant_scoping_github_app`.
+- **Database Flaw**: Row-Level Security (RLS) policies are still **not enabled** — the schema prerequisite is in place, but RLS enforcement plus transaction-scoped `app.current_organization_id` remains production work.
 
 ### 4. Logger Architecture
 
@@ -51,8 +51,7 @@ A rigorous architectural review reveals the following key gaps between the local
 
 ### 5. PR Creation Idempotency
 
-- **Current State**: Multiple API calls or queue retries can potentially attempt duplicate PR creation if un-gated.
-- **Fix Required**: Add database unique constraints (`remediationPlanId` on `PullRequest`) and job idempotency keys to ensure exactly-once PR creation.
+- **Current State**: Unique constraint `remediationPlanId` on `PullRequest` plus worker-level idempotency (returns the existing PR on retry) ensure exactly-once PR creation.
 
 ### 6. AI Strategy Safety
 
@@ -81,11 +80,12 @@ flowchart TD
 
 ### Phase 1: Private Beta Safety (Target: Initial Users)
 
-- [ ] Implement production `GitHubProvider` with RS256 App private key signing, installation tokens, and draft PR endpoints.
-- [ ] Implement GitHub webhook listener with HMAC SHA-256 signature verification (`x-hub-signature-256`).
-- [ ] Add unique constraint `remediationPlanId` on `PullRequest` table in Prisma schema.
-- [ ] Add structured audit logging for `POLICY_BLOCKED` and `PR_FAILED`.
-- [ ] Add Playwright / Vitest E2E tests mocking GitHub API responses.
+- [x] Implement production `GitHubProvider` with RS256 App private key signing, installation tokens, and draft PR endpoints (`GitHubAppProvider`, 8 unit tests).
+- [x] Implement GitHub webhook listener with HMAC SHA-256 signature verification (`x-hub-signature-256`) and delivery deduplication.
+- [x] Add unique constraint `remediationPlanId` on `PullRequest` table in Prisma schema.
+- [x] Add structured audit logging for `POLICY_BLOCKED` and `PR_FAILED`.
+- [x] Add Playwright / Vitest E2E tests mocking GitHub API responses.
+- [ ] Install token rotation/revocation UI; GitHub App check runs + review comments.
 
 ### Phase 2: Separate Ephemeral Execution Plane
 

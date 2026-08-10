@@ -6,6 +6,10 @@ import { LogoutButton } from "@/components/logout-button";
 import { getSessionUser } from "@/lib/auth";
 import "./globals.css";
 
+// Every application page resolves an authenticated tenant at request time.
+// Prevent Next.js from executing that session lookup while building static pages.
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: { default: "Patchbay", template: "%s · Patchbay" },
   description: "Governed API-change remediation platform",

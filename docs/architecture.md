@@ -102,8 +102,17 @@ never patched without deterministic validation.
 - `GitProvider` interface: listRepositories, getRepositorySnapshot, createBranch, applyPatch,
   createDraftPullRequest.
 - `LocalGitProvider`: copies fixture repos to a temp workspace, applies patches, creates a mock
-  draft PR object + URL. Fully offline.
-- `GitHubProvider` scaffold behind env vars; GitHub App-style; tokens server-side only.
+  draft PR object + URL. Fully offline; the default for local development.
+- `GitHubProvider`: PAT-based single-repository mode (legacy fallback; superseded by the App).
+- `GitHubAppProvider`: App RS256 JWT (`createAppJwt`, node:crypto, no Octokit dep) exchanged for
+  short-lived installation access tokens; delegates branch/patch/PR to `GitHubProvider` with the
+  installation token. Also fetches live repository metadata for the connect-repository flow.
+  Installations are bound to an organization only via the authenticated `/api/github/callback`
+  (signed, expiring state cookie + API re-validation); `POST /api/webhooks/github` verifies
+  `x-hub-signature-256`, deduplicates deliveries by `x-github-delivery`, and enriches/suspends
+  existing installation rows — it never creates tenant bindings.
+- PR status sync is monotonic: `DRAFT → OPEN → MERGED/CLOSED`, no regressions (see
+  `handlePullRequest` in the webhook route).
 
 ### 4.6 ai-provider
 
@@ -148,8 +157,13 @@ never patched without deterministic validation.
 - App Router; pages are server components querying Prisma; mutation via route handlers.
 - Typed API: Zod on every body; role checks; predictable error JSON
   `{ error: { code, message }, correlationId }`; correlation id propagated to logs and audit.
-- Dev auth: signed HttpOnly cookie (HMAC) for a seeded demo user; `AuthProvider` interface
-  documented for Clerk/Auth.js/SSO later.
+- Auth: when `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` are configured, NextAuth (Auth.js v4)
+  GitHub OAuth drives sessions (custom Prisma adapter creates a dedicated org per first-time
+  signup); otherwise the dev session cookie (HMAC-signed, fail-closed — no default secret, no
+  fallback password, disabled in production) is used. Both resolve to the same
+  `{ id, organizationId, role }` caller shape used by `requireRole`.
+- GitHub install flow: `/settings/github` → `/api/github/install` (admin only) → signed state
+  cookie → GitHub App install → `/api/github/callback` (state verified, API-validated, org-bound).
 - No dead navigation: routes render real data or honest empty states.
 
 ## 6. Queueing
@@ -168,4 +182,6 @@ never patched without deterministic validation.
 
 See [docs/threat-model.md](docs/threat-model.md). Highlights: command allowlist, draft-only PRs,
 approval gates, redaction, no tokens in the browser, explicit "local sandbox is not hardened"
-notice.
+notice. GitHub surface: HMAC-verified webhooks with delivery dedup, signed install-state cookie,
+installations validated against the API before org binding, short-lived installation tokens,
+monotonic PR status, and dev auth that fails closed in production.

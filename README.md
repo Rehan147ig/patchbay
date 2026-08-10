@@ -6,7 +6,9 @@ pull request for known, bounded patterns, runs verification, and records an audi
 trail.
 
 This repository contains a local-development, production-shaped MVP. It runs fully offline with a
-deterministic mock AI provider and a local (mock) git provider - no API keys required.
+deterministic mock AI provider and a local (mock) git provider - no API keys required. Real GitHub
+integration (App installations, draft PRs, webhooks, OAuth sign-in) is implemented and activates
+when the corresponding environment variables are set.
 
 ## Product scope
 
@@ -25,7 +27,8 @@ The MVP supports:
 - Deterministic AI-assisted plan drafting through an abstraction (mock by default;
   OpenAI-compatible provider optional)
 - Allowlisted validation command execution with timeouts
-- Draft pull-request creation via a local mock git provider (real GitHub scaffolding behind env vars)
+- Draft pull-request creation via a local mock git provider by default; real draft PRs through a
+  GitHub App (JWT + installation access tokens, HMAC-verified webhooks, per-org install binding)
 - JSON policy engine with approval gates and confidence thresholds
 - Full audit trail
 
@@ -53,7 +56,7 @@ packages/repo-analysis    TypeScript AST indexing → IntegrationUsage inventory
 packages/remediation-engine  deterministic migration rules → patches + diffs
 packages/policy-engine    deterministic policy decisions (allow/approve/deny)
 packages/sandbox-runner   allowlisted command execution with timeouts
-packages/git-provider     GitProvider interface; LocalGitProvider + GitHubProvider
+packages/git-provider     GitProvider interface; LocalGitProvider + GitHubProvider + GitHubAppProvider
 packages/ai-provider      AiProvider interface; MockAiProvider + OpenAI-compatible
 fixtures/repositories     sample legacy repos (openai-node-legacy, stripe-node-legacy, …)
 ```
@@ -123,16 +126,21 @@ start Docker Desktop first; `docker compose ps` should show both services health
 
 See `.env.example` for the complete list with comments. Essentials:
 
-| Variable             | Purpose                                                     | Local default            |
-| -------------------- | ----------------------------------------------------------- | ------------------------ |
-| `DATABASE_URL`       | PostgreSQL                                                  | matches docker-compose   |
-| `REDIS_URL`          | Redis                                                       | `redis://localhost:6380` |
-| `DEV_AUTH_SECRET`    | signs the dev session cookie — **required** (no default)    | generate one             |
-| `DEMO_USER_EMAIL`    | seeded demo admin identity                                  | `demo@patchbay.dev`      |
-| `DEMO_USER_PASSWORD` | seeded demo password — **required** for login (no fallback) | set one                  |
-| `AI_PROVIDER`        | `mock` (default), `openai`, or `openai-compatible`          | `mock`                   |
-| `OPENAI_API_KEY`     | required when `AI_PROVIDER` is not `mock`                   | empty                    |
-| `GITHUB_APP_*`       | optional real GitHub integration                            | empty = local provider   |
+| Variable                                  | Purpose                                                     | Local default            |
+| ----------------------------------------- | ----------------------------------------------------------- | ------------------------ |
+| `DATABASE_URL`                            | PostgreSQL                                                  | matches docker-compose   |
+| `REDIS_URL`                               | Redis                                                       | `redis://localhost:6380` |
+| `DEV_AUTH_SECRET`                         | signs the dev session cookie — **required** (no default)    | generate one             |
+| `DEMO_USER_EMAIL`                         | seeded demo admin identity                                  | `demo@patchbay.dev`      |
+| `DEMO_USER_PASSWORD`                      | seeded demo password — **required** for login (no fallback) | set one                  |
+| `AI_PROVIDER`                             | `mock` (default), `openai`, or `openai-compatible`          | `mock`                   |
+| `OPENAI_API_KEY`                          | required when `AI_PROVIDER` is not `mock`                   | empty                    |
+| `GITHUB_APP_ID`                           | GitHub App ID — enables App auth + installation tokens      | empty = local provider   |
+| `GITHUB_APP_PRIVATE_KEY`                  | GitHub App PEM key (base64) — signs App JWTs                | empty = local provider   |
+| `GITHUB_APP_WEBHOOK_SECRET`               | GitHub App webhook HMAC secret                              | empty = webhooks 401     |
+| `GITHUB_APP_SLUG`                         | GitHub App slug (for the install redirect URL)              | empty                    |
+| `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` | GitHub OAuth app — enables "Continue with GitHub"           | empty = dev cookie       |
+| `GITHUB_PAT`                              | legacy single-repo PAT mode (superseded by the App)         | empty                    |
 
 ## Demo
 
@@ -152,6 +160,25 @@ Sign in at `http://localhost:3000/login` (one-click demo user), then open `/demo
 Full walkthrough with expected outputs: [docs/demo-script.md](docs/demo-script.md).
 Reset demo state: `pnpm db:reset` (or the "Reset demo data" action on `/demo`).
 
+## GitHub integration
+
+- **GitHub App**: install the App at `/settings/github` (admin only). The callback verifies a
+  signed, expiring install-state cookie and validates the installation against the GitHub API
+  before binding it to your organization; a webhook can never create a binding on its own.
+  `POST /api/webhooks/github` verifies `x-hub-signature-256`, deduplicates deliveries by
+  `x-github-delivery` (unique `WebhookDelivery` row), and syncs PR status monotonically
+  (`DRAFT → OPEN → MERGED/CLOSED`), never regressing closed/merged PRs.
+- **Repositories**: "Connect repository" (`POST /api/repositories/connect`) resolves the target
+  through an installation access token and stores real GitHub metadata (id, default branch,
+  visibility).
+- **Draft PRs**: the worker mints a short-lived App JWT, exchanges it for an installation token,
+  and opens a draft PR on the repository's default branch. PR creation is idempotent
+  (`PullRequest.remediationPlanId` unique).
+- **OAuth sign-in**: with `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` set, "Continue with GitHub"
+  appears on `/login`; first-time signups get a dedicated organization. Without them the dev
+  demo cookie is used — and dev auth is disabled when `NODE_ENV=production` unless OAuth is
+  configured.
+
 ## Testing
 
 - `pnpm test` - unit/integration tests (Vitest). Covers analyzer fixtures, rule engine diffs,
@@ -163,8 +190,11 @@ Reset demo state: `pnpm db:reset` (or the "Reset demo data" action on `/demo`).
 - The bundled sandbox runner is a local development tool, **not** a hardened multi-tenant
   sandbox. It runs allowlisted commands with timeouts and output caps, but does not provide
   kernel-level isolation.
-- The dev auth (seeded demo user + signed cookie) is for local development only.
-- The mock git provider writes into temporary local workspaces; nothing is pushed anywhere.
+- The dev auth (seeded demo user + signed cookie) is for local development only and fails closed
+  in production builds (no fallback password, no default secret, disabled unless OAuth is
+  configured).
+- GitHub App tokens are short-lived installation tokens minted server-side; App private keys and
+  webhook secrets live in server env only; webhook deliveries are HMAC-verified and deduplicated.
 - Secrets are redacted from logs, audit events, and AI context.
 
 ## Known limitations
@@ -182,9 +212,9 @@ Reset demo state: `pnpm db:reset` (or the "Reset demo data" action on `/demo`).
 
 ## Future production requirements
 
-- Real GitHub App auth, real PR creation, permissions-scoped tokens, token rotation.
+- Token rotation + revocation UI for GitHub App installs, PAT removal, and webhook re-verification.
 - Hardened multi-tenant sandbox (container isolation, resource limits, egress control).
-- Real auth provider (Clerk/Auth.js/SSO) replacing dev sessions.
+- SSO (SAML/OIDC/SCIM) on top of the GitHub OAuth sign-in.
 - Managed queue/worker deployment, structured logging shipping, audit-log immutability
   (append-only store / WORM), metrics and alerting.
 - Full ecosystem coverage (Python, Go, etc.) behind the same interfaces.

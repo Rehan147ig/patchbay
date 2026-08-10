@@ -147,15 +147,24 @@ async function createDraftPR(
 
   const repository = plan.impactAssessment.repository;
   const fixtureName = fixtureOf(repository.metadata);
-  if (!fixtureName) {
-    throw new Error(`repository ${repository.id} has no fixture metadata`);
-  }
-  const fixtureDir = resolveFixtureDir(fixtureName);
+  const installationId = installationIdOf(repository.metadata);
+  const fixtureDir = fixtureName ? resolveFixtureDir(fixtureName) : "";
   const branchName = `patchbay/remediation-${plan.id.slice(0, 8)}`;
   const title = `[Patchbay] ${plan.impactAssessment.changeEvent.title}`;
   const body = `Automated remediation plan for ${repository.name}.\n\nImpact score: ${plan.impactAssessment.score}\nConfidence: ${plan.confidence}\nRationale: ${plan.impactAssessment.rationale}`;
 
-  const prResult = await createGitProviderFromEnv().createDraftPullRequest({
+  const provider =
+    repository.provider === "GITHUB" && installationId
+      ? createGitProviderFromEnv({
+          installationId,
+          repositoryFullName: repository.fullName,
+          baseBranch: repository.defaultBranch,
+        })
+      : createGitProviderFromEnv();
+  if (!fixtureName && repository.provider !== "GITHUB") {
+    throw new Error(`repository ${repository.id} has no fixture metadata`);
+  }
+  const prResult = await provider.createDraftPullRequest({
     repositoryName: repository.name,
     fixtureDir,
     branchName,
@@ -169,6 +178,7 @@ async function createDraftPR(
 
   const pullRequestRecord = await prisma.pullRequest.create({
     data: {
+      organizationId,
       remediationPlanId: plan.id,
       provider: prResult.provider,
       branchName: prResult.branchName,
@@ -215,4 +225,10 @@ function fixtureOf(metadata: unknown): string | null {
   if (typeof metadata !== "object" || metadata === null) return null;
   const fixture = (metadata as { fixture?: unknown }).fixture;
   return typeof fixture === "string" && fixture.length > 0 ? fixture : null;
+}
+
+function installationIdOf(metadata: unknown): number | null {
+  if (typeof metadata !== "object" || metadata === null) return null;
+  const value = (metadata as { installationId?: unknown }).installationId;
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
 }

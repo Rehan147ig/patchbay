@@ -9,6 +9,9 @@ import { createSessionCookie } from "@/lib/session";
 export async function POST(request: NextRequest) {
   const correlationId = getCorrelationId(request);
   try {
+    if (process.env.NODE_ENV === "production") {
+      throw unauthorized("Password login is disabled in production");
+    }
     // Brute-force protection: keyed by client IP. Do NOT trust
     // x-forwarded-for blindly — it is client-spoofable unless set by a
     // trusted proxy. Prefer x-real-ip (set by most reverse proxies) and

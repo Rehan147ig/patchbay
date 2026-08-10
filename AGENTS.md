@@ -24,7 +24,7 @@ It is NOT a generic chatbot, changelog summarizer, or OpenAPI diff dashboard.
 - `packages/repo-analysis` - TypeScript AST indexing, integration usage inventory, impact scoring
 - `packages/remediation-engine` - migration rules, patch generation, remediation plans
 - `packages/policy-engine` - JSON policy definitions, confidence gates, risk classification
-- `packages/git-provider` - GitProvider interface, LocalGitProvider, GitHub scaffold
+- `packages/git-provider` - GitProvider interface, LocalGitProvider, GitHubProvider (PAT), GitHubAppProvider (App JWT + installation tokens)
 - `packages/sandbox-runner` - allowlisted command execution with timeouts
 - `packages/ai-provider` - AI abstraction; deterministic mock is the default
 - `apps/web/src/lib/agent-keys.ts` - agent key generation/hashing/verification (`pb_agent_*`)

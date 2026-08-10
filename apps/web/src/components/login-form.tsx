@@ -1,11 +1,10 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@patchbay/ui";
 
 export function LoginForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -28,8 +27,7 @@ export function LoginForm() {
         return;
       }
       const next = searchParams.get("next");
-      router.push(next ?? "/");
-      router.refresh();
+      window.location.assign(next ?? "/");
     });
   }
 

@@ -10,10 +10,12 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@next-auth/prisma-adapter": "^1.0.7",
     "@patchbay/ai-provider": "workspace:*",
     "@patchbay/audit": "workspace:*",
     "@patchbay/db": "workspace:*",
     "@patchbay/domain": "workspace:*",
+    "@patchbay/git-provider": "workspace:*",
     "@patchbay/policy-engine": "workspace:*",
     "@patchbay/queue": "workspace:*",
     "@patchbay/remediation-engine": "workspace:*",
@@ -21,6 +23,7 @@
     "@patchbay/ui": "workspace:*",
     "@patchbay/vendor-connectors": "workspace:*",
     "next": "^15.3.0",
+    "next-auth": "^4.24.15",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "server-only": "^0.0.1",

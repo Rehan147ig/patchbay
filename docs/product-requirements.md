@@ -44,7 +44,7 @@ OpenAPI diff dashboard.
 - Migration-rule engine with AST-aware, bounded transforms.
 - AI-assisted planning via abstraction; deterministic mock default; Zod-validated output.
 - Sandboxed validation via allowlisted commands with timeouts.
-- Draft PR creation (local provider by default; GitHub scaffold behind env vars).
+- Draft PR creation (local provider by default; GitHub App provider with installations + OAuth when configured).
 - Immutable audit trail (application-level append-only).
 - Approval gates, confidence thresholds, JSON policies.
 

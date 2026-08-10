@@ -4,6 +4,22 @@
  */
 
 export const SESSION_COOKIE = "patchbay_session";
+
+/** NextAuth session cookie names (database session strategy). */
+export const NEXTAUTH_SESSION_COOKIES = [
+  "__Secure-next-auth.session-token",
+  "next-auth.session-token",
+] as const;
+
+/**
+ * GitHub OAuth (NextAuth) is active only when all three values are present.
+ * Without them the signed dev cookie above remains the only auth mechanism,
+ * which keeps local demos, tests, and e2e independent of GitHub credentials.
+ */
+export function isGitHubOAuthConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
+  return Boolean(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET && env.NEXTAUTH_SECRET);
+}
+
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 interface SessionPayload {

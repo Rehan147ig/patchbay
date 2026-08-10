@@ -136,7 +136,7 @@ export async function processAnalyzeChange(job: Job): Promise<AnalyzeChangeResul
       })),
     });
 
-    await upsertAssessment(changeEventId, repositoryId, draft, repositoryUsages);
+    await upsertAssessment(organizationId, changeEventId, repositoryId, draft, repositoryUsages);
     if (draft.status === ImpactStatus.AFFECTED || draft.status === ImpactStatus.POSSIBLY_AFFECTED) {
       affectedRepositoryIds.push(repositoryId);
     }
@@ -217,6 +217,7 @@ async function replaceNormalizations(
 }
 
 async function upsertAssessment(
+  organizationId: string,
   changeEventId: string,
   repositoryId: string,
   draft: ReturnType<typeof assessImpact>,
@@ -227,6 +228,7 @@ async function upsertAssessment(
       changeEventId_repositoryId: { changeEventId, repositoryId },
     },
     update: {
+      organizationId,
       score: draft.score,
       confidence: draft.confidence,
       affectedUsageCount: draft.affectedUsageIds.length,
@@ -235,6 +237,7 @@ async function upsertAssessment(
       status: draft.status,
     },
     create: {
+      organizationId,
       changeEventId,
       repositoryId,
       score: draft.score,
@@ -250,8 +253,16 @@ async function upsertAssessment(
   const unaffectedLinks = repositoryUsages.filter((usage) => !affectedUsageIds.has(usage.id));
 
   const linkData = [
-    ...draft.affectedUsageIds.map((usageId) => ({ impactAssessmentId: assessment.id, usageId })),
-    ...unaffectedLinks.map((usage) => ({ impactAssessmentId: assessment.id, usageId: usage.id })),
+    ...draft.affectedUsageIds.map((usageId) => ({
+      organizationId,
+      impactAssessmentId: assessment.id,
+      usageId,
+    })),
+    ...unaffectedLinks.map((usage) => ({
+      organizationId,
+      impactAssessmentId: assessment.id,
+      usageId: usage.id,
+    })),
   ];
 
   await prisma.$transaction([

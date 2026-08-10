@@ -151,8 +151,16 @@ enum ActorType {
   AGENT
 }
 
+enum PolicyDecision {
+  ALLOW_PLAN_ONLY
+  ALLOW_VALIDATE
+  ALLOW_DRAFT_PR
+  REQUIRE_APPROVAL
+  DENY
+}
+
 // ---------------------------------------------------------------------------
-// Entities
+// Models
 // ---------------------------------------------------------------------------
 
 model Organization {
@@ -160,10 +168,21 @@ model Organization {
   name      String
   createdAt DateTime @default(now())
 
-  users         User[]
-  repositories  Repository[]
-  policies      Policy[]
-  auditEvents   AuditEvent[]
+  users                  User[]
+  repositories           Repository[]
+  scans                  RepositoryScan[]
+  usages                 IntegrationUsage[]
+  impactAssessments      ImpactAssessment[]
+  impactAssessmentUsages ImpactAssessmentUsage[]
+  plans                  RemediationPlan[]
+  patches                PatchArtifact[]
+  validations            ValidationRun[]
+  pullRequests           PullRequest[]
+  approvals              Approval[]
+  policies               Policy[]
+  auditEvents            AuditEvent[]
+  githubInstallations    GitHubInstallation[]
+  webhookDeliveries      WebhookDelivery[]
 }
 
 model User {
@@ -172,10 +191,86 @@ model User {
   email          String   @unique
   name           String
   role           Role
+  emailVerified  DateTime?
+  image          String?
   createdAt      DateTime @default(now())
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   approvals    Approval[]
+  accounts     Account[]
+  sessions     Session[]
+
+  @@index([organizationId])
+}
+
+// NextAuth (Auth.js v4) adapter models — power GitHub OAuth sign-in.
+model Account {
+  id                String  @id @default(uuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model WebhookDelivery {
+  id             String    @id @default(uuid())
+  deliveryId     String    @unique
+  event          String
+  payloadHash    String
+  status         String    @default("RECEIVED")
+  organizationId String?
+  receivedAt     DateTime  @default(now())
+  processedAt    DateTime?
+  error          String?   @db.Text
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  @@index([status, receivedAt])
+  @@index([organizationId, receivedAt])
+}
+
+// A GitHub App installation bound to a Patchbay organization. Created via the
+// authenticated post-install callback, enriched/suspended via webhooks.
+model GitHubInstallation {
+  id                  String    @id @default(uuid())
+  organizationId      String
+  installationId      Int       @unique
+  accountLogin        String
+  accountType         String // "Organization" or "User"
+  repositorySelection String // "all" or "selected"
+  permissions         Json
+  installedAt         DateTime  @default(now())
+  suspendedAt         DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
 }
@@ -205,18 +300,21 @@ model Repository {
 
 model RepositoryScan {
   id String @id @default(uuid())
-  repositoryId String
-  commitSha    String
-  status       ScanStatus  @default(QUEUED)
-  startedAt    DateTime?
-  completedAt  DateTime?
-  summary      Json?
-  error        String?
-  createdAt    DateTime    @default(now())
+  organizationId String
+  repositoryId   String
+  commitSha      String
+  status         ScanStatus  @default(QUEUED)
+  startedAt      DateTime?
+  completedAt    DateTime?
+  summary        Json?
+  error          String?
+  createdAt      DateTime    @default(now())
 
-  repository Repository     @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
-  usages     IntegrationUsage[]
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  repository   Repository         @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  usages       IntegrationUsage[]
 
+  @@index([organizationId])
   @@index([repositoryId, status])
   @@index([repositoryId, createdAt])
   @@index([status])
@@ -284,6 +382,7 @@ model NormalizedChange {
 
 model IntegrationUsage {
   id String @id @default(uuid())
+  organizationId     String
   repositoryId       String
   scanId             String?
   vendorId           String
@@ -298,11 +397,13 @@ model IntegrationUsage {
   riskTags           RiskTag[] @default([])
   createdAt          DateTime @default(now())
 
-  repository  Repository   @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
-  scan        RepositoryScan? @relation(fields: [scanId], references: [id], onDelete: SetNull)
-  vendor      Vendor       @relation(fields: [vendorId], references: [id], onDelete: Restrict)
-  assessments ImpactAssessmentUsage[]
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  repository   Repository      @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  scan         RepositoryScan? @relation(fields: [scanId], references: [id], onDelete: SetNull)
+  vendor       Vendor          @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  assessments  ImpactAssessmentUsage[]
 
+  @@index([organizationId])
   @@index([repositoryId, vendorId])
   @@index([filePath])
   @@index([symbol])
@@ -311,6 +412,7 @@ model IntegrationUsage {
 
 model ImpactAssessment {
   id String @id @default(uuid())
+  organizationId     String
   changeEventId      String
   repositoryId       String
   score              Int
@@ -321,30 +423,36 @@ model ImpactAssessment {
   status             ImpactStatus
   createdAt          DateTime     @default(now())
 
-  changeEvent  VendorChangeEvent @relation(fields: [changeEventId], references: [id], onDelete: Cascade)
-  repository   Repository        @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  changeEvent  VendorChangeEvent  @relation(fields: [changeEventId], references: [id], onDelete: Cascade)
+  repository   Repository         @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
   affectedUsages ImpactAssessmentUsage[]
   plans        RemediationPlan[]
 
   @@unique([changeEventId, repositoryId])
+  @@index([organizationId])
   @@index([repositoryId])
   @@index([status])
   @@index([createdAt])
 }
 
 model ImpactAssessmentUsage {
+  organizationId     String
   impactAssessmentId String
   usageId            String
 
+  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   impactAssessment ImpactAssessment @relation(fields: [impactAssessmentId], references: [id], onDelete: Cascade)
   usage            IntegrationUsage @relation(fields: [usageId], references: [id], onDelete: Cascade)
 
   @@id([impactAssessmentId, usageId])
+  @@index([organizationId])
   @@index([usageId])
 }
 
 model RemediationPlan {
   id String @id @default(uuid())
+  organizationId      String
   impactAssessmentId  String
   status              PlanStatus @default(DRAFT)
   strategy            String
@@ -355,12 +463,14 @@ model RemediationPlan {
   createdAt           DateTime   @default(now())
   updatedAt           DateTime   @updatedAt
 
+  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   impactAssessment ImpactAssessment @relation(fields: [impactAssessmentId], references: [id], onDelete: Cascade)
   patches          PatchArtifact[]
   validations      ValidationRun[]
   pullRequests     PullRequest[]
   approvals        Approval[]
 
+  @@index([organizationId])
   @@index([impactAssessmentId])
   @@index([status])
   @@index([createdAt])
@@ -368,36 +478,42 @@ model RemediationPlan {
 
 model PatchArtifact {
   id String @id @default(uuid())
+  organizationId    String
   remediationPlanId String
-  filePath         String
-  unifiedDiff      String
-  originalContent  String
-  patchedContent   String
-  originalHash     String
-  patchedHash      String
-  generationMethod GenerationMethod
-  confidence       Int
-  createdAt        DateTime         @default(now())
+  filePath          String
+  unifiedDiff       String
+  originalContent   String
+  patchedContent    String
+  originalHash      String
+  patchedHash       String
+  generationMethod  GenerationMethod
+  confidence        Int
+  createdAt         DateTime         @default(now())
 
+  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   remediationPlan RemediationPlan @relation(fields: [remediationPlanId], references: [id], onDelete: Cascade)
 
+  @@index([organizationId])
   @@index([remediationPlanId])
 }
 
 model ValidationRun {
   id String @id @default(uuid())
+  organizationId    String
   remediationPlanId String
-  status           ValidationStatus @default(QUEUED)
-  commands         Json
-  stdout           String?
-  stderr           String?
-  exitCode         Int?
-  startedAt        DateTime?
-  completedAt      DateTime?
-  createdAt        DateTime         @default(now())
+  status            ValidationStatus @default(QUEUED)
+  commands          Json
+  stdout            String?
+  stderr            String?
+  exitCode          Int?
+  startedAt         DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime         @default(now())
 
+  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   remediationPlan RemediationPlan @relation(fields: [remediationPlanId], references: [id], onDelete: Cascade)
 
+  @@index([organizationId])
   @@index([remediationPlanId])
   @@index([status])
   @@index([createdAt])
@@ -405,17 +521,20 @@ model ValidationRun {
 
 model PullRequest {
   id String @id @default(uuid())
+  organizationId    String
   remediationPlanId String
-  provider         String
-  externalId       String?
-  url              String
-  branchName       String
-  status           PullRequestStatus @default(DRAFT)
-  createdAt        DateTime          @default(now())
+  provider          String
+  externalId        String?
+  url               String
+  branchName        String
+  status            PullRequestStatus @default(DRAFT)
+  createdAt         DateTime          @default(now())
 
+  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   remediationPlan RemediationPlan @relation(fields: [remediationPlanId], references: [id], onDelete: Cascade)
 
   @@unique([remediationPlanId])
+  @@index([organizationId])
   @@index([status])
 }
 
@@ -436,16 +555,19 @@ model Policy {
 
 model Approval {
   id String @id @default(uuid())
+  organizationId    String
   remediationPlanId String
-  userId           String
-  decision         ApprovalDecision
-  note             String?
-  createdAt        DateTime         @default(now())
+  userId            String
+  decision          ApprovalDecision
+  note              String?
+  createdAt         DateTime         @default(now())
 
+  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   remediationPlan RemediationPlan @relation(fields: [remediationPlanId], references: [id], onDelete: Cascade)
-  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([remediationPlanId, userId, decision])
+  @@index([organizationId])
   @@index([remediationPlanId])
 }
 
@@ -465,8 +587,8 @@ model AuditEvent {
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  @@index([createdAt])
+  @@index([organizationId, createdAt])
   @@index([entityType, entityId])
   @@index([action])
-  @@index([organizationId, createdAt])
+  @@index([correlationId])
 }
