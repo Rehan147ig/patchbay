@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { checkGlobalRateLimit, checkRateLimit, checkRateLimitMemory, GLOBAL_MAX_REQUESTS } from "./rate-limit";
+import {
+  checkGlobalRateLimit,
+  checkRateLimit,
+  checkRateLimitMemory,
+  GLOBAL_MAX_REQUESTS,
+} from "./rate-limit";
 
 describe("rate-limit (in-memory fallback)", () => {
   beforeEach(() => {
