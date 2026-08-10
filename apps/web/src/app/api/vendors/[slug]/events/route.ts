@@ -9,7 +9,7 @@ import {
   unauthorized,
   validationFailed,
 } from "@patchbay/domain";
-import { agentIngestSchema } from "@patchbay/domain";
+import { agentIngestSchema, boundRawPayload } from "@patchbay/domain";
 import { getConnector } from "@patchbay/vendor-connectors";
 import { JobType, queue } from "@patchbay/queue";
 import type { NextRequest } from "next/server";
@@ -76,8 +76,16 @@ export async function POST(
     const connector = getConnector(slug);
     if (!connector) throw validationFailed(`No connector is registered for vendor "${slug}"`);
 
+    // Bound the untrusted payload before it reaches normalizers or storage:
+    // caps nesting depth and serialized size so deep/large JSON cannot blow
+    // the connector stack or the UI renderer.
+    const rawPayload = boundRawPayload(input.rawPayload);
+    if (rawPayload === null || typeof rawPayload !== "object") {
+      throw validationFailed("Payload must be a JSON object");
+    }
+
     const drafts = connector.normalizeChange({
-      rawPayload: input.rawPayload,
+      rawPayload: rawPayload as Prisma.InputJsonValue,
       sourceType: input.sourceType,
     });
     if (drafts.length === 0) {
@@ -96,7 +104,7 @@ export async function POST(
         title: `${vendor.name} agent change: ${drafts.map((d) => d.changeType).join(", ")}`,
         severity: input.severity,
         status: "DETECTED",
-        rawPayload: input.rawPayload as Prisma.InputJsonValue,
+        rawPayload: rawPayload as Prisma.InputJsonValue,
       },
     });
 

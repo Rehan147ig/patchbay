@@ -1,6 +1,6 @@
 import { prisma, type Prisma, withOrgContext } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
-import { notFound, vendorChangeCreateSchema } from "@patchbay/domain";
+import { boundRawPayload, notFound, vendorChangeCreateSchema } from "@patchbay/domain";
 import type { NextRequest } from "next/server";
 import { getCorrelationId, jsonError, jsonOk, parseBody, writeAuditEvent } from "@/lib/api";
 import { requireRole } from "@/lib/auth";
@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
         effectiveAt: input.effectiveAt ? new Date(input.effectiveAt) : null,
         title: input.title,
         sourceUrl: input.sourceUrl,
-        rawPayload: (input.rawPayload ?? {}) as Prisma.InputJsonValue,
+        rawPayload: boundRawPayload(input.rawPayload ?? {}) as Prisma.InputJsonValue,
         severity: input.severity,
         status: "DETECTED",
       },

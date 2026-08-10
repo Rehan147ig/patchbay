@@ -54,6 +54,15 @@ export {
   codeExcerptSchema,
   generationMethodSchema,
 } from "./schemas";
+export {
+  MAX_RAW_PAYLOAD_BYTES,
+  MAX_RAW_PAYLOAD_DEPTH,
+  MAX_STRING_CHARS,
+  boundJsonBytes,
+  boundJsonDepth,
+  boundRawPayload,
+} from "./json-guard";
+export type { JsonValue as GuardedJsonValue } from "./json-guard";
 export type {
   LoginRequest,
   RepositoryCreateRequest,
