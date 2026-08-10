@@ -5,6 +5,7 @@ import {
   badRequest,
   notFound,
   payloadTooLarge,
+  tooManyRequests,
   unauthorized,
   validationFailed,
 } from "@patchbay/domain";
@@ -14,7 +15,7 @@ import { JobType, queue } from "@patchbay/queue";
 import type { NextRequest } from "next/server";
 import { getCorrelationId, jsonError, jsonOk, parseBodyBounded, writeAuditEvent } from "@/lib/api";
 import { verifyAgentKey } from "@/lib/agent-keys";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkGlobalRateLimit, checkRateLimit } from "@/lib/rate-limit";
 
 const MAX_AGENT_BODY_BYTES = 256 * 1024;
 
@@ -62,9 +63,13 @@ export async function POST(
     if (!keyValid) {
       throw unauthorized("Invalid agent API key");
     }
-    const rate = checkRateLimit(`agent:${vendor.organizationId}:${slug}`);
+    const globalRate = await checkGlobalRateLimit();
+    if (!globalRate.allowed) {
+      throw tooManyRequests("Agent rate limit exceeded");
+    }
+    const rate = await checkRateLimit(`agent:${vendor.organizationId}:${slug}`);
     if (!rate.allowed) {
-      throw unauthorized("Agent rate limit exceeded");
+      throw tooManyRequests("Agent rate limit exceeded");
     }
 
     const input = await parseBodyBounded(request, agentIngestSchema, MAX_AGENT_BODY_BYTES);

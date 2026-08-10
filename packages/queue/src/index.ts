@@ -3,6 +3,7 @@
  * app (enqueue) and the worker (consume) use one connection + job contract
  * without importing each other's process side effects.
  */
+import { createHash } from "node:crypto";
 import { Queue } from "bullmq";
 import { Redis } from "ioredis";
 
@@ -23,6 +24,18 @@ export const connection = new Redis(REDIS_URL, {
   maxRetriesPerRequest: null,
 });
 
+/**
+ * Rate-limit counters. A dedicated lazy connection so an unavailable Redis
+ * fails fast (and the request fails open to the caller's in-memory fallback)
+ * instead of queuing commands behind the BullMQ connection, which must never
+ * stall for a rate check.
+ */
+export const rateLimitRedis = new Redis(REDIS_URL, {
+  lazyConnect: true,
+  maxRetriesPerRequest: 1,
+  enableOfflineQueue: false,
+});
+
 export const queue = new Queue(QUEUE_NAME, {
   connection,
   defaultJobOptions: {
@@ -32,3 +45,30 @@ export const queue = new Queue(QUEUE_NAME, {
     removeOnFail: 5_000,
   },
 });
+
+export interface RateLimitResult {
+  allowed: boolean;
+  retryAfterMs: number;
+}
+
+/**
+ * Atomic fixed-window counter: INCR on a per-key key, EXPIRE only when the
+ * counter starts a fresh window. Keys are hashed so no caller-controlled
+ * string ever lands in the Redis key space.
+ */
+export async function checkRateLimitRedis(
+  key: string,
+  limit: number,
+  windowMs: number,
+): Promise<RateLimitResult> {
+  const redisKey = `rl:${createHash("sha256").update(key).digest("hex")}`;
+  const count = await rateLimitRedis.incr(redisKey);
+  if (count === 1) {
+    await rateLimitRedis.expire(redisKey, Math.max(1, Math.ceil(windowMs / 1000)));
+  }
+  if (count > limit) {
+    const ttl = await rateLimitRedis.pttl(redisKey);
+    return { allowed: false, retryAfterMs: ttl > 0 ? ttl : windowMs };
+  }
+  return { allowed: true, retryAfterMs: 0 };
+}

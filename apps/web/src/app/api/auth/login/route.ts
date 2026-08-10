@@ -4,7 +4,7 @@ import { loginRequestSchema, notFound, tooManyRequests, unauthorized } from "@pa
 import type { NextRequest } from "next/server";
 import { getCorrelationId, jsonError, jsonOk, parseBody, writeAuditEvent } from "@/lib/api";
 import { env } from "@/lib/env";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkGlobalRateLimit, checkRateLimit } from "@/lib/rate-limit";
 import { createSessionCookie } from "@/lib/session";
 
 export async function POST(request: NextRequest) {
@@ -27,14 +27,13 @@ export async function POST(request: NextRequest) {
         ? request.headers.get("x-forwarded-for")!.split(",")[0]!.trim()
         : null) ||
       "unknown";
-    const { allowed, retryAfterMs } = checkRateLimit(`login:${clientIp}`);
+    const globalRate = await checkGlobalRateLimit();
+    if (!globalRate.allowed) {
+      return tooManyRequestsResponse(globalRate.retryAfterMs, correlationId);
+    }
+    const { allowed, retryAfterMs } = await checkRateLimit(`login:${clientIp}`);
     if (!allowed) {
-      const response = jsonError(
-        tooManyRequests("Too many login attempts, try again shortly"),
-        correlationId,
-      );
-      response.headers.set("retry-after", String(Math.ceil(retryAfterMs / 1000)));
-      return response;
+      return tooManyRequestsResponse(retryAfterMs, correlationId);
     }
 
     const input = await parseBody(request, loginRequestSchema);
@@ -86,6 +85,15 @@ function serializeCookie(cookie: {
   if (cookie.options.maxAge !== undefined) parts.push(`Max-Age=${String(cookie.options.maxAge)}`);
   if (cookie.options.secure) parts.push("Secure");
   return parts.join("; ");
+}
+
+function tooManyRequestsResponse(retryAfterMs: number, correlationId: string): Response {
+  const response = jsonError(
+    tooManyRequests("Too many login attempts, try again shortly"),
+    correlationId,
+  );
+  response.headers.set("retry-after", String(Math.ceil(retryAfterMs / 1000)));
+  return response;
 }
 
 /**
