@@ -64,6 +64,15 @@ describe("redactSecrets", () => {
     expect(out).not.toContain("whsec_9f8a7b6c5d4e3f2a");
     expect(out).toContain("[REDACTED]");
   });
+
+  it("completes quickly on adversarial free text (ReDoS guard)", () => {
+    const adversarial = `sk-${"a".repeat(500_000)} -----BEGIN ${"A".repeat(200_000)} ${"Bearer ".repeat(10_000)}`;
+    const started = performance.now();
+    const out = sanitizeText(adversarial);
+    const elapsed = performance.now() - started;
+    expect(typeof out).toBe("string");
+    expect(elapsed).toBeLessThan(2_000);
+  });
 });
 
 describe("isSensitiveKey", () => {

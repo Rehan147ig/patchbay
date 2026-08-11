@@ -54,11 +54,16 @@ const TOKEN_CACHE_TTL_MS = 50 * 60 * 1000; // installation tokens live 1h; refre
  * Masks secret material that must never reach logs, audit events, or AI
  * prompts: PEM private keys, JWT signatures, and long base64 blobs (the
  * single-line base64 form of the App key used in env files).
+ *
+ * The PEM pattern deliberately uses BOUNDED quantifiers: an unbounded
+ * `[A-Z ]*` next to `[\s\S]*?` backtracks quadratically on adversarial input
+ * (e.g. "-----BEGIN " followed by long text with no END marker), and this
+ * function runs on attacker-influenced GitHub API error bodies.
  */
 export function redactGitHubSecrets(value: string): string {
   return value
     .replace(
-      /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+      /-----BEGIN [A-Z ]{0,64}PRIVATE KEY-----[\s\S]{0,65536}?-----END [A-Z ]{0,64}PRIVATE KEY-----/g,
       "[REDACTED PRIVATE KEY]",
     )
     .replace(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g, "[REDACTED JWT]")

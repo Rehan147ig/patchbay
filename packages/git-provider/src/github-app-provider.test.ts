@@ -79,6 +79,22 @@ describe("redactGitHubSecrets", () => {
       "404 Not Found",
     );
   });
+
+  it("redacts multi-line PEM blocks spanning a key body", () => {
+    const block = `-----BEGIN PRIVATE KEY-----\n${"base64line\n".repeat(40)}-----END PRIVATE KEY-----`;
+    const redacted = redactGitHubSecrets(`prefix ${block} suffix`);
+    expect(redacted).not.toContain("base64line");
+    expect(redacted).toContain("[REDACTED PRIVATE KEY]");
+  });
+
+  it("stays linear on adversarial input without an END marker (ReDoS guard)", () => {
+    const adversarial = `-----BEGIN ${"-AB-".repeat(50_000)}`;
+    const started = performance.now();
+    const out = redactGitHubSecrets(adversarial);
+    const elapsed = performance.now() - started;
+    expect(out).toBe(adversarial);
+    expect(elapsed).toBeLessThan(2_000);
+  });
 });
 
 describe("GitHubAppProvider", () => {

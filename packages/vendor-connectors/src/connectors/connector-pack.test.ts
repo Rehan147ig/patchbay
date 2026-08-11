@@ -200,4 +200,18 @@ describe("defineConnector SDK", () => {
     expect(connector.supports({ name: "x" })).toBe(true);
     expect(connector.supports({ name: "y" })).toBe(false);
   });
+
+  it("glob matching stays linear on long candidates (ReDoS guard)", () => {
+    const connector = defineConnector({
+      slug: "redos-guard",
+      identifiers: ["@google-cloud/*", "lib/*-sdk"],
+      rules: [{ changeType: "OTHER", affectedSymbols: ["a"], breaking: false }],
+    });
+    const longCandidate = `@google-cloud/${"a".repeat(300_000)}`;
+    const started = performance.now();
+    const supported = connector.supports({ sdk: longCandidate });
+    const elapsed = performance.now() - started;
+    expect(supported).toBe(true);
+    expect(elapsed).toBeLessThan(1_000);
+  });
 });
