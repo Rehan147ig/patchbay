@@ -4,8 +4,9 @@
  * without importing each other's process side effects.
  */
 import { createHash } from "node:crypto";
-import { Queue } from "bullmq";
+import { Queue, type Job, type JobsOptions } from "bullmq";
 import { Redis } from "ioredis";
+import { assertJobPayloadSize, parseRedisUrl } from "./url";
 
 export const QUEUE_NAME = "remediation";
 
@@ -18,9 +19,13 @@ export const JobType = {
 } as const;
 export type JobType = (typeof JobType)[keyof typeof JobType];
 
-const REDIS_URL = process.env.REDIS_URL ?? "redis://127.0.0.1:6379";
+const RAW_REDIS_URL = process.env.REDIS_URL ?? "redis://127.0.0.1:6379";
 
-export const connection = new Redis(REDIS_URL, {
+// Fail fast: an invalid or unparseable REDIS_URL must never boot a queue
+// that connects nowhere or logs credentials. rediss:// enables TLS via ioredis.
+parseRedisUrl(RAW_REDIS_URL);
+
+export const connection = new Redis(RAW_REDIS_URL, {
   maxRetriesPerRequest: null,
 });
 
@@ -30,7 +35,7 @@ export const connection = new Redis(REDIS_URL, {
  * instead of queuing commands behind the BullMQ connection, which must never
  * stall for a rate check.
  */
-export const rateLimitRedis = new Redis(REDIS_URL, {
+export const rateLimitRedis = new Redis(RAW_REDIS_URL, {
   lazyConnect: true,
   maxRetriesPerRequest: 1,
   enableOfflineQueue: false,
@@ -45,6 +50,20 @@ export const queue = new Queue(QUEUE_NAME, {
     removeOnFail: 5_000,
   },
 });
+
+/**
+ * Single enqueue path: size-bounds every job payload before it reaches Redis
+ * and keeps the queue contract in one place. Routes must use this instead of
+ * calling queue.add directly.
+ */
+export async function enqueue(
+  jobType: JobType,
+  data: unknown,
+  options?: JobsOptions,
+): Promise<Job> {
+  assertJobPayloadSize(data);
+  return queue.add(jobType, data as Record<string, unknown>, options);
+}
 
 export interface RateLimitResult {
   allowed: boolean;

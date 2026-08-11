@@ -17,7 +17,7 @@ vi.mock("@patchbay/db", () => ({
 
 vi.mock("@patchbay/queue", () => ({
   JobType: { ANALYZE_CHANGE: "ANALYZE_CHANGE" },
-  queue: { add: vi.fn() },
+  enqueue: vi.fn(),
 }));
 
 vi.mock("@/lib/auth", () => ({
@@ -25,7 +25,7 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 import { prisma } from "@patchbay/db";
-import { queue } from "@patchbay/queue";
+import { enqueue } from "@patchbay/queue";
 import { requireRole } from "@/lib/auth";
 
 const acmeUser = { id: "u-acme", organizationId: "org-acme" };
@@ -52,7 +52,7 @@ describe("org scoping across scoped routes", () => {
       id: "v-openai",
       slug: "openai",
     } as never);
-    vi.mocked(queue.add).mockResolvedValue(undefined as never);
+    vi.mocked(enqueue).mockResolvedValue(undefined as never);
   });
 
   it("lists only events of the caller's organization", async () => {
@@ -138,7 +138,7 @@ describe("org scoping across scoped routes", () => {
     expect(prisma.vendorChangeEvent.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: "c-other", organizationId: "org-acme" } }),
     );
-    expect(queue.add).not.toHaveBeenCalled();
+    expect(enqueue).not.toHaveBeenCalled();
   });
 
   it("scopes remediation plans through the repository's organization", async () => {

@@ -11,7 +11,7 @@ import {
 } from "@patchbay/domain";
 import { agentIngestSchema, boundRawPayload } from "@patchbay/domain";
 import { getConnector } from "@patchbay/vendor-connectors";
-import { JobType, queue } from "@patchbay/queue";
+import { enqueue, JobType } from "@patchbay/queue";
 import type { NextRequest } from "next/server";
 import { getCorrelationId, jsonError, jsonOk, parseBodyBounded, writeAuditEvent } from "@/lib/api";
 import { verifyAgentKey } from "@/lib/agent-keys";
@@ -122,7 +122,7 @@ export async function POST(
       });
     }
 
-    await queue.add(JobType.ANALYZE_CHANGE, {
+    await enqueue(JobType.ANALYZE_CHANGE, {
       changeEventId: event.id,
       organizationId: vendor.organizationId,
       correlationId,

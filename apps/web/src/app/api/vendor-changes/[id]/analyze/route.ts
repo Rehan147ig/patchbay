@@ -1,7 +1,7 @@
 import { prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import { validationFailed } from "@patchbay/domain";
-import { JobType, queue } from "@patchbay/queue";
+import { enqueue, JobType } from "@patchbay/queue";
 import type { NextRequest } from "next/server";
 import { getCorrelationId, jsonError, jsonOk, writeAuditEvent } from "@/lib/api";
 import { requireRole } from "@/lib/auth";
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       throw validationFailed("Change event not found");
     }
 
-    await queue.add(JobType.ANALYZE_CHANGE, {
+    await enqueue(JobType.ANALYZE_CHANGE, {
       changeEventId: event.id,
       organizationId: user.organizationId,
       correlationId,

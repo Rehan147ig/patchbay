@@ -1,7 +1,7 @@
 import { prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import { Severity, VendorChangeSource, validationFailed } from "@patchbay/domain";
-import { JobType, queue } from "@patchbay/queue";
+import { enqueue, JobType } from "@patchbay/queue";
 import { demoRunSchema } from "@patchbay/domain";
 import type { NextRequest } from "next/server";
 import { getCorrelationId, jsonError, jsonOk, parseBody, writeAuditEvent } from "@/lib/api";
@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    await queue.add(JobType.ANALYZE_CHANGE, {
+    await enqueue(JobType.ANALYZE_CHANGE, {
       changeEventId: event.id,
       organizationId: user.organizationId,
       correlationId,

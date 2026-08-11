@@ -44,7 +44,7 @@ async function main(): Promise<void> {
           throw new Error(`unknown job type: ${job.name}`);
       }
     },
-    { connection, concurrency: 2 },
+    { connection, concurrency: 2, limiter: { max: 20, duration: 1_000 } },
   );
 
   const redisPing = await connection.ping();

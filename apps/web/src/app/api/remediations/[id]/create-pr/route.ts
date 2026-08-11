@@ -2,7 +2,7 @@ import { prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import { ActorType, ValidationStatus, validationFailed } from "@patchbay/domain";
 import { evaluatePolicy } from "@patchbay/policy-engine";
-import { JobType, queue } from "@patchbay/queue";
+import { enqueue, JobType } from "@patchbay/queue";
 import type { NextRequest } from "next/server";
 import { getCorrelationId, jsonError, jsonOk, writeAuditEvent } from "@/lib/api";
 import { requireRole } from "@/lib/auth";
@@ -94,7 +94,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       );
     }
 
-    await queue.add(
+    await enqueue(
       JobType.CREATE_PR,
       {
         remediationPlanId: plan.id,

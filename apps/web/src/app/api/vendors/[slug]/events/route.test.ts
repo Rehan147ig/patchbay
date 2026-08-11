@@ -16,11 +16,11 @@ vi.mock("@patchbay/db", () => ({
 
 vi.mock("@patchbay/queue", () => ({
   JobType: { ANALYZE_CHANGE: "ANALYZE_CHANGE" },
-  queue: { add: vi.fn() },
+  enqueue: vi.fn(),
 }));
 
 import { prisma } from "@patchbay/db";
-import { queue } from "@patchbay/queue";
+import { enqueue } from "@patchbay/queue";
 
 const openAiPayload = {
   sdk: "openai",
@@ -83,7 +83,7 @@ describe("POST /api/vendors/[slug]/events", () => {
       }),
     );
     expect(prisma.normalizedChange.create).toHaveBeenCalledTimes(2);
-    expect(queue.add).toHaveBeenCalledWith("ANALYZE_CHANGE", {
+    expect(enqueue).toHaveBeenCalledWith("ANALYZE_CHANGE", {
       changeEventId: "c-agent-1",
       organizationId: "org-acme",
       correlationId: expect.any(String),
