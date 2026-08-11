@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import { sanitizeText } from "@patchbay/audit";
 
@@ -11,9 +12,17 @@ import { sanitizeText } from "@patchbay/audit";
  * all. Windows cannot spawn npm/pnpm (.cmd shims) without a shell, so it uses
  * cmd.exe /d /s /c (AutoRun disabled) over the static allowlist string. Both
  * paths pass a minimal allowlisted environment — the worker's secrets never
- * reach the child. Output is bounded and redacted. This is NOT a hardened
- * multi-tenant sandbox: an allowlisted script name can run whatever the target
- * package.json defines.
+ * reach the child. Output is bounded and redacted.
+ *
+ * Backends:
+ * - "process" (default, always available): spawns on the local host. NOT a
+ *   hardened multi-tenant sandbox: an allowlisted script name can run whatever
+ *   the target package.json defines, on the host.
+ * - "container" (SANDBOX_RUNTIME=container, Docker daemon required): runs the
+ *   allowlisted command in an ephemeral container with no network, no
+ *   capabilities, a read-only root filesystem, and CPU/memory/PID caps. The
+ *   workspace is the only writable path.
+ * - "microvm" (stub): fails loudly until a Firecracker backend ships.
  */
 
 export const ALLOWED_COMMANDS = [
@@ -60,21 +69,26 @@ function truncate(text: string): string {
   return `${kept}\n[truncated ${text.length - SANDBOX_MAX_OUTPUT_CHARS} chars]`;
 }
 
+/** Bound output size and scrub secret-looking values before it can be logged. */
+function boundAndRedact(raw: string): string {
+  return truncate(sanitizeText(raw));
+}
+
 export interface RunOptions {
   timeoutMs?: number;
 }
 
-export type SandboxRuntime = "process" | "microvm";
+export type SandboxRuntime = "process" | "microvm" | "container";
 
 /**
  * Contract for executing allowlisted validation commands. Consumers depend on
  * this interface so a deployment can switch backends (process pool today,
- * microVM/container later) without touching the worker.
+ * container/microVM later) without touching the worker.
  */
 export interface SandboxRunner {
   readonly runtime: SandboxRuntime;
   /** True when this backend is usable on the current host. */
-  isAvailable(): boolean;
+  isAvailable(): Promise<boolean>;
   /** The policy-approved commands this runner will accept. */
   getAllowlist(): readonly string[];
   run(command: string, cwd: string, options?: RunOptions): Promise<RunResult>;
@@ -127,10 +141,6 @@ export function runValidation(
 /** Process-pool backend: spawns the command on the local host. */
 export class ProcessSandboxRunner implements SandboxRunner {
   readonly runtime: SandboxRuntime = "process";
-
-  isAvailable(): boolean {
-    return true;
-  }
 
   getAllowlist(): readonly string[] {
     return ALLOWED_COMMANDS;
@@ -287,16 +297,14 @@ export class ProcessSandboxRunner implements SandboxRunner {
       child.on("close", (code) => {
         clearTimeout(timer);
         clearInterval(killer);
-        const stdout = truncate(sanitizeText(rawStdout));
-        const stderr = truncate(sanitizeText(rawStderr));
         resolve({
           ok: code === 0 && !timedOut,
           timedOut,
           exitCode: code,
           durationMs: Math.round(performance.now() - started),
-          stdout,
-          stderr,
-          output: truncate(sanitizeText(`${rawStdout}${rawStderr}`)),
+          stdout: boundAndRedact(rawStdout),
+          stderr: boundAndRedact(rawStderr),
+          output: boundAndRedact(`${rawStdout}${rawStderr}`),
         });
       });
 
@@ -316,6 +324,246 @@ export class ProcessSandboxRunner implements SandboxRunner {
       });
     });
   }
+
+  isAvailable(): Promise<boolean> {
+    return Promise.resolve(true);
+  }
+}
+
+/**
+ * Default container limits. `node:20-slim` ships npm but not pnpm; pnpm-backed
+ * commands (`pnpm install --frozen-lockfile`, …) require a pnpm-baked image,
+ * selectable via SANDBOX_IMAGE.
+ */
+export const SANDBOX_IMAGE = "node:20-slim";
+export const SANDBOX_CONTAINER_CPUS = "0.5";
+export const SANDBOX_CONTAINER_MEMORY = "512m";
+export const SANDBOX_CONTAINER_PIDS_LIMIT = 128;
+
+export interface ContainerSandboxOptions {
+  image?: string;
+  cpus?: string;
+  memory?: string;
+  pidsLimit?: number;
+  /** Availability probe override (tests inject a fake; default: docker info). */
+  probe?: () => Promise<boolean>;
+  /** Container name suffix (tests inject a stable name to assert on). */
+  containerName?: string;
+}
+
+/** Arguments for `docker run`, fully static aside from the workspace mount. */
+export function buildDockerRunArgs(
+  command: string,
+  cwd: string,
+  options: ContainerSandboxOptions = {},
+): string[] {
+  const image = options.image ?? process.env.SANDBOX_IMAGE ?? SANDBOX_IMAGE;
+  const cpus = options.cpus ?? SANDBOX_CONTAINER_CPUS;
+  const memory = options.memory ?? SANDBOX_CONTAINER_MEMORY;
+  const pidsLimit = options.pidsLimit ?? SANDBOX_CONTAINER_PIDS_LIMIT;
+  const name = options.containerName ?? `patchbay-sb-${randomUUID().slice(0, 12)}`;
+  return [
+    "run",
+    "--rm",
+    "--name",
+    name,
+    "--init",
+    "--network",
+    "none",
+    "--cpus",
+    cpus,
+    "--memory",
+    memory,
+    "--pids-limit",
+    String(pidsLimit),
+    "--cap-drop",
+    "ALL",
+    "--security-opt",
+    "no-new-privileges",
+    "--read-only",
+    "--tmpfs",
+    "/tmp:size=64m,noexec,nosuid",
+    "--env",
+    "CI=true",
+    "--env",
+    "HOME=/tmp",
+    "--env",
+    "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    "--env",
+    "npm_config_cache=/tmp/npm-cache",
+    "--env",
+    "npm_config_update_notifier=false",
+    "--workdir",
+    "/app",
+    "--volume",
+    `${cwd}:/app:rw`,
+    image,
+    "sh",
+    "-c",
+    command,
+  ];
+}
+
+/**
+ * Container backend: runs the allowlisted command in an ephemeral Docker
+ * container with no network, all capabilities dropped, no new privileges, a
+ * read-only root filesystem (workspace is the only writable path), and
+ * CPU/memory/PID caps. Host secrets are never passed; the container env is the
+ * static allowlist above. `sh -c` over a static allowlist constant is the same
+ * trust model as cmd.exe on Windows: the string can never contain input-derived
+ * metacharacters. Timeouts SIGKILL the container.
+ */
+export class ContainerSandboxRunner implements SandboxRunner {
+  readonly runtime: SandboxRuntime = "container";
+  private readonly options: ContainerSandboxOptions;
+  private availability: boolean | null = null;
+
+  constructor(options: ContainerSandboxOptions = {}) {
+    this.options = options;
+  }
+
+  async isAvailable(): Promise<boolean> {
+    if (this.availability === null) {
+      const probe = this.options.probe ?? probeDocker;
+      this.availability = await probe().catch(() => false);
+    }
+    return this.availability;
+  }
+
+  getAllowlist(): readonly string[] {
+    return ALLOWED_COMMANDS;
+  }
+
+  async run(command: string, cwd: string, options: RunOptions = {}): Promise<RunResult> {
+    if (!isAllowedCommand(command)) {
+      return Promise.reject(new SandboxError(command));
+    }
+    if (!(await this.isAvailable())) {
+      const reason =
+        "container sandbox runtime requires a running Docker daemon; route validations to SANDBOX_RUNTIME=process or start Docker";
+      return {
+        ok: false,
+        timedOut: false,
+        exitCode: null,
+        durationMs: 0,
+        stdout: "",
+        stderr: reason,
+        output: reason,
+      };
+    }
+
+    const args = buildDockerRunArgs(command, cwd, this.options);
+    const timeoutMs = options.timeoutMs ?? SANDBOX_TIMEOUT_MS;
+    const started = performance.now();
+
+    const child = spawn("docker", args, {
+      windowsHide: true,
+      shell: false,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let rawStdout = "";
+    let rawStderr = "";
+    const append = (buffer: Buffer, target: () => string, set: (v: string) => void): void => {
+      const current = target();
+      if (current.length < HARD_OUTPUT_CAP_CHARS) {
+        set((current + buffer.toString("utf8")).slice(0, HARD_OUTPUT_CAP_CHARS));
+      }
+    };
+    child.stdout.on("data", (chunk: Buffer) =>
+      append(
+        chunk,
+        () => rawStdout,
+        (v) => (rawStdout = v),
+      ),
+    );
+    child.stderr.on("data", (chunk: Buffer) =>
+      append(
+        chunk,
+        () => rawStderr,
+        (v) => (rawStderr = v),
+      ),
+    );
+
+    return new Promise((resolve) => {
+      let timedOut = false;
+      let closed = false;
+
+      const killContainer = (): void => {
+        // Name is static by the time we spawn; a kill that misses (name unknown)
+        // is harmless because --rm cleans up on exit.
+        const nameIndex = args.indexOf("--name");
+        const name = nameIndex >= 0 ? args[nameIndex + 1] : null;
+        if (name) {
+          const killer = spawn("docker", ["kill", "--signal", "SIGKILL", name], {
+            windowsHide: true,
+            shell: false,
+            stdio: "ignore",
+          });
+          killer.on("error", () => undefined);
+        }
+      };
+
+      const timer = setTimeout(() => {
+        timedOut = true;
+        killContainer();
+      }, timeoutMs);
+
+      child.on("close", (code) => {
+        if (closed) return;
+        closed = true;
+        clearTimeout(timer);
+        resolve({
+          ok: code === 0 && !timedOut,
+          timedOut,
+          exitCode: code,
+          durationMs: Math.round(performance.now() - started),
+          stdout: boundAndRedact(rawStdout),
+          stderr: boundAndRedact(rawStderr),
+          output: boundAndRedact(`${rawStdout}${rawStderr}`),
+        });
+      });
+
+      child.on("error", (error) => {
+        if (closed) return;
+        closed = true;
+        clearTimeout(timer);
+        const message = `docker failed to start: ${error.message}`;
+        resolve({
+          ok: false,
+          timedOut,
+          exitCode: null,
+          durationMs: Math.round(performance.now() - started),
+          stdout: message,
+          stderr: message,
+          output: message,
+        });
+      });
+    });
+  }
+}
+
+/** Cheap daemon liveness probe: `docker info` returns non-zero when down. */
+async function probeDocker(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const child = spawn("docker", ["info", "--format", "{{.ServerVersion}}"], {
+      windowsHide: true,
+      shell: false,
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+    const timer = setTimeout(() => {
+      child.kill();
+      resolve(false);
+    }, 10_000);
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      resolve(code === 0);
+    });
+    child.on("error", () => {
+      clearTimeout(timer);
+      resolve(false);
+    });
+  });
 }
 
 /**
@@ -334,19 +582,19 @@ export class MicroVmSandboxRunner implements SandboxRunner {
     this.available = options.available ?? process.env.SANDBOX_RUNTIME === "microvm";
   }
 
-  isAvailable(): boolean {
-    return this.available;
+  isAvailable(): Promise<boolean> {
+    return Promise.resolve(this.available);
   }
 
   getAllowlist(): readonly string[] {
     return ALLOWED_COMMANDS;
   }
 
-  run(command: string, cwd: string, _options: RunOptions = {}): Promise<RunResult> {
+  async run(command: string, cwd: string, _options: RunOptions = {}): Promise<RunResult> {
     if (!isAllowedCommand(command)) {
       return Promise.reject(new SandboxError(command));
     }
-    const reason = this.isAvailable()
+    const reason = (await this.isAvailable())
       ? "microVM sandbox runtime is not implemented yet; route validations to SANDBOX_RUNTIME=process"
       : "microVM sandbox runtime is not available on this host";
     const result: RunResult = {
@@ -364,12 +612,20 @@ export class MicroVmSandboxRunner implements SandboxRunner {
 
 /**
  * Selects the sandbox backend for this process. Defaults to the process
- * runner; set SANDBOX_RUNTIME=microvm to opt into the microVM backend.
+ * runner; set SANDBOX_RUNTIME=container (Docker required) or
+ * SANDBOX_RUNTIME=microvm (stub) to opt into a hardened backend.
  */
 export function createSandboxRunner(runtime?: SandboxRuntime): SandboxRunner {
   const selected: SandboxRuntime =
-    runtime ?? (process.env.SANDBOX_RUNTIME === "microvm" ? "microvm" : "process");
-  return selected === "microvm" ? new MicroVmSandboxRunner() : new ProcessSandboxRunner();
+    runtime ??
+    (process.env.SANDBOX_RUNTIME === "container"
+      ? "container"
+      : process.env.SANDBOX_RUNTIME === "microvm"
+        ? "microvm"
+        : "process");
+  if (selected === "container") return new ContainerSandboxRunner();
+  if (selected === "microvm") return new MicroVmSandboxRunner();
+  return new ProcessSandboxRunner();
 }
 
 const processSandboxRunner = new ProcessSandboxRunner();

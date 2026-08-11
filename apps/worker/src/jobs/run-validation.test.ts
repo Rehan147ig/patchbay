@@ -1,4 +1,7 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { processRunValidation, type RunValidationJobData } from "./run-validation";
 import { prisma } from "@patchbay/db";
 import { isAllowedCommand } from "@patchbay/sandbox-runner";
@@ -23,12 +26,20 @@ vi.mock("@patchbay/db", () => ({
 }));
 
 const mockRun = vi.fn();
+const fixtureDir = mkdtempSync(path.join(tmpdir(), "patchbay-worker-fixture-"));
+writeFileSync(
+  path.join(fixtureDir, "package.json"),
+  JSON.stringify({ name: "worker-fixture", scripts: {} }),
+);
+afterAll(() => {
+  rmSync(fixtureDir, { recursive: true, force: true });
+});
 
 vi.mock("@patchbay/sandbox-runner", () => ({
   isAllowedCommand: vi.fn(),
   createSandboxRunner: vi.fn(() => ({
     runtime: "process",
-    isAvailable: () => true,
+    isAvailable: async () => true,
     getAllowlist: () => [],
     run: mockRun,
   })),
@@ -104,7 +115,7 @@ describe("processRunValidation", () => {
       id: "change-1",
       organizationId: "org-1",
     } as never);
-    vi.mocked(resolveFixtureDir).mockReturnValue(process.cwd());
+    vi.mocked(resolveFixtureDir).mockReturnValue(fixtureDir);
     vi.mocked(isAllowedCommand).mockReturnValue(false);
 
     await expect(processRunValidation(mockJob)).rejects.toThrow(
@@ -138,7 +149,7 @@ describe("processRunValidation", () => {
       id: "change-1",
       organizationId: "org-1",
     } as never);
-    vi.mocked(resolveFixtureDir).mockReturnValue(process.cwd());
+    vi.mocked(resolveFixtureDir).mockReturnValue(fixtureDir);
     vi.mocked(isAllowedCommand).mockReturnValue(true);
     mockRun.mockResolvedValueOnce({
       ok: true,

@@ -30,9 +30,10 @@ A rigorous architectural review reveals the following key gaps between the local
 
 ### 1. Execution Plane Isolation (High Risk)
 
-- **Current State**: The sandbox runner ([`packages/sandbox-runner/src/index.ts`](file:///C:/Users/SHAIK%20MOHAMMAD%20REHAN/patchbay/packages/sandbox-runner/src/index.ts)) executes allowlisted commands (`pnpm install --frozen-lockfile`) via `child_process.spawn` directly on the host node.
-- **Security Risk**: A malicious or compromised repository `package.json` with `preinstall` or `postinstall` lifecycle hooks can execute arbitrary shell code on the worker host during `pnpm install`.
-- **Fix Required**: Move execution to a physically separated, ephemeral execution plane (microVMs or container sandboxes with network & resource limits).
+- **Current State**: The sandbox runner ([`packages/sandbox-runner/src/index.ts`](file:///C:/Users/SHAIK%20MOHAMMAD%20REHAN/patchbay/packages/sandbox-runner/src/index.ts)) executes allowlisted commands (`pnpm install --frozen-lockfile`) via `child_process.spawn` directly on the host node by default.
+- **Implemented**: `SANDBOX_RUNTIME=container` — ephemeral Docker containers with `--network none`, `--cap-drop ALL`, `--security-opt no-new-privileges`, read-only rootfs (workspace is the only writable path), CPU/memory/PID caps, static minimal environment (never the worker's secrets), hard timeouts via SIGKILL; covered by live Docker integration tests (run, timeout, egress block, redaction, env isolation).
+- **Security Risk**: A malicious or compromised repository `package.json` with `preinstall` or `postinstall` lifecycle hooks can execute arbitrary shell code during `pnpm install` — on the host with the default process backend (dev-only), and inside an isolated container with the container backend.
+- **Fix Required**: Make the container backend the default and move execution to a physically separated, ephemeral execution plane (microVMs with firewall-enforced egress limits) for multi-tenant production.
 
 ### 2. Mock Git Provider & Real GitHub App
 

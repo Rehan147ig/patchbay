@@ -40,7 +40,17 @@ let sandboxRunner: SandboxRunner | null = null;
 
 /** Backend for validation execution, selected once per process (env-driven). */
 function runner(): SandboxRunner {
-  sandboxRunner ??= createSandboxRunner();
+  if (!sandboxRunner) {
+    sandboxRunner = createSandboxRunner();
+    void sandboxRunner.isAvailable().then((available) => {
+      if (!available) {
+        logger.warn(
+          `sandbox runtime ${sandboxRunner?.runtime} is not available on this host; ` +
+            "validation jobs will fail loudly until SANDBOX_RUNTIME=process is restored",
+        );
+      }
+    });
+  }
   return sandboxRunner;
 }
 

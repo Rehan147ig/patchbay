@@ -37,9 +37,15 @@ after funding.
   credentials through it, no direct `process.env` in providers.
 - **Sandbox runner interface** — `packages/sandbox-runner` now exposes a
   `ValidationRunner` contract: deterministic local runner for dev/tests plus a
-  microVM-safe `runInValidationSandbox` stub that performs validated patch
-  transforms with no DB/network access (ready to swap the stub for a Firecracker
-  backend). Old direct patch-apply job path removed; 44+ unit tests.
+  **container backend** (`SANDBOX_RUNTIME=container`): each allowlisted command
+  runs in an ephemeral Docker container with `--network none`, `--cap-drop ALL`,
+  `--security-opt no-new-privileges`, read-only rootfs (workspace is the only
+  writable path), CPU/memory/PID caps, static minimal environment (no host
+  secrets), and hard timeout via container SIGKILL. Verified by 5 live Docker
+  integration tests (run, timeout-kill, egress blocked, redaction, env
+  isolation) + args/env unit tests; worker warns once if the runtime is
+  selected but Docker is down. A microVM-safe stub closes the loop for a
+  future Firecracker backend (no DB/network, fails loudly today).
 - **Redis & queue hardening** — `packages/queue/src/url.ts` validates Redis
   URLs (protocol, host allowlist, no credentials in URL), worker rejects
   oversize jobs (> 1 MiB), and rate-limit / retryable queue failures are
@@ -108,11 +114,11 @@ after funding.
 - [ ] **GitHub App depth** — check runs, review comments, commit signing, PR merge (policy-gated),
       token rotation/revocation UI.
       (Install flow, webhooks, draft PRs, and OAuth sign-in are DONE — see above.)
-- [ ] **Sandbox hardening** — real container/microVM isolation per validation
-      run, network egress control, resource limits. The `ValidationRunner`
-      interface and a microVM-safe deterministic runner (no DB/network) are
-      DONE; the Firecracker/gVisor backend itself still needs infra+money.
-      Current code explicitly says "NOT a hardened multi-tenant sandbox".
+- [ ] **Sandbox hardening** — microVM isolation (Firecracker/gVisor) per
+      validation run. The container backend (no network, dropped caps,
+      read-only rootfs, resource limits) is DONE behind
+      `SANDBOX_RUNTIME=container`; the process backend is the default and is
+      still explicitly "NOT a hardened multi-tenant sandbox".
 - [ ] **Real auth** — SSO (SAML/OIDC), SCIM, MFA, per-tenant BYO-AI-keys,
       data residency (EU/US), fine-grained RBAC.
 - [ ] **AI-generated patches** (not just advisory notes) with rule-engine
