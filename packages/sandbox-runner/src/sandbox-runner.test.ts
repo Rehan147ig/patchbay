@@ -4,6 +4,9 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   ALLOWED_COMMANDS,
+  ProcessSandboxRunner,
+  MicroVmSandboxRunner,
+  createSandboxRunner,
   isAllowedCommand,
   runValidation,
   SandboxError,
@@ -110,5 +113,46 @@ describe("runValidation", () => {
     expect(result.stdout).toContain("PATH");
     expect(result.stdout).not.toContain("SANDBOX_LEAK_MARKER");
     delete process.env.SANDBOX_LEAK_MARKER;
+  });
+});
+
+describe("sandbox runners", () => {
+  it("createSandboxRunner defaults to the process backend", () => {
+    expect(createSandboxRunner()).toBeInstanceOf(ProcessSandboxRunner);
+  });
+
+  it("createSandboxRunner selects the microVM backend on request", () => {
+    expect(createSandboxRunner("microvm")).toBeInstanceOf(MicroVmSandboxRunner);
+  });
+
+  it("process runner is always available with the full allowlist", () => {
+    const runner = createSandboxRunner();
+    expect(runner.runtime).toBe("process");
+    expect(runner.isAvailable()).toBe(true);
+    expect(runner.getAllowlist()).toEqual(ALLOWED_COMMANDS);
+  });
+
+  it("microVM runner fails loudly instead of silently falling back", async () => {
+    const runner = createSandboxRunner("microvm");
+    expect(runner.runtime).toBe("microvm");
+    const result = await runner.run("npm test", tmpdir());
+    expect(result.ok).toBe(false);
+    expect(result.stderr).toContain("microVM");
+  });
+
+  it("microVM runner still enforces the allowlist first", async () => {
+    const runner = new MicroVmSandboxRunner({ available: true });
+    const error = await runner.run("rm -rf /", tmpdir()).then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+    expect(error).toBeInstanceOf(SandboxError);
+  });
+
+  it("process runner matches the legacy runValidation behavior", async () => {
+    const dir = makeWorkspace({ test: 'node -e "console.log(\\"runner-works\\")"' });
+    const result = await createSandboxRunner().run("npm test", dir);
+    expect(result.ok).toBe(true);
+    expect(result.stdout).toContain("runner-works");
   });
 });

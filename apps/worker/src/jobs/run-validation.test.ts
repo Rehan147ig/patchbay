@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { processRunValidation, type RunValidationJobData } from "./run-validation";
 import { prisma } from "@patchbay/db";
-import { isAllowedCommand, runValidation } from "@patchbay/sandbox-runner";
+import { isAllowedCommand } from "@patchbay/sandbox-runner";
 import { resolveFixtureDir } from "@patchbay/repo-analysis";
 import type { Job } from "bullmq";
 
@@ -22,9 +22,16 @@ vi.mock("@patchbay/db", () => ({
   },
 }));
 
+const mockRun = vi.fn();
+
 vi.mock("@patchbay/sandbox-runner", () => ({
   isAllowedCommand: vi.fn(),
-  runValidation: vi.fn(),
+  createSandboxRunner: vi.fn(() => ({
+    runtime: "process",
+    isAvailable: () => true,
+    getAllowlist: () => [],
+    run: mockRun,
+  })),
 }));
 
 vi.mock("@patchbay/repo-analysis", () => ({
@@ -38,6 +45,7 @@ vi.mock("../lib/audit", () => ({
 describe("processRunValidation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockRun.mockReset();
   });
 
   const validJobData: RunValidationJobData = {
@@ -132,7 +140,7 @@ describe("processRunValidation", () => {
     } as never);
     vi.mocked(resolveFixtureDir).mockReturnValue(process.cwd());
     vi.mocked(isAllowedCommand).mockReturnValue(true);
-    vi.mocked(runValidation).mockResolvedValueOnce({
+    mockRun.mockResolvedValueOnce({
       ok: true,
       exitCode: 0,
       durationMs: 120,

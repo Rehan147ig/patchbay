@@ -6,7 +6,11 @@ import { prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import { ActorType, PlanStatus, ValidationStatus, logger } from "@patchbay/domain";
 import { resolveFixtureDir } from "@patchbay/repo-analysis";
-import { isAllowedCommand, runValidation } from "@patchbay/sandbox-runner";
+import {
+  createSandboxRunner,
+  isAllowedCommand,
+  type SandboxRunner,
+} from "@patchbay/sandbox-runner";
 import type { Job } from "bullmq";
 import { writeAuditEvent } from "../lib/audit";
 
@@ -31,6 +35,14 @@ export const RunValidationJobDataSchema = z.object({
 export type RunValidationJobData = z.infer<typeof RunValidationJobDataSchema>;
 
 const CommandsSchema = z.array(z.string().min(1));
+
+let sandboxRunner: SandboxRunner | null = null;
+
+/** Backend for validation execution, selected once per process (env-driven). */
+function runner(): SandboxRunner {
+  sandboxRunner ??= createSandboxRunner();
+  return sandboxRunner;
+}
 
 export interface RunValidationResult {
   validationRunId: string;
@@ -144,7 +156,7 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
       output: string;
     }> = [];
     for (const command of commands) {
-      const result = await runValidation(command, workspace);
+      const result = await runner().run(command, workspace);
       results.push({
         command,
         ok: result.ok,
