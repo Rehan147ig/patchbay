@@ -1,7 +1,7 @@
 # Patchbay — Development Ledger
 
 Status as of this commit. Everything under **DONE** is implemented, tested, and
-passing (`pnpm typecheck`, `pnpm lint`, `pnpm test` = 260 tests). Everything
+passing (`pnpm typecheck`, `pnpm lint`, `pnpm test` = 392 tests). Everything
 under **PENDING** is scoped but requires money, credentials, or infra — do them
 after funding.
 
@@ -25,6 +25,34 @@ after funding.
   resolves inside the disposable workspace; added tenant check.
 - **Scan race condition fixed** — `scan-repository.ts` ownership-read +
   delete + create now in one interactive transaction.
+- **WORM audit log (schema-enforced)** — `20260811100000_audit_worm` trigger
+  `enforce_audit_append_only` blocks UPDATE/DELETE/TRUNCATE on `AuditLog` at
+  the database level (defense-in-depth under the service-layer guard);
+  `packages/audit/src/redact.ts` also now strips GitHub App access tokens from
+  `changed` snapshots. Verified by 4 migration tests + redaction tests.
+- **Secret store abstraction** — `packages/env/src/secrets.ts` centralizes
+  credential access/validation (`AUTH_SECRET`, `DEMO_USER_PASSWORD`,
+  `SESSION_SECRET`, GitHub OAuth/App secrets) so mechanism changes
+  (env → secret manager) are one-file swaps; `packages/git-provider` reads App
+  credentials through it, no direct `process.env` in providers.
+- **Sandbox runner interface** — `packages/sandbox-runner` now exposes a
+  `ValidationRunner` contract: deterministic local runner for dev/tests plus a
+  microVM-safe `runInValidationSandbox` stub that performs validated patch
+  transforms with no DB/network access (ready to swap the stub for a Firecracker
+  backend). Old direct patch-apply job path removed; 44+ unit tests.
+- **Redis & queue hardening** — `packages/queue/src/url.ts` validates Redis
+  URLs (protocol, host allowlist, no credentials in URL), worker rejects
+  oversize jobs (> 1 MiB), and rate-limit / retryable queue failures are
+  classified as `RateLimitError` (no poison-message retry loops).
+  `pnpm verify:lockfile` (root script) = frozen-lockfile install so dependency
+  drift is caught at CI time, and `redis-kernel` is pinned to a 7.x-compatible
+  version in the lockfile.
+- **ReDoS hardening** — `redactGitHubSecrets` PEM pattern bounded
+  (`[A-Za-z0-9+/]{500,}={0,2}` → `{170,2048}`) to kill quadratic backtracking
+  on unclosed `-----BEGIN` markers; regression tests are timing-guarded
+  (adversarial 500 KB inputs complete < 2 s), connector glob matching is
+  linearity-tested (`packages/vendor-connectors`), and the audit sanitizer gets
+  the same treatment.
 
 ### Connector moat (the product's core value)
 
@@ -80,9 +108,11 @@ after funding.
 - [ ] **GitHub App depth** — check runs, review comments, commit signing, PR merge (policy-gated),
       token rotation/revocation UI.
       (Install flow, webhooks, draft PRs, and OAuth sign-in are DONE — see above.)
-- [ ] **Sandbox hardening** — container/microVM isolation per validation run,
-      network egress control, resource limits. Current code explicitly says
-      "NOT a hardened multi-tenant sandbox".
+- [ ] **Sandbox hardening** — real container/microVM isolation per validation
+      run, network egress control, resource limits. The `ValidationRunner`
+      interface and a microVM-safe deterministic runner (no DB/network) are
+      DONE; the Firecracker/gVisor backend itself still needs infra+money.
+      Current code explicitly says "NOT a hardened multi-tenant sandbox".
 - [ ] **Real auth** — SSO (SAML/OIDC), SCIM, MFA, per-tenant BYO-AI-keys,
       data residency (EU/US), fine-grained RBAC.
 - [ ] **AI-generated patches** (not just advisory notes) with rule-engine
