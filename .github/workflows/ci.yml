@@ -39,6 +39,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Generate Prisma client
+        run: pnpm db:generate
       - run: pnpm format:check
       - run: pnpm lint
       - run: pnpm typecheck

@@ -7,7 +7,7 @@
   "types": "src/index.ts",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "generate": "dotenv -e ../../.env -- prisma generate",
+    "generate": "prisma generate",
     "migrate": "dotenv -e ../../.env -- prisma migrate deploy",
     "migrate:dev": "dotenv -e ../../.env -- prisma migrate dev",
     "seed": "dotenv -e ../../.env -- tsx prisma/seed.ts",
