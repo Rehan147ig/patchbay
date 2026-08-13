@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -32,10 +32,12 @@ afterEach(async () => {
 function makeWorkspace(scripts: Record<string, string>): string {
   const dir = mkdtempSync(path.join(tmpdir(), "patchbay-sandbox-"));
   tempDirs.push(dir);
-  writeFileSync(
-    path.join(dir, "package.json"),
-    JSON.stringify({ name: "sandbox-fixture", scripts }),
-  );
+  // mkdtempSync creates mode 0700 dirs; the container's user namespace maps
+  // to a different uid on the host, so make the fixture world-readable.
+  chmodSync(dir, 0o755);
+  const packageJson = path.join(dir, "package.json");
+  writeFileSync(packageJson, JSON.stringify({ name: "sandbox-fixture", scripts }));
+  chmodSync(packageJson, 0o644);
   return dir;
 }
 
