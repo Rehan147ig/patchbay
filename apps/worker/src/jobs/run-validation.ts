@@ -1,5 +1,4 @@
-import { mkdtempSync, cpSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { prisma } from "@patchbay/db";
