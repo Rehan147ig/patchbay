@@ -55,12 +55,6 @@ jobs:
           DATABASE_URL: "postgresql://patchbay:patchbay_dev_only@localhost:5432/patchbay?schema=public"
       - name: Create .env for build
         run: cp .env.example .env
-      - name: Run pnpm build
-        run: pnpm build
+      - run: pnpm build
         env:
           DATABASE_URL: "postgresql://patchbay:patchbay_dev_only@localhost:5432/patchbay?schema=public"
-          # GitHub Actions auto-injects GITHUB_REPOSITORY; the env schema
-          # requires GITHUB_TOKEN and GITHUB_REPOSITORY to be set together, so
-          # clear both to keep the build environment deterministic.
-          GITHUB_TOKEN: ""
-          GITHUB_REPOSITORY: ""

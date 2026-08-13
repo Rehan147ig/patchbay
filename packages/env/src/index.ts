@@ -109,7 +109,10 @@ export const envSchema = z
     if (Boolean(env.GITHUB_APP_ID) !== Boolean(env.GITHUB_APP_PRIVATE_KEY)) {
       issue("GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY must be set together");
     }
-    if (Boolean(env.GITHUB_TOKEN) !== Boolean(env.GITHUB_REPOSITORY)) {
+    // A lone GITHUB_REPOSITORY is inert (GitHub Actions injects it into every
+    // job; the provider only activates when both are set). Failing closed on a
+    // token without a repository keeps the PAT fallback explicit.
+    if (env.GITHUB_TOKEN && !env.GITHUB_REPOSITORY) {
       issue("GITHUB_TOKEN and GITHUB_REPOSITORY must be set together");
     }
     if (env.AI_PROVIDER !== "mock" && !env.OPENAI_API_KEY) {
