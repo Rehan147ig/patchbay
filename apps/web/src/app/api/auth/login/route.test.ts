@@ -5,18 +5,29 @@ const env = process.env as Record<string, string | undefined>;
 describe("login route in production", () => {
   const originalNodeEnv = env.NODE_ENV;
   const originalDbUrl = env.DATABASE_URL;
+  const originalGitHubToken = env.GITHUB_TOKEN;
+  const originalGitHubRepository = env.GITHUB_REPOSITORY;
 
   afterEach(() => {
     if (originalNodeEnv === undefined) delete env.NODE_ENV;
     else env.NODE_ENV = originalNodeEnv;
     if (originalDbUrl === undefined) delete env.DATABASE_URL;
     else env.DATABASE_URL = originalDbUrl;
+    // GitHub Actions injects GITHUB_REPOSITORY automatically; the env schema
+    // requires GITHUB_TOKEN and GITHUB_REPOSITORY to be set together, so clear
+    // both for a deterministic parseEnv at import time.
+    if (originalGitHubToken === undefined) delete env.GITHUB_TOKEN;
+    else env.GITHUB_TOKEN = originalGitHubToken;
+    if (originalGitHubRepository === undefined) delete env.GITHUB_REPOSITORY;
+    else env.GITHUB_REPOSITORY = originalGitHubRepository;
     vi.resetModules();
   });
 
   it("returns 404 in production instead of attempting password login", async () => {
     env.NODE_ENV = "production";
     env.DATABASE_URL = "postgresql://irrelevant-for-this-test";
+    delete env.GITHUB_TOKEN;
+    delete env.GITHUB_REPOSITORY;
     vi.resetModules();
     const { POST } = await import("./route");
 

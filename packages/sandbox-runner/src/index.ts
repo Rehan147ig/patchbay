@@ -368,6 +368,8 @@ export function buildDockerRunArgs(
     "--name",
     name,
     "--init",
+    "--user",
+    "0:0",
     "--network",
     "none",
     "--cpus",
