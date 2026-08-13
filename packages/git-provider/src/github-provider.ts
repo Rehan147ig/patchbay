@@ -102,12 +102,18 @@ export class GitHubProvider implements GitProvider {
     try {
       // Shallow clone using git CLI (faster than API for full checkout)
       const { execSync } = await import("node:child_process");
-      execSync(`git clone --depth 1 --branch ${baseBranch} https://x-access-token:${this.config.token}@github.com/${owner}/${repo}.git ${workspace}`, {
-        stdio: "ignore",
-      });
+      execSync(
+        `git clone --depth 1 --branch ${baseBranch} https://x-access-token:${this.config.token}@github.com/${owner}/${repo}.git ${workspace}`,
+        {
+          stdio: "ignore",
+        },
+      );
 
       // Verify the checked out HEAD matches the expected SHA
-      const headOutput = execSync(`git rev-parse HEAD`, { cwd: workspace, encoding: "utf8" }).trim();
+      const headOutput = execSync(`git rev-parse HEAD`, {
+        cwd: workspace,
+        encoding: "utf8",
+      }).trim();
       if (headOutput !== baseSha) {
         throw new Error(`checkout HEAD ${headOutput} does not match expected base SHA ${baseSha}`);
       }

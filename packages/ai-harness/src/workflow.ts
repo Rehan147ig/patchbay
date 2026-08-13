@@ -29,11 +29,7 @@ export interface ToolCallRecord {
 }
 
 export type WorkflowFailureKind =
-  | "BUDGET_EXCEEDED"
-  | "SCHEMA_VIOLATION"
-  | "TOOL_FAILURE"
-  | "ABORTED"
-  | "UNKNOWN";
+  "BUDGET_EXCEEDED" | "SCHEMA_VIOLATION" | "TOOL_FAILURE" | "ABORTED" | "UNKNOWN";
 
 export interface WorkflowFailure {
   stepId: string;
@@ -191,9 +187,7 @@ function assertValidDefinition(def: WorkflowDefinition): void {
     for (const dep of step.dependsOn ?? []) {
       const depPos = position.get(dep);
       if (depPos === undefined) {
-        throw new WorkflowDefinitionError(
-          `step '${step.stepId}' depends on unknown step '${dep}'`,
-        );
+        throw new WorkflowDefinitionError(`step '${step.stepId}' depends on unknown step '${dep}'`);
       }
       if (depPos >= position.get(step.stepId)!) {
         throw new WorkflowDefinitionError(

@@ -111,7 +111,10 @@ export class LocalGitProvider implements GitProvider {
       });
 
       // For local, we can't determine the real SHA, so use a deterministic hash
-      const baseSha = createHash("sha256").update(`${repositoryDir}:${baseBranch}`).digest("hex").slice(0, 7);
+      const baseSha = createHash("sha256")
+        .update(`${repositoryDir}:${baseBranch}`)
+        .digest("hex")
+        .slice(0, 7);
 
       return {
         workspaceDir: workspace,

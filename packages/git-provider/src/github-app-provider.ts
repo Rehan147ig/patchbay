@@ -1,7 +1,13 @@
 import { createSign } from "node:crypto";
 import type { SecretStore } from "@patchbay/env";
 import { GitHubProvider, type GitHubConfig } from "./github-provider";
-import type { CreateDraftPRInput, GitProvider, PullRequestResult, CheckoutInput, CheckoutResult } from "./local-provider";
+import type {
+  CreateDraftPRInput,
+  GitProvider,
+  PullRequestResult,
+  CheckoutInput,
+  CheckoutResult,
+} from "./local-provider";
 
 /**
  * GitHub App provider: authenticates as the App (RS256 JWT), exchanges for an

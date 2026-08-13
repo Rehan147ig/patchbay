@@ -148,7 +148,9 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
 
   // Checkout repository to a disposable workspace
   const checkoutResult = await provider.checkout({
-    repositoryDir: fixtureOf(repository.metadata) ? resolveFixtureDir(fixtureOf(repository.metadata)!) : "",
+    repositoryDir: fixtureOf(repository.metadata)
+      ? resolveFixtureDir(fixtureOf(repository.metadata)!)
+      : "",
     baseBranch: repository.defaultBranch,
   });
   const workspace = checkoutResult.workspaceDir;
