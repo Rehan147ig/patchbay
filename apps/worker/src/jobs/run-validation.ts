@@ -13,6 +13,7 @@ import {
 } from "@patchbay/sandbox-runner";
 import type { Job } from "bullmq";
 import { writeAuditEvent } from "../lib/audit";
+import { createGitProviderFromEnv } from "@patchbay/git-provider";
 
 /**
  * run-validation processor.
@@ -77,7 +78,14 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
 
   const plan = await prisma.remediationPlan.findUnique({
     where: { id: remediationPlanId },
-    include: { impactAssessment: { include: { repository: true } }, patches: true },
+    include: {
+      impactAssessment: {
+        include: {
+          repository: true,
+        },
+      },
+      patches: true,
+    },
   });
   if (!plan) {
     throw new Error(`remediation plan not found: ${remediationPlanId}`);
@@ -126,18 +134,26 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
   });
   logger.info("validation started", { validationRunId, remediationPlanId, correlationId });
 
-  const workspace = mkdtempSync(path.join(tmpdir(), "patchbay-validate-"));
-  try {
-    const fixture = fixtureOf(plan.impactAssessment.repository.metadata);
-    if (!fixture) {
-      throw new Error(`repository ${plan.impactAssessment.repositoryId} has no fixture metadata`);
-    }
-    const fixtureDir = resolveFixtureDir(fixture);
-    cpSync(fixtureDir, workspace, {
-      recursive: true,
-      filter: (source) => !source.includes("node_modules"),
-    });
+  // Create git provider based on repository type
+  const repository = plan.impactAssessment.repository;
+  const installationId = installationIdOf(repository.metadata);
+  const provider =
+    repository.provider === "GITHUB" && installationId
+      ? createGitProviderFromEnv({
+          installationId,
+          repositoryFullName: repository.fullName,
+          baseBranch: repository.defaultBranch ?? undefined,
+        })
+      : createGitProviderFromEnv();
 
+  // Checkout repository to a disposable workspace
+  const checkoutResult = await provider.checkout({
+    repositoryDir: fixtureOf(repository.metadata) ? resolveFixtureDir(fixtureOf(repository.metadata)!) : "",
+    baseBranch: repository.defaultBranch,
+  });
+  const workspace = checkoutResult.workspaceDir;
+
+  try {
     for (const patch of plan.patches) {
       // Path traversal guard: patch.filePath is derived from repository
       // analysis but treat it as untrusted. Absolute paths and `..`
@@ -276,4 +292,10 @@ function fixtureOf(metadata: unknown): string | null {
   if (typeof metadata !== "object" || metadata === null) return null;
   const fixture = (metadata as { fixture?: unknown }).fixture;
   return typeof fixture === "string" && fixture.length > 0 ? fixture : null;
+}
+
+function installationIdOf(metadata: unknown): number | null {
+  if (typeof metadata !== "object" || metadata === null) return null;
+  const value = (metadata as { installationId?: unknown }).installationId;
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
 }

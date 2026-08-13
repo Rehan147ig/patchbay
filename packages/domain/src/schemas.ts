@@ -78,6 +78,23 @@ export const agentIngestSchema = z.object({
 });
 export type AgentIngestRequest = z.infer<typeof agentIngestSchema>;
 
+/**
+ * Body for the uniform submission endpoint (POST /api/submission).
+ *
+ * A submission is an idempotent request to create or refresh a task parameter
+ * (taskId + type identify it); retries overwrite inputs, never duplicate.
+ * `domain` scopes the executor that will process it (only "NPM" is wired today);
+ * `input` is opaque but bounded and passed through to the task output.
+ */
+export const submissionSchema = z.object({
+  taskId: z.string().min(1).max(255),
+  type: z.string().min(1).max(100),
+  domain: z.enum(["NPM", "GITHUB_RELEASE", "OPENAPI", "VENDOR_MANIFEST", "CHANGELOG"]),
+  input: z.record(z.string(), z.unknown()).optional(),
+  deadline: z.string().datetime().optional(),
+});
+export type SubmissionRequest = z.infer<typeof submissionSchema>;
+
 export const openApiDiffRequestSchema = z.object({
   oldDocument: z.string().min(1),
   newDocument: z.string().min(1),
@@ -170,6 +187,123 @@ export const aiPlanDraftSchema = z.object({
     .default([]),
 });
 export type AiPlanDraft = z.infer<typeof aiPlanDraftSchema>;
+
+// ---------------------------------------------------------------------------
+// Agent Harness (Phases H3-H4): typed, bounded PatchPlan contract.
+// The plan is a PROPOSAL: it carries source-hash-bound edits and preconditions.
+// Nothing here is executable; the deterministic engine applies and validates
+// edits later, and any mismatch invalidates the whole plan.
+// ---------------------------------------------------------------------------
+
+export const patchPlanEditOperationSchema = z.enum(["REPLACE", "INSERT_AFTER", "DELETE"]);
+
+export const patchPlanEditSchema = z.object({
+  filePath: z.string().min(1).max(512),
+  /** sha256 of the file content the edit expects; mismatches invalidate the plan. */
+  expectedSourceHash: z.string().regex(/^[0-9a-f]{64}$/),
+  operation: patchPlanEditOperationSchema,
+  /** Exact text to anchor the edit (REPLACE/INSERT_AFTER). Bounded, never regex. */
+  searchText: z.string().min(1).max(4000).optional(),
+  replacement: z.string().max(4000).optional(),
+  /** Human-readable AST/precondition check description (e.g. "caller expression is a member call"). */
+  precondition: z.string().min(1).max(500).optional(),
+  description: z.string().min(1).max(500),
+  confidence: z.number().int().min(0).max(100),
+});
+export type PatchPlanEdit = z.infer<typeof patchPlanEditSchema>;
+
+/** Plan-only proposal from the planner. Bound by the schema; edits ≤ 50. */
+export const patchPlanSchema = z.object({
+  releaseRecordId: z.string().min(1),
+  repositoryId: z.string().min(1),
+  expectedCommitSha: z.string().max(200).optional(),
+  rationale: z.string().min(1).max(4000),
+  confidence: z.number().int().min(0).max(100),
+  requiresHumanReview: z.boolean(),
+  riskLevel: z.enum([RiskLevel.LOW, RiskLevel.MEDIUM, RiskLevel.HIGH, RiskLevel.CRITICAL]),
+  riskTags: z
+    .array(
+      z.enum([
+        RiskTag.PAYMENT,
+        RiskTag.AUTH,
+        RiskTag.PII,
+        RiskTag.WEBHOOK,
+        RiskTag.INFRASTRUCTURE,
+        RiskTag.TEST_ONLY,
+        RiskTag.OTHER,
+      ]),
+    )
+    .max(10)
+    .default([]),
+  edits: z.array(patchPlanEditSchema).min(0).max(50),
+  validationProfile: z
+    .array(z.enum(["typecheck", "test", "lint"]))
+    .max(5)
+    .default([]),
+  /** Change drafts this plan addresses (affected symbols), for reviewer alignment. */
+  addressedSymbols: z.array(z.string().min(1).max(200)).max(200).default([]),
+});
+export type PatchPlan = z.infer<typeof patchPlanSchema>;
+
+/** Bounded context handed to the planner: trusted release facts + graph evidence only. */
+export const patchGenerationInputSchema = z.object({
+  releaseRecordId: z.string().min(1),
+  repositoryId: z.string().min(1),
+  expectedCommitSha: z.string().max(200).optional(),
+  vendorSlug: z.string().min(1).max(100),
+  packageName: z.string().min(1).max(100),
+  fromVersion: z.string().max(50).nullable(),
+  toVersion: z.string().max(50),
+  breaking: z.boolean(),
+  resolvedVersion: z.string().max(50).nullable(),
+  declaredRange: z.string().max(200).nullable(),
+  /** Change drafts produced by deterministic classification (with rule attribution). */
+  drafts: z
+    .array(
+      z.object({
+        changeType: z.string().min(1).max(100),
+        oldValue: z.string().max(500).nullable(),
+        newValue: z.string().max(500).nullable(),
+        description: z.string().max(1000).nullable(),
+        breaking: z.boolean(),
+        affectedSymbols: z.array(z.string().min(1).max(200)).max(50).default([]),
+        rule: z.string().max(200).nullable(),
+      }),
+    )
+    .max(30)
+    .default([]),
+  /** Bounded graph evidence: every using module with its edge kinds. */
+  modules: z
+    .array(
+      z.object({
+        filePath: z.string().min(1).max(512),
+        edgeKinds: z.array(z.string().min(1).max(100)).max(10).default([]),
+        evidenceCount: z.number().int().min(0).max(10_000),
+      }),
+    )
+    .max(200)
+    .default([]),
+});
+export type PatchGenerationInput = z.infer<typeof patchGenerationInputSchema>;
+
+/** Independent reviewer verdict: compares release evidence, plan edits, and optional validation evidence. */
+export const reviewVerdictSchema = z.object({
+  approved: z.boolean(),
+  independent: z.literal(true),
+  confidence: z.number().int().min(0).max(100),
+  summary: z.string().min(1).max(2000),
+  issues: z
+    .array(
+      z.object({
+        severity: z.enum(["error", "warning", "info"]),
+        target: z.enum(["plan", "evidence", "validation"]),
+        message: z.string().min(1).max(1000),
+      }),
+    )
+    .max(20)
+    .default([]),
+});
+export type ReviewVerdict = z.infer<typeof reviewVerdictSchema>;
 
 export const policyDecisionResultSchema = z.object({
   decision: z.enum([

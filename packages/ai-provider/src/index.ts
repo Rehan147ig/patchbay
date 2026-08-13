@@ -4,7 +4,14 @@ import type { AiProvider } from "./openai-compatible";
 
 export { MockAiProvider } from "./mock";
 export { OpenAiCompatibleProvider, loadPlanDraftTemplate } from "./openai-compatible";
-export type { AiPlanDraftInput, AiProvider, OpenAiCompatibleConfig } from "./openai-compatible";
+export type {
+  AiPlanDraftInput,
+  AiProvider,
+  AiProviderResult,
+  OpenAiCompatibleConfig,
+  PatchPlanPromptRequest,
+  PlanReviewPromptRequest,
+} from "./openai-compatible";
 export type { AiPlanDraft } from "@patchbay/domain";
 
 /**

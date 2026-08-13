@@ -1,5 +1,6 @@
 import type { BadgeTone, StatusPillProps } from "@patchbay/ui";
 import {
+  AgentRunStatus,
   ImpactStatus,
   PlanStatus,
   PullRequestStatus,
@@ -75,6 +76,15 @@ export const PLAN_STATUS_TONE: Record<PlanStatus, StatusPillProps["tone"]> = {
   BLOCKED: "red",
   PR_CREATED: "green",
   FAILED: "red",
+};
+
+export const AGENT_RUN_STATUS_TONE: Record<AgentRunStatus, StatusPillProps["tone"]> = {
+  QUEUED: "neutral",
+  RUNNING: "blue",
+  SUCCEEDED: "green",
+  FAILED: "red",
+  BUDGET_EXCEEDED: "amber",
+  CANCELLED: "neutral",
 };
 
 export const VALIDATION_STATUS_TONE: Record<ValidationStatus, StatusPillProps["tone"]> = {

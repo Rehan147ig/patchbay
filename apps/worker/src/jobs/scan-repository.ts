@@ -127,6 +127,39 @@ export async function processScanRepository(job: Job): Promise<ScanRepositoryRes
       if (nextUsages.length > 0) {
         await tx.integrationUsage.createMany({ data: nextUsages });
       }
+
+      // Lockfile-resolved dependency inventory (content-addressed per commit):
+      // every package named in the lockfile with a resolved version, carrying
+      // the merged declared range from manifests. This is the tenant-facing
+      // row the release matcher (Phase E) resolves against.
+      const declaredByPackage = new Map<string, string>();
+      for (const manifest of analysis.manifests) {
+        for (const [pkg, range] of Object.entries(manifest.dependencies)) {
+          declaredByPackage.set(
+            pkg,
+            declaredByPackage.has(pkg) ? declaredByPackage.get(pkg)! : range,
+          );
+        }
+        for (const [pkg, range] of Object.entries(manifest.devDependencies)) {
+          declaredByPackage.set(
+            pkg,
+            declaredByPackage.has(pkg) ? declaredByPackage.get(pkg)! : range,
+          );
+        }
+      }
+      const dependencyRows = Object.entries(analysis.lockfileVersions).map(
+        ([packageName, resolvedVersion]) => ({
+          organizationId: repository.organizationId,
+          repositoryId,
+          packageName,
+          declaredRange: declaredByPackage.get(packageName) ?? null,
+          resolvedVersion,
+          lockfileKind: analysis.packageManager,
+          commitSha: analysis.commitSha,
+        }),
+      );
+      await tx.repositoryDependency.createMany({ data: dependencyRows, skipDuplicates: true });
+
       await tx.repositoryScan.update({
         where: { id: scanId },
         data: {
@@ -158,6 +191,7 @@ export async function processScanRepository(job: Job): Promise<ScanRepositoryRes
       after: {
         commitSha: analysis.commitSha,
         usageCount: usages.length,
+        dependencyCount: Object.keys(analysis.lockfileVersions).length,
         filesScanned: analysis.filesScanned,
         durationMs: analysis.durationMs,
       },

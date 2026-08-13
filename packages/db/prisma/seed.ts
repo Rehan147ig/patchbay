@@ -65,8 +65,40 @@ async function main(): Promise<void> {
   await seedRepositories();
   await seedChangeEvents();
   await seedAuditHistory(org.id);
+  await seedTaskParameters();
 
   console.log("[seed] done");
+}
+
+/**
+ * Seeds the Watchtower daemon's initial task parameters: one PENDING npm
+ * update task per launch product. The worker's update-task daemon picks
+ * these up on start. Idempotent via the (taskId, type) unique key.
+ */
+async function seedTaskParameters(): Promise<void> {
+  const products = [
+    { taskId: "npm:openai@latest", packageName: "openai" },
+    { taskId: "npm:stripe@latest", packageName: "stripe" },
+    { taskId: "npm:twilio@latest", packageName: "twilio" },
+  ];
+  for (const product of products) {
+    await prisma.taskParameter.upsert({
+      where: { taskId_type: { taskId: product.taskId, type: "PRODUCT_UPDATE" } },
+      update: {
+        domain: "NPM",
+        status: "PENDING",
+        inputJson: { packageName: product.packageName, organizationId: ORG_ID },
+      },
+      create: {
+        taskId: product.taskId,
+        type: "PRODUCT_UPDATE",
+        domain: "NPM",
+        status: "PENDING",
+        inputJson: { packageName: product.packageName, organizationId: ORG_ID },
+      },
+    });
+  }
+  console.log(`[seed] task parameters (${products.length})`);
 }
 
 async function seedVendors(): Promise<void> {

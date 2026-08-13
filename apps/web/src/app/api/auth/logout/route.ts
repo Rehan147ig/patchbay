@@ -2,7 +2,7 @@ import { AuditAction } from "@patchbay/audit";
 import type { NextRequest } from "next/server";
 import { getCorrelationId, jsonError, jsonOk, writeAuditEvent } from "@/lib/api";
 import { readSessionCookie, SESSION_COOKIE } from "@/lib/session";
-import { assertCsrfToken } from "@/lib/csrf";
+import { assertCsrfToken } from "@/lib/csrf-server";
 
 export async function POST(request: NextRequest) {
   const correlationId = getCorrelationId(request);

@@ -220,4 +220,7 @@ Reset demo state: `pnpm db:reset` (or the "Reset demo data" action on `/demo`).
 - Full ecosystem coverage (Python, Go, etc.) behind the same interfaces.
 
 See [docs/implementation-plan.md](docs/implementation-plan.md) for phase status and
-[docs/threat-model.md](docs/threat-model.md) for the security analysis.
+[docs/threat-model.md](docs/threat-model.md) for the security analysis. The implementation blueprint
+for proactive vendor-change detection is [docs/RELEASE-WATCHTOWER.md](docs/RELEASE-WATCHTOWER.md).
+The build roadmap for the software graph and governed multi-agent system is
+[docs/PATCHBAY-AGENT-HARNESS-ROADMAP.md](docs/PATCHBAY-AGENT-HARNESS-ROADMAP.md).

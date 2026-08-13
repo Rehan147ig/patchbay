@@ -16,6 +16,8 @@ export const ORG_SCOPED_MODELS = [
   "AuditEvent",
   "GitHubInstallation",
   "Repository",
+  "ReleaseRepositoryMatch",
+  "RepositoryDependency",
   "RepositoryScan",
   "Vendor",
   "VendorChangeEvent",
@@ -28,6 +30,13 @@ export const ORG_SCOPED_MODELS = [
   "PullRequest",
   "Policy",
   "Approval",
+  "GraphSnapshot",
+  "GraphNode",
+  "GraphEdge",
+  "GraphSourceEvidence",
+  "GraphIndexJob",
+  "AgentRun",
+  "AgentStep",
 ] as const;
 
 export type OrgScopedModel = (typeof ORG_SCOPED_MODELS)[number];

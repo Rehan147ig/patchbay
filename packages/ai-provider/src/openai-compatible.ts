@@ -18,6 +18,71 @@ export interface AiPlanDraftInput {
 export interface AiProvider {
   /** Drafts an advisory remediation plan. Output is parsed through aiPlanDraftSchema. */
   draftRemediationPlan(input: AiPlanDraftInput): Promise<AiPlanDraft>;
+
+  /**
+   * Agent-harness planner call: emits the raw model output for a typed
+   * PatchPlan request. The harness (packages/ai-harness) owns schema
+   * conformance, budgeting, and persistence; this method is pure transport.
+   * Returns `unknown` JSON — validation happens in the harness.
+   */
+  generatePatchPlan(input: PatchPlanPromptRequest): Promise<AiProviderResult>;
+
+  /** Independent reviewer call: compares evidence vs plan vs validation evidence. */
+  reviewPatchPlan(input: PlanReviewPromptRequest): Promise<AiProviderResult>;
+}
+
+/** Usage/cost metadata returned alongside any provider output. */
+export interface AiProviderResult {
+  output: unknown;
+  usage?: {
+    inputTokens?: number;
+    outputTokens?: number;
+    model: string;
+  } | null;
+}
+
+/** Bounded, sanitized planner request. Must never contain secrets or unbounded repo content. */
+export interface PatchPlanPromptRequest {
+  templateVersion: string;
+  vendorSlug: string;
+  packageName: string;
+  fromVersion: string | null;
+  toVersion: string;
+  breaking: boolean;
+  resolvedVersion: string | null;
+  declaredRange: string | null;
+  drafts: Array<{
+    changeType: string;
+    oldValue: string | null;
+    newValue: string | null;
+    description: string | null;
+    breaking: boolean;
+    affectedSymbols: string[];
+    rule: string | null;
+  }>;
+  modules: Array<{ filePath: string; edgeKinds: string[]; evidenceCount: number }>;
+}
+
+/** Bounded reviewer request: the proposal plus the evidence it must be checked against. */
+export interface PlanReviewPromptRequest {
+  templateVersion: string;
+  packageName: string;
+  fromVersion: string | null;
+  toVersion: string;
+  breaking: boolean;
+  plan: {
+    rationale: string;
+    confidence: number;
+    edits: Array<{
+      filePath: string;
+      operation: string;
+      description: string;
+    }>;
+    addressedSymbols: string[];
+  };
+  evidence: {
+    modules: Array<{ filePath: string; edgeKinds: string[] }>;
+  };
 }
 
 export interface OpenAiCompatibleConfig {
@@ -34,8 +99,18 @@ const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 export const OPENAI_COMPATIBLE_TEMPLATE_PATH = () =>
   path.join(process.cwd(), "packages", "ai-provider", "prompts", "plan-draft.md");
 
+export const PLAN_GENERATION_TEMPLATE_PATH = () =>
+  path.join(process.cwd(), "packages", "ai-provider", "prompts", "plan-generation.md");
+
+export const PLAN_REVIEW_TEMPLATE_PATH = () =>
+  path.join(process.cwd(), "packages", "ai-provider", "prompts", "plan-review.md");
+
 /** Inline fallback so the provider stays functional even if the file is absent. */
 const FALLBACK_SYSTEM_PROMPT = `You are Patchbay, an API-change remediation advisor. Given a vendor API change and affected code usages, produce a remediation plan draft. Respond with strict JSON only. The plan is advisory: it must not contain shell commands, and every suggestion must be grounded in the provided change details.`;
+
+const FALLBACK_PLAN_GENERATION_PROMPT = `You are Patchbay's migration planner. Given trusted release facts (deterministic change drafts) and bounded graph evidence of affected modules, produce a strict-JSON PatchPlan: edits are declarative file edits (filePath, operation REPLACE|INSERT_AFTER|DELETE, searchText, replacement, description, confidence), each grounded in the provided drafts. Never invent files, symbols, or content not grounded in the input. The plan is a proposal; it must never contain shell commands or credentials.`;
+
+const FALLBACK_PLAN_REVIEW_PROMPT = `You are Patchbay's independent reviewer. Compare the release evidence (change drafts), the proposed plan edits, and validation evidence. Return strict JSON: { approved, independent: true, confidence, summary, issues: [{severity: error|warning|info, target: plan|evidence|validation, message}] }. Be conservative: approval requires every breaking affected symbol to be addressed by the plan.`;
 
 export function loadPlanDraftTemplate(): string {
   try {
@@ -45,12 +120,30 @@ export function loadPlanDraftTemplate(): string {
   }
 }
 
+export function loadPlanGenerationTemplate(): string {
+  try {
+    return readFileSync(PLAN_GENERATION_TEMPLATE_PATH(), "utf8");
+  } catch {
+    return FALLBACK_PLAN_GENERATION_PROMPT;
+  }
+}
+
+export function loadPlanReviewTemplate(): string {
+  try {
+    return readFileSync(PLAN_REVIEW_TEMPLATE_PATH(), "utf8");
+  } catch {
+    return FALLBACK_PLAN_REVIEW_PROMPT;
+  }
+}
+
 export class OpenAiCompatibleProvider implements AiProvider {
   private readonly apiKey: string;
   private readonly model: string;
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
   private readonly systemPrompt: string;
+  private readonly planGenerationPrompt: string;
+  private readonly planReviewPrompt: string;
 
   constructor(config: OpenAiCompatibleConfig) {
     if (!config.apiKey || config.apiKey.length === 0) {
@@ -61,10 +154,64 @@ export class OpenAiCompatibleProvider implements AiProvider {
     this.baseUrl = (config.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, "");
     this.fetchImpl = config.fetchImpl ?? fetch;
     this.systemPrompt = loadPlanDraftTemplate();
+    this.planGenerationPrompt = loadPlanGenerationTemplate();
+    this.planReviewPrompt = loadPlanReviewTemplate();
   }
 
   async draftRemediationPlan(input: AiPlanDraftInput): Promise<AiPlanDraft> {
     const userPrompt = buildUserPrompt(input);
+    const response = await this.chatJson(
+      [{ role: "system", content: this.systemPrompt }],
+      userPrompt,
+    );
+    const parsed = this.extractJsonContent(response);
+    const result = aiPlanDraftSchema.safeParse(parsed);
+    if (!result.success) {
+      throw new Error(
+        `AI provider output failed schema validation: ${result.error.issues
+          .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
+          .join("; ")}`,
+      );
+    }
+    return result.data;
+  }
+
+  async generatePatchPlan(input: PatchPlanPromptRequest): Promise<AiProviderResult> {
+    const response = await this.chatJson(
+      [{ role: "system", content: this.planGenerationPrompt }],
+      buildPlanGenerationPrompt(input),
+    );
+    const output = this.extractJsonContent(response);
+    return {
+      output,
+      usage: {
+        inputTokens: response.promptTokens,
+        outputTokens: response.completionTokens,
+        model: this.model,
+      },
+    };
+  }
+
+  async reviewPatchPlan(input: PlanReviewPromptRequest): Promise<AiProviderResult> {
+    const response = await this.chatJson(
+      [{ role: "system", content: this.planReviewPrompt }],
+      buildPlanReviewPrompt(input),
+    );
+    const output = this.extractJsonContent(response);
+    return {
+      output,
+      usage: {
+        inputTokens: response.promptTokens,
+        outputTokens: response.completionTokens,
+        model: this.model,
+      },
+    };
+  }
+
+  private async chatJson(
+    messages: Array<{ role: "system" | "user"; content: string }>,
+    userPrompt: string,
+  ): Promise<{ content: unknown; promptTokens?: number; completionTokens?: number }> {
     const response = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
@@ -76,10 +223,7 @@ export class OpenAiCompatibleProvider implements AiProvider {
         temperature: 0,
         max_tokens: 2048,
         response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: this.systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
+        messages: [...messages, { role: "user", content: userPrompt }],
       }),
     });
 
@@ -92,36 +236,34 @@ export class OpenAiCompatibleProvider implements AiProvider {
       );
     }
 
-    let content: unknown;
+    let body: {
+      choices?: Array<{ message?: { content?: unknown } }>;
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
+    };
     try {
-      const body = (await response.json()) as {
-        choices?: Array<{ message?: { content?: unknown } }>;
-      };
-      content = body.choices?.[0]?.message?.content;
+      body = (await response.json()) as typeof body;
     } catch {
       throw new Error("AI provider returned a non-JSON response");
     }
+    return {
+      content: body.choices?.[0]?.message?.content,
+      promptTokens: body.usage?.prompt_tokens,
+      completionTokens: body.usage?.completion_tokens,
+    };
+  }
 
+  private extractJsonContent(response: { content: unknown }): unknown {
     let parsed: unknown;
-    if (typeof content === "string") {
+    if (typeof response.content === "string") {
       try {
-        parsed = JSON.parse(content);
+        parsed = JSON.parse(response.content);
       } catch {
         throw new Error("AI provider returned invalid JSON in message content");
       }
     } else {
-      parsed = content;
+      parsed = response.content;
     }
-
-    const result = aiPlanDraftSchema.safeParse(parsed);
-    if (!result.success) {
-      throw new Error(
-        `AI provider output failed schema validation: ${result.error.issues
-          .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
-          .join("; ")}`,
-      );
-    }
-    return result.data;
+    return parsed;
   }
 }
 
@@ -150,4 +292,60 @@ async function safeBodyText(response: Response): Promise<string> {
   } catch {
     return "";
   }
+}
+
+function buildPlanGenerationPrompt(input: PatchPlanPromptRequest): string {
+  const draftLines = input.drafts
+    .map(
+      (draft) =>
+        `- [${draft.changeType}${draft.breaking ? "/breaking" : ""}]` +
+        ` ${sanitizeField(draft.description ?? "")}` +
+        ` ${draft.oldValue ?? ""} -> ${draft.newValue ?? ""}` +
+        ` symbols: ${draft.affectedSymbols.map(sanitizeField).join(", ") || "none"}` +
+        ` rule: ${draft.rule ?? "none"}`,
+    )
+    .join("\n");
+  const moduleLines = input.modules
+    .map(
+      (module) =>
+        `- ${sanitizeField(module.filePath)} [${module.edgeKinds.join(", ")}] evidence=${module.evidenceCount}`,
+    )
+    .join("\n");
+  return [
+    `Release: ${sanitizeField(input.packageName)} ${input.fromVersion ?? "?"} -> ${input.toVersion}`,
+    `Breaking: ${input.breaking}`,
+    `Resolved in repository: ${input.resolvedVersion ?? "?"} declared: ${input.declaredRange ?? "?"}`,
+    "Deterministic change drafts:",
+    draftLines || "- none",
+    `Affected modules (graph evidence, ${input.modules.length}):`,
+    moduleLines || "- none",
+    "Return a strict JSON PatchPlan: { releaseRecordId, repositoryId, rationale, confidence, requiresHumanReview, riskLevel, riskTags: [], edits: [{ filePath, expectedSourceHash (64 hex chars; use a placeholder of 64 zeros if unknown), operation: REPLACE|INSERT_AFTER|DELETE, searchText, replacement, precondition, description, confidence }], validationProfile: [], addressedSymbols: [] }.",
+  ].join("\n");
+}
+
+function buildPlanReviewPrompt(input: PlanReviewPromptRequest): string {
+  const editLines = input.plan.edits
+    .map(
+      (edit) =>
+        `- ${sanitizeField(edit.filePath)} [${edit.operation}] ${sanitizeField(edit.description)}`,
+    )
+    .join("\n");
+  const moduleLines = input.evidence.modules
+    .map((module) => `- ${sanitizeField(module.filePath)} [${module.edgeKinds.join(", ")}]`)
+    .join("\n");
+  return [
+    `Release: ${sanitizeField(input.packageName)} ${input.fromVersion ?? "?"} -> ${input.toVersion} (breaking=${input.breaking})`,
+    `Addressed symbols: ${input.plan.addressedSymbols.map(sanitizeField).join(", ") || "none"}`,
+    "Proposed plan:",
+    `- rationale: ${importField(input.plan.rationale)}`,
+    `- confidence: ${input.plan.confidence}`,
+    editLines || "- no edits",
+    "Evidence (affected modules):",
+    moduleLines || "- none",
+    "Return strict JSON ReviewVerdict: { approved, independent: true, confidence, summary, issues: [{ severity: error|warning|info, target: plan|evidence|validation, message }] }. Approval requires every breaking change draft's affected symbol to be addressed by the plan.",
+  ].join("\n");
+}
+
+function importField(value: string): string {
+  return sanitizeField(value).slice(0, 1000);
 }

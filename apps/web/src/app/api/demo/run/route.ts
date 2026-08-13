@@ -6,7 +6,7 @@ import { demoRunSchema } from "@patchbay/domain";
 import type { NextRequest } from "next/server";
 import { getCorrelationId, jsonError, jsonOk, parseBody, writeAuditEvent } from "@/lib/api";
 import { requireRole } from "@/lib/auth";
-import { assertCsrfToken } from "@/lib/csrf";
+import { assertCsrfToken } from "@/lib/csrf-server";
 
 /**
  * OpenAI SDK v3 -> v4 change payload with a feature-adoption capability:

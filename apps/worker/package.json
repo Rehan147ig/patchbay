@@ -10,6 +10,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@patchbay/ai-harness": "workspace:*",
+    "@patchbay/ai-provider": "workspace:*",
     "@patchbay/audit": "workspace:*",
     "@patchbay/db": "workspace:*",
     "@patchbay/domain": "workspace:*",

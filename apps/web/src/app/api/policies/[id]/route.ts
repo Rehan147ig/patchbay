@@ -4,7 +4,7 @@ import { notFound, policyUpdateSchema } from "@patchbay/domain";
 import type { NextRequest } from "next/server";
 import { getCorrelationId, jsonError, jsonOk, parseBody, writeAuditEvent } from "@/lib/api";
 import { requireRole } from "@/lib/auth";
-import { assertCsrfToken } from "@/lib/csrf";
+import { assertCsrfToken } from "@/lib/csrf-server";
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const correlationId = getCorrelationId(request);

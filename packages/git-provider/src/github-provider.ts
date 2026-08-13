@@ -1,9 +1,15 @@
+import { createHash } from "node:crypto";
+import { mkdtempSync, cpSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { RepositoryProvider, PullRequestStatus } from "@patchbay/domain";
 import {
   LocalGitProvider,
   type CreateDraftPRInput,
   type GitProvider,
   type PullRequestResult,
+  type CheckoutInput,
+  type CheckoutResult,
 } from "./local-provider";
 import { createGitHubAppProviderFromEnv, isGitHubAppConfigured } from "./github-app-provider";
 
@@ -79,6 +85,42 @@ export class GitHubProvider implements GitProvider {
       body: input.body,
       status: PullRequestStatus.DRAFT,
     };
+  }
+
+  async checkout(input: CheckoutInput): Promise<CheckoutResult> {
+    const owner = this.config.repository.split("/")[0]!;
+    const repo = this.config.repository.split("/")[1]!;
+    const baseBranch = input.baseBranch ?? (await this.defaultBranch(owner, repo));
+
+    const baseRef = await this.request<{ object: { sha: string } }>(
+      `/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(baseBranch)}`,
+      { method: "GET" },
+    );
+    const baseSha = baseRef.object.sha;
+
+    const workspace = mkdtempSync(path.join(tmpdir(), `patchbay-checkout-`));
+    try {
+      // Shallow clone using git CLI (faster than API for full checkout)
+      const { execSync } = await import("node:child_process");
+      execSync(`git clone --depth 1 --branch ${baseBranch} https://x-access-token:${this.config.token}@github.com/${owner}/${repo}.git ${workspace}`, {
+        stdio: "ignore",
+      });
+
+      // Verify the checked out HEAD matches the expected SHA
+      const headOutput = execSync(`git rev-parse HEAD`, { cwd: workspace, encoding: "utf8" }).trim();
+      if (headOutput !== baseSha) {
+        throw new Error(`checkout HEAD ${headOutput} does not match expected base SHA ${baseSha}`);
+      }
+
+      return { workspaceDir: workspace, baseBranch, baseSha };
+    } catch (error) {
+      try {
+        rmSync(workspace, { recursive: true, force: true });
+      } catch {
+        // Ignore cleanup errors
+      }
+      throw error;
+    }
   }
 
   private async defaultBranch(owner: string, repo: string): Promise<string> {

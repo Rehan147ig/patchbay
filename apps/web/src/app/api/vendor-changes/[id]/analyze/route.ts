@@ -5,7 +5,7 @@ import { enqueue, JobType } from "@patchbay/queue";
 import type { NextRequest } from "next/server";
 import { getCorrelationId, jsonError, jsonOk, writeAuditEvent } from "@/lib/api";
 import { requireRole } from "@/lib/auth";
-import { assertCsrfToken } from "@/lib/csrf";
+import { assertCsrfToken } from "@/lib/csrf-server";
 
 /**
  * POST /api/vendor-changes/[id]/analyze

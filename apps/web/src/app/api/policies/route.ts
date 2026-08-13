@@ -4,7 +4,7 @@ import { conflict, policyCreateSchema } from "@patchbay/domain";
 import type { NextRequest } from "next/server";
 import { getCorrelationId, jsonError, jsonOk, parseBody, writeAuditEvent } from "@/lib/api";
 import { requireRole } from "@/lib/auth";
-import { assertCsrfToken } from "@/lib/csrf";
+import { assertCsrfToken } from "@/lib/csrf-server";
 
 export async function GET(request: NextRequest) {
   const correlationId = getCorrelationId(request);

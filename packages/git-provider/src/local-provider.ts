@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtempSync, cpSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -36,6 +37,23 @@ export interface PullRequestResult {
 
 export interface GitProvider {
   createDraftPullRequest(input: CreateDraftPRInput): Promise<PullRequestResult>;
+  /**
+   * Checks out a repository to a disposable workspace directory.
+   * The caller is responsible for cleanup.
+   */
+  checkout(input: CheckoutInput): Promise<CheckoutResult>;
+}
+
+export interface CheckoutInput {
+  repositoryDir: string;
+  baseBranch?: string;
+}
+
+export interface CheckoutResult {
+  workspaceDir: string;
+  baseBranch: string;
+  /** SHA of the base branch HEAD that was checked out. */
+  baseSha: string;
 }
 
 /**
@@ -77,6 +95,34 @@ export class LocalGitProvider implements GitProvider {
         rmSync(workspace, { recursive: true, force: true });
       } catch {
         // Ignore cleanup errors on failure
+      }
+      throw error;
+    }
+  }
+
+  async checkout(input: CheckoutInput): Promise<CheckoutResult> {
+    const { repositoryDir, baseBranch = "main" } = input;
+    const workspace = mkdtempSync(path.join(tmpdir(), `patchbay-checkout-`));
+
+    try {
+      cpSync(repositoryDir, workspace, {
+        recursive: true,
+        filter: (source) => !source.includes("node_modules"),
+      });
+
+      // For local, we can't determine the real SHA, so use a deterministic hash
+      const baseSha = createHash("sha256").update(`${repositoryDir}:${baseBranch}`).digest("hex").slice(0, 7);
+
+      return {
+        workspaceDir: workspace,
+        baseBranch,
+        baseSha,
+      };
+    } catch (error) {
+      try {
+        rmSync(workspace, { recursive: true, force: true });
+      } catch {
+        // Ignore cleanup errors
       }
       throw error;
     }

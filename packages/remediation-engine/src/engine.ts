@@ -49,7 +49,8 @@ function applyResponseUnwrap(fileText: string, symbol: string): string {
   return fileText.split(`${chain}.data`).join(chain);
 }
 
-function reparseCheck(filePath: string, content: string): boolean {
+/** Re-parses patched content; true only when the file still parses (validation proxy). */
+export function reparseCheck(filePath: string, content: string): boolean {
   const result = ts.transpileModule(content, {
     fileName: filePath,
     reportDiagnostics: true,

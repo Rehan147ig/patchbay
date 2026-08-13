@@ -5,7 +5,7 @@ import type { NextRequest } from "next/server";
 import { getCorrelationId, jsonError, jsonOk, parseBody, writeAuditEvent } from "@/lib/api";
 import { env } from "@/lib/env";
 import { checkGlobalRateLimit, checkRateLimit } from "@/lib/rate-limit";
-import { assertCsrfToken } from "@/lib/csrf";
+import { assertCsrfToken } from "@/lib/csrf-server";
 import { createSessionCookie } from "@/lib/session";
 
 export async function POST(request: NextRequest) {

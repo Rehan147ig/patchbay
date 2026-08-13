@@ -14,3 +14,11 @@ export { collectModuleExports, makeRelativeResolver, resolveRelativeTarget } fro
 export { classifyRiskTags } from "./risk";
 export { detectLockfile, packageManagerFor, resolveLockfileVersions } from "./lockfile";
 export { resolveFixtureDir, resolvePatchbayRoot } from "./fixtures";
+export { extractGraph } from "./graph";
+export type {
+  ExtractGraphOptions,
+  GraphEdgeFact,
+  GraphEvidenceFact,
+  GraphExtraction,
+  GraphNodeFact,
+} from "./graph";

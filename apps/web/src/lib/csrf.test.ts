@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { assertCsrfToken, createCsrfToken, timingSafeEqual } from "./csrf";
+import { assertCsrfToken } from "./csrf-server";
+import { createCsrfToken, timingSafeEqual } from "./csrf";
 
 function requestWith(
   cookie: string | undefined,

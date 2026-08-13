@@ -36,6 +36,10 @@ export const stripeConnector: VendorConnector = {
           replacement: "stripe.customers.create",
           description: "Ensure customer creation passes metadata payload.",
           confidence: 85,
+          insert: {
+            searchText: "({ ",
+            insertText: 'metadata: { source: "patchbay-migration" }, ',
+          },
         });
       }
     }

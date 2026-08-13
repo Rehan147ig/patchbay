@@ -6,7 +6,7 @@ import { createGitHubAppProviderFromStore } from "@patchbay/git-provider";
 import { getSecretStore } from "@patchbay/env";
 import { getCorrelationId, jsonError, jsonOk, writeAuditEvent } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
-import { assertCsrfToken } from "@/lib/csrf";
+import { assertCsrfToken } from "@/lib/csrf-server";
 
 /**
  * POST /api/repositories/connect

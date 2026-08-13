@@ -8,9 +8,6 @@
  * request never carries a matching pair. Edge-safe: no Node APIs.
  */
 
-import { forbidden } from "@patchbay/domain";
-import type { NextRequest } from "next/server";
-
 export const CSRF_COOKIE = "pb_csrf";
 export const CSRF_HEADER = "x-csrf-token";
 export const CSRF_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
@@ -40,8 +37,7 @@ export function timingSafeEqual(a: string, b: string): boolean {
 }
 
 /** Reads the CSRF cookie from the Cookie header (header-name case-insensitive). */
-export function readCsrfCookie(request: NextRequest): string | undefined {
-  const cookieHeader = request.headers.get("cookie");
+export function readCsrfCookie(cookieHeader: string | null): string | undefined {
   if (!cookieHeader) return undefined;
   for (const part of cookieHeader.split(";")) {
     const [name, ...rest] = part.trim().split("=");
@@ -50,11 +46,9 @@ export function readCsrfCookie(request: NextRequest): string | undefined {
   return undefined;
 }
 
-/** Throws 403 unless the cookie and the x-csrf-token header match. */
-export function assertCsrfToken(request: NextRequest): void {
-  const cookie = readCsrfCookie(request);
-  const header = request.headers.get(CSRF_HEADER);
-  if (!cookie || !header || !timingSafeEqual(cookie, header)) {
-    throw forbidden("CSRF token missing or mismatched");
-  }
+/** Client-side: reads CSRF cookie from document.cookie. */
+export function readCsrfCookieClient(): string | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie.match(new RegExp(`(?:^|; )${CSRF_COOKIE}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]!) : null;
 }

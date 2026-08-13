@@ -1,7 +1,7 @@
 import { createSign } from "node:crypto";
 import type { SecretStore } from "@patchbay/env";
 import { GitHubProvider, type GitHubConfig } from "./github-provider";
-import type { CreateDraftPRInput, GitProvider, PullRequestResult } from "./local-provider";
+import type { CreateDraftPRInput, GitProvider, PullRequestResult, CheckoutInput, CheckoutResult } from "./local-provider";
 
 /**
  * GitHub App provider: authenticates as the App (RS256 JWT), exchanges for an
@@ -126,6 +126,21 @@ export class GitHubAppProvider implements GitProvider {
         const freshToken = await this.createInstallationToken();
         const delegate = new GitHubProvider(this.delegateConfig(freshToken));
         return delegate.createDraftPullRequest(input);
+      }
+      throw error;
+    }
+  }
+
+  async checkout(input: CheckoutInput): Promise<CheckoutResult> {
+    const token = await this.createInstallationToken();
+    try {
+      const delegate = new GitHubProvider(this.delegateConfig(token));
+      return await delegate.checkout(input);
+    } catch (error) {
+      if (isUnauthorized(error) && this.tokenCache.delete(this.config.installationId)) {
+        const freshToken = await this.createInstallationToken();
+        const delegate = new GitHubProvider(this.delegateConfig(freshToken));
+        return delegate.checkout(input);
       }
       throw error;
     }

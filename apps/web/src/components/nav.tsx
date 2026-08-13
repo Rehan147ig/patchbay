@@ -7,6 +7,7 @@ import { cn } from "@patchbay/ui";
 const LINKS = [
   { href: "/", label: "Overview" },
   { href: "/repositories", label: "Repositories" },
+  { href: "/releases", label: "Releases" },
   { href: "/changes", label: "Changes" },
   { href: "/remediations", label: "Remediations" },
   { href: "/policies", label: "Policies" },

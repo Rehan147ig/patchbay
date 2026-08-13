@@ -67,6 +67,27 @@ export const envSchema = z
     // Sandbox runner.
     SANDBOX_TIMEOUT_MS: z.coerce.number().int().min(1).max(300_000).default(120_000),
     SANDBOX_MAX_OUTPUT_CHARS: z.coerce.number().int().min(1).max(1_000_000).default(20_000),
+
+    // Release Watchtower polling. Schedulers are registered at worker boot
+    // only when enabled; intervals in milliseconds.
+    WATCHTOWER_POLLING_ENABLED: z.preprocess((value) => {
+      if (value === undefined) return true;
+      if (value === "true") return true;
+      if (value === "false") return false;
+      return true;
+    }, z.boolean()),
+    WATCHTOWER_POLL_INTERVAL_NPM_MS: z.coerce
+      .number()
+      .int()
+      .min(60_000)
+      .max(86_400_000)
+      .default(15 * 60_000),
+    WATCHTOWER_POLL_INTERVAL_GITHUB_MS: z.coerce
+      .number()
+      .int()
+      .min(60_000)
+      .max(86_400_000)
+      .default(30 * 60_000),
   })
   .superRefine((env, ctx) => {
     const issue = (message: string): void => {

@@ -19,6 +19,22 @@ export {
   ApprovalDecision,
   ActorType,
   PolicyDecision,
+  TaskStatus,
+  GraphSnapshotStatus,
+  GraphIndexMode,
+  GraphNodeKind,
+  GraphEdgeKind,
+  GraphProvenance,
+  AgentRunType,
+  AgentRunStatus,
+  AgentRole,
+  AgentStepKind,
+  AgentStepStatus,
+  ReleaseSource,
+  ReleaseAuthenticity,
+  ReleaseStatus,
+  ReleaseMatchStatus,
+  ReleaseClassificationMethod,
   SCORING,
 } from "./enums";
 export {
@@ -36,6 +52,10 @@ export {
 export type { ErrorCode, PatchbayErrorOptions } from "./errors";
 export { logger, getCorrelationId, runWithCorrelationId } from "./logger";
 export type { LogLevel, LogFields } from "./logger";
+export { compareVersions, parseVersion, satisfiesRange } from "./semver";
+export type { ParsedVersion } from "./semver";
+export { evaluateReleaseMatch } from "./matching";
+export type { DependencyFacts, ReleaseMatchOutcome } from "./matching";
 export {
   loginRequestSchema,
   repositoryCreateSchema,
@@ -49,10 +69,16 @@ export {
   demoRunSchema,
   paginationSchema,
   aiPlanDraftSchema,
+  patchGenerationInputSchema,
+  patchPlanSchema,
+  patchPlanEditSchema,
+  patchPlanEditOperationSchema,
+  reviewVerdictSchema,
   policyDecisionResultSchema,
   approvalDecisionSchema,
   codeExcerptSchema,
   generationMethodSchema,
+  submissionSchema,
 } from "./schemas";
 export {
   MAX_RAW_PAYLOAD_BYTES,
@@ -76,8 +102,13 @@ export type {
   DemoRunRequest,
   Pagination,
   AiPlanDraft,
+  PatchGenerationInput,
+  PatchPlan,
+  PatchPlanEdit,
+  ReviewVerdict,
   PolicyDecisionResult,
   ApprovalDecisionValue,
   CodeExcerpt,
   GenerationMethodValue,
+  SubmissionRequest,
 } from "./schemas";

@@ -160,6 +160,93 @@ enum PolicyDecision {
 }
 
 // ---------------------------------------------------------------------------
+// Release Watchtower enums. Must mirror packages/domain/src/enums.ts.
+// ---------------------------------------------------------------------------
+
+enum ReleaseSource {
+  NPM
+  GITHUB_RELEASE
+  OPENAPI
+  VENDOR_MANIFEST
+  CHANGELOG
+}
+
+enum ReleaseAuthenticity {
+  VERIFIED
+  SOURCE_TRUSTED
+  UNVERIFIED
+}
+
+enum ReleaseStatus {
+  OBSERVED
+  CLASSIFIED
+  FAILED
+}
+
+enum ReleaseMatchStatus {
+  CANDIDATE
+  NOT_RELEVANT
+  MONITOR
+  REVIEW
+  REMEDIATE
+}
+
+enum DetectionRunStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum ReleaseClassificationMethod {
+  DETERMINISTIC
+  AI
+  MANUAL
+}
+
+// ---------------------------------------------------------------------------
+// Agent Harness enums. Must mirror packages/domain/src/enums.ts.
+// ---------------------------------------------------------------------------
+
+enum AgentRunType {
+  PLAN_GENERATION
+  PLAN_REVIEW
+}
+
+enum AgentRunStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  BUDGET_EXCEEDED
+}
+
+enum AgentRole {
+  ANALYST
+  PLANNER
+  REVIEWER
+}
+
+enum AgentStepKind {
+  WORKFLOW
+  TOOL_CALL
+  MODEL_CALL
+}
+
+enum AgentStepStatus {
+  STARTED
+  COMPLETED
+  FAILED
+}
+
+enum TaskStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// ---------------------------------------------------------------------------
 // Models
 // ---------------------------------------------------------------------------
 
@@ -183,6 +270,15 @@ model Organization {
   auditEvents            AuditEvent[]
   githubInstallations    GitHubInstallation[]
   webhookDeliveries      WebhookDelivery[]
+  repositoryDependencies RepositoryDependency[]
+  releaseMatches         ReleaseRepositoryMatch[]
+  agentRuns              AgentRun[]
+  agentSteps             AgentStep[]
+  graphSnapshots         GraphSnapshot[]
+  graphNodes             GraphNode[]
+  graphEdges             GraphEdge[]
+  graphEvidence          GraphSourceEvidence[]
+  graphIndexJobs         GraphIndexJob[]
 }
 
 model User {
@@ -296,6 +392,14 @@ model Repository {
   scans              RepositoryScan[]
   usages             IntegrationUsage[]
   impactAssessments  ImpactAssessment[]
+  dependencies       RepositoryDependency[]
+  releaseMatches     ReleaseRepositoryMatch[]
+  agentRuns          AgentRun[]
+  graphSnapshots     GraphSnapshot[]
+  graphNodes         GraphNode[]
+  graphEdges         GraphEdge[]
+  graphEvidence      GraphSourceEvidence[]
+  graphIndexJobs     GraphIndexJob[]
 
   @@unique([organizationId, externalId])
   @@index([organizationId])
@@ -348,6 +452,432 @@ model Vendor {
 
   changeEvents VendorChangeEvent[]
   usages       IntegrationUsage[]
+  products     VendorProduct[]
+}
+
+model VendorProduct {
+  id String @id @default(uuid())
+  vendorId     String
+  ecosystem    String
+  packageName  String
+  repositoryUrl String?
+  openApiUrl   String?
+  enabled      Boolean @default(true)
+  createdAt    DateTime @default(now())
+
+  vendor   Vendor          @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  releases ReleaseRecord[]
+
+  @@unique([vendorId, ecosystem, packageName])
+  @@index([ecosystem, enabled])
+}
+
+/**
+ * One upstream release, stored once globally. Tenant impact is derived
+ * separately per organization/repository (ReleaseRepositoryMatch).
+ * Identity: sha256(source + vendorSlug + product + version + contentHash).
+ */
+model ReleaseRecord {
+  id String @id @default(uuid())
+  productId        String
+  source           ReleaseSource
+  version          String
+  previousVersion  String?
+  publishedAt      DateTime
+  canonicalUrl     String
+  contentHash      String
+  authenticity     ReleaseAuthenticity @default(SOURCE_TRUSTED)
+  status           ReleaseStatus       @default(OBSERVED)
+  createdAt        DateTime            @default(now())
+
+  product         VendorProduct          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  evidence        ReleaseEvidence[]
+  classifications ReleaseClassification[]
+  matches         ReleaseRepositoryMatch[]
+  agentRuns       AgentRun[]
+
+  @@unique([source, productId, version, contentHash])
+  @@index([productId, publishedAt])
+  @@index([status])
+  @@index([publishedAt])
+}
+
+model ReleaseEvidence {
+  id String @id @default(uuid())
+  releaseRecordId String
+  kind            String
+  /** Content-addressed key; raw bytes live in tenant-neutral object storage. */
+  objectStorageKey String
+  contentHash      String
+  metadataJson     Json?
+  createdAt        DateTime @default(now())
+
+  releaseRecord ReleaseRecord @relation(fields: [releaseRecordId], references: [id], onDelete: Cascade)
+
+  @@index([releaseRecordId])
+}
+
+/** Lockfile-resolved dependency inventory, keyed by repository commit SHA. */
+model RepositoryDependency {
+  id String @id @default(uuid())
+  organizationId String
+  repositoryId   String
+  packageName    String
+  declaredRange  String?
+  resolvedVersion String
+  lockfileKind   String
+  commitSha      String
+  observedAt     DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  repository   Repository   @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  matches      ReleaseRepositoryMatch[]
+
+  @@unique([repositoryId, packageName, commitSha])
+  @@index([organizationId])
+  @@index([packageName])
+}
+
+/** Tenant-owned result of matching one global release against one repository. */
+model ReleaseRepositoryMatch {
+  id String @id @default(uuid())
+  releaseRecordId      String
+  organizationId       String
+  repositoryId         String
+  dependencyId         String
+  matchReason          String
+  affectedVersionRange String?
+  status               ReleaseMatchStatus @default(CANDIDATE)
+  createdAt            DateTime           @default(now())
+
+  releaseRecord ReleaseRecord      @relation(fields: [releaseRecordId], references: [id], onDelete: Cascade)
+  organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  repository    Repository         @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  dependency    RepositoryDependency @relation(fields: [dependencyId], references: [id], onDelete: Cascade)
+  agentRuns     AgentRun[]
+
+  @@unique([releaseRecordId, repositoryId, dependencyId])
+  @@index([organizationId, status])
+  @@index([releaseRecordId])
+}
+
+/** Structured classification of a release (deterministic facts today, AI later). */
+model ReleaseClassification {
+  id String @id @default(uuid())
+  releaseRecordId      String
+  method               ReleaseClassificationMethod
+  factsJson            Json
+  confidence           Int
+  confidenceBreakdown  Json
+  requiresHumanReview  Boolean
+  modelTraceId         String?
+  createdAt            DateTime @default(now())
+
+  releaseRecord ReleaseRecord @relation(fields: [releaseRecordId], references: [id], onDelete: Cascade)
+
+  @@unique([releaseRecordId])
+}
+
+// ---------------------------------------------------------------------------
+// Agent Harness (bounded, typed, replayable AI runs).
+// An AgentRun is one analyst -> planner -> reviewer execution for one
+// (release, match). Stores redacted input digests, schema-validated outputs,
+// token/cost accounting and terminal status. No chain-of-thought, no secrets.
+// ---------------------------------------------------------------------------
+
+model AgentRun {
+  id String @id @default(uuid())
+  organizationId String
+  releaseRecordId String
+  repositoryId String
+  releaseRepositoryMatchId String?
+  type AgentRunType @default(PLAN_REVIEW)
+  status AgentRunStatus @default(QUEUED)
+  correlationId String
+  model String
+  promptTemplateVersion String
+  /** sha256 of the sanitized, bounded input context (replay identity). */
+  redactedInputDigest String
+  inputJson Json
+  outputJson Json?
+  tokenUsage Json?
+  costEstimateCents Int @default(0)
+  budgetCents Int @default(0)
+  error String?
+  startedAt DateTime?
+  completedAt DateTime?
+  createdAt DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  releaseRecord ReleaseRecord @relation(fields: [releaseRecordId], references: [id], onDelete: Cascade)
+  repository  Repository  @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  match      ReleaseRepositoryMatch? @relation(fields: [releaseRepositoryMatchId], references: [id], onDelete: SetNull)
+  steps      AgentStep[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, releaseRecordId, repositoryId])
+  @@index([releaseRecordId, createdAt])
+}
+
+model AgentStep {
+  id String @id @default(uuid())
+  organizationId String
+  agentRunId String
+  role AgentRole
+  kind AgentStepKind
+  status AgentStepStatus @default(STARTED)
+  toolName String?
+  /** sha256 of the sanitized step input; enables replay comparison. */
+  inputDigest String
+  outputJson Json?
+  tokenUsage Json?
+  latencyMs Int?
+  error String?
+  startedAt DateTime @default(now())
+  completedAt DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  run AgentRun @relation(fields: [agentRunId], references: [id], onDelete: Cascade)
+
+  @@index([agentRunId])
+}
+
+/** One adapter poll cycle; cursor/status/error surface for detector health UI. */
+model DetectionRun {
+  id String @id @default(uuid())
+  adapter       String
+  status        DetectionRunStatus @default(RUNNING)
+  startedAt     DateTime           @default(now())
+  completedAt   DateTime?
+  cursor        Json?
+  observedCount Int                @default(0)
+  error         String?
+
+  @@index([adapter, startedAt])
+}
+
+/**
+ * Single run of the activation task-management loop. Submission is
+ * idempotent per (taskId, type): retries overwrite inputs, never duplicate.
+ */
+model TaskParameter {
+  id         String     @id @default(uuid())
+  taskId     String
+  type       String
+  /** Executor domain, e.g. "NPM". Nullable so legacy rows stay loadable. */
+  domain     String?
+  status     TaskStatus @default(PENDING)
+  error      String?
+  inputJson  Json?
+  outputJson Json?
+  deadline   DateTime?
+  startedAt  DateTime   @default(now())
+  createdAt  DateTime   @default(now())
+
+  @@unique([taskId, type])
+  @@index([type, status])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Software Intelligence Graph (impact graph).
+// Every fact is org-scoped, snapshot-scoped, and content-addressed.
+// Must mirror packages/domain/src/enums.ts (drift test).
+// ---------------------------------------------------------------------------
+
+enum GraphSnapshotStatus {
+  INDEXING
+  READY
+  FAILED
+}
+
+enum GraphIndexMode {
+  BASELINE
+  INCREMENTAL
+}
+
+enum GraphNodeKind {
+  REPOSITORY
+  FILE
+  MODULE
+  SYMBOL
+  FUNCTION
+  CLASS
+  DEPENDENCY
+  PACKAGE
+  API_CLIENT
+  API_OPERATION
+  CONFIGURATION_KEY
+  TEST
+  SERVICE
+  QUEUE_TOPIC
+  DATABASE
+}
+
+enum GraphEdgeKind {
+  CONTAINS
+  EXPORTS
+  IMPORTS
+  CALLS
+  EXTENDS
+  DECLARES
+  RESOLVES_TO
+  USES_PACKAGE
+  AFFECTED_BY
+  CREATES_CLIENT
+  INVOKES_API
+  READS_CONFIG
+  TESTS
+  BELONGS_TO_SERVICE
+  PUBLISHES
+  CONSUMES
+  ACCESSES
+  CONFIGURES
+  USES
+  PROVIDES
+  QUEUE_TOPIC
+}
+
+enum GraphProvenance {
+  EXTRACTED
+  RESOLVED
+  INFERRED
+  AMBIGUOUS
+}
+
+/**
+ * One commit-versioned extraction of a repository. Immutable once READY;
+ * impact queries only use the latest READY snapshot.
+ */
+model GraphSnapshot {
+  id               String    @id @default(uuid())
+  organizationId   String
+  repositoryId     String
+  commitSha        String
+  extractionVersion Int       @default(1)
+  status           GraphSnapshotStatus @default(INDEXING)
+  rootTreeHash     String
+  changedPaths     Json?
+  nodesAffected    Int       @default(0)
+  edgesAffected    Int       @default(0)
+  createdAt        DateTime  @default(now())
+  completedAt      DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  repository   Repository   @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  nodes        GraphNode[]
+  edges        GraphEdge[]
+  evidence     GraphSourceEvidence[]
+  indexJobs    GraphIndexJob[]
+
+  @@unique([repositoryId, commitSha, extractionVersion])
+  @@index([organizationId, repositoryId, status])
+  @@index([repositoryId, status, createdAt])
+}
+
+model GraphNode {
+  id             String       @id @default(uuid())
+  organizationId String
+  repositoryId   String
+  snapshotId     String
+  kind           GraphNodeKind
+  stableKey      String
+  displayName    String
+  filePath       String?
+  startLine      Int?
+  endLine        Int?
+  propertiesJson Json?
+  contentHash    String
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  repository   Repository   @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  snapshot     GraphSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  outEdges     GraphEdge[]   @relation("edgeFrom")
+  inEdges      GraphEdge[]   @relation("edgeTo")
+  evidence     GraphSourceEvidence[]
+
+  @@unique([snapshotId, kind, stableKey])
+  @@index([organizationId, repositoryId, snapshotId, kind])
+  @@index([organizationId, snapshotId, filePath])
+  @@index([repositoryId, stableKey])
+  @@index([contentHash])
+}
+
+model GraphEdge {
+  id             String        @id @default(uuid())
+  organizationId String
+  repositoryId   String
+  snapshotId     String
+  fromNodeId     String
+  toNodeId       String
+  kind           GraphEdgeKind
+  provenance     GraphProvenance
+  confidence     Int
+  evidenceJson   Json?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  repository   Repository   @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  snapshot     GraphSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  fromNode     GraphNode     @relation("edgeFrom", fields: [fromNodeId], references: [id], onDelete: Cascade)
+  toNode       GraphNode     @relation("edgeTo", fields: [toNodeId], references: [id], onDelete: Cascade)
+  evidence     GraphSourceEvidence[]
+
+  @@unique([snapshotId, kind, fromNodeId, toNodeId])
+  @@index([organizationId, snapshotId, fromNodeId])
+  @@index([organizationId, snapshotId, toNodeId])
+  @@index([organizationId, snapshotId, kind])
+}
+
+/**
+ * Immutable provenance record for a node or edge: where a fact came from,
+ * which extractor produced it, and the source hash it was derived from.
+ */
+model GraphSourceEvidence {
+  id               String  @id @default(uuid())
+  organizationId   String
+  repositoryId     String
+  snapshotId       String
+  nodeId           String?
+  edgeId           String?
+  filePath         String
+  startLine        Int?
+  endLine          Int?
+  extractor        String
+  extractorVersion String
+  sourceHash       String
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  repository   Repository   @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  snapshot     GraphSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  node         GraphNode?    @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  edge         GraphEdge?    @relation(fields: [edgeId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, repositoryId, snapshotId, nodeId], map: "graph_evidence_node_idx")
+  @@index([organizationId, repositoryId, snapshotId, edgeId], map: "graph_evidence_edge_idx")
+  @@index([snapshotId, extractor])
+}
+
+/** One graph extraction run (baseline or incremental); durable retry state. */
+model GraphIndexJob {
+  id               String          @id @default(uuid())
+  organizationId   String
+  repositoryId     String
+  snapshotId       String?
+  mode             GraphIndexMode
+  status           GraphSnapshotStatus @default(INDEXING)
+  changedPaths     Json?
+  correlationId    String
+  error            String?
+  timingsJson      Json?
+  startedAt        DateTime        @default(now())
+  completedAt      DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  repository   Repository   @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  snapshot     GraphSnapshot? @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, repositoryId, status])
+  @@index([repositoryId, startedAt])
 }
 
 model VendorChangeEvent {

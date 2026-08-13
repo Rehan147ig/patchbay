@@ -8,6 +8,7 @@ import { getSecretStore } from "@patchbay/env";
 import { getCorrelationId, jsonError, jsonOk, writeAuditEvent } from "@/lib/api";
 import { verifyGitHubWebhookSignature } from "@/lib/github-webhook";
 import { isAllowedPullRequestTransition, resolveNextPullRequestStatus } from "@/lib/pr-status";
+import { enqueue, JobType } from "@patchbay/queue";
 
 /**
  * POST /api/webhooks/github
@@ -38,6 +39,19 @@ const PullRequestPayloadSchema = z.object({
     merged: z.boolean().optional(),
     draft: z.boolean().optional(),
   }),
+});
+
+const PushPayloadSchema = z.object({
+  repository: z.object({ id: z.number() }),
+  ref: z.string(),
+  after: z.string(),
+  commits: z.array(
+    z.object({
+      modified: z.array(z.string()).optional(),
+      added: z.array(z.string()).optional(),
+      removed: z.array(z.string()).optional(),
+    }),
+  ),
 });
 
 /** Replays of an identical payload inside this window are dropped. */
@@ -111,6 +125,8 @@ export async function POST(request: NextRequest): Promise<Response> {
       await handleInstallation(InstallationPayloadSchema.parse(body), correlationId);
     } else if (event === "pull_request") {
       await handlePullRequest(PullRequestPayloadSchema.parse(body), correlationId);
+    } else if (event === "push") {
+      await handlePush(PushPayloadSchema.parse(body), correlationId);
     } else {
       logger.info("github webhook ignored (unhandled event type)", { correlationId, event });
     }
@@ -201,6 +217,77 @@ async function handleInstallation(
 }
 
 type PullRequestPayload = z.infer<typeof PullRequestPayloadSchema>;
+
+type PushPayload = z.infer<typeof PushPayloadSchema>;
+
+/**
+ * Push handling: identifies every connected repository by GitHub id, then
+ * enqueues an INCREMENTAL graph-index job carrying the changed paths (union
+ * of modified/added/removed across commits) so the graph can be refreshed
+ * deterministically without a full re-import from the webhook path.
+ */
+async function handlePush(payload: PushPayload, correlationId: string): Promise<void> {
+  const { repository, ref, after } = payload;
+  const repositories = await prisma.repository.findMany({
+    where: { externalId: String(repository.id) },
+    select: { id: true, organizationId: true, name: true },
+  });
+  if (repositories.length === 0) {
+    logger.info("github push ignored (repository not connected)", {
+      correlationId,
+      repositoryId: repository.id,
+    });
+    return;
+  }
+
+  const changedPaths = [
+    ...new Set(
+      payload.commits.flatMap((commit) => [
+        ...(commit.modified ?? []),
+        ...(commit.added ?? []),
+        ...(commit.removed ?? []),
+      ]),
+    ),
+  ].sort();
+
+  for (const repo of repositories) {
+    const indexJob = await prisma.graphIndexJob.create({
+      data: {
+        organizationId: repo.organizationId,
+        repositoryId: repo.id,
+        mode: "INCREMENTAL",
+        status: "INDEXING",
+        correlationId,
+        changedPaths,
+      },
+    });
+
+    await enqueue(JobType.GRAPH_INDEX, {
+      jobId: indexJob.id,
+      repositoryId: repo.id,
+      correlationId,
+      mode: "INCREMENTAL",
+    });
+
+    await writeAuditEvent({
+      organizationId: repo.organizationId,
+      actorType: ActorType.SYSTEM,
+      actorId: null,
+      action: AuditAction.GRAPH_INDEX_QUEUED,
+      entityType: "repository",
+      entityId: repo.id,
+      correlationId,
+      after: { jobId: indexJob.id, mode: "INCREMENTAL", ref, sha: after, changedPaths },
+    });
+    logger.info("github push enqueued incremental graph index", {
+      correlationId,
+      repositoryId: repo.id,
+      jobId: indexJob.id,
+      ref,
+      changedPathCount: changedPaths.length,
+    });
+  }
+}
 
 async function handlePullRequest(
   payload: PullRequestPayload,

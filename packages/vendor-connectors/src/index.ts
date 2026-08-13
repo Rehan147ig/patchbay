@@ -9,3 +9,20 @@ export type {
   PatchSuggestion,
   VendorConnector,
 } from "./types";
+export {
+  getWatchtowerAdapters,
+  getWatchtowerAdapter,
+  getAdaptersBySource,
+  resetWatchtowerAdapterCache,
+} from "./adapters/registry";
+export type {
+  WatchtowerAdapter,
+  WatchtowerEvidence,
+  NormalizedRelease,
+  DetectOptions,
+  DetectionRunResult,
+  AdapterCursor,
+  AdapterPollResult,
+} from "./watchtower";
+export { diffOpenApiSpecs } from "./adapters/openapi-diff";
+export type { OpenApiDiffFacts, OpenApiChangedOperation } from "./adapters/openapi-diff";

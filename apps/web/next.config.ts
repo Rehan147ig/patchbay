@@ -6,8 +6,19 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   outputFileTracingRoot: path.join(__dirname, "../.."),
   // bullmq/ioredis stay external (native requires in the Node runtime); bundling them
-  // trips webpack on bullmq's optional @valkey/valkey-glide import.
-  serverExternalPackages: ["bullmq", "ioredis"],
+  // trips webpack on bullmq's optional @valkey/valkey-glide import. The @patchbay/*
+  // workspace packages stay external too: they are plain JS CommonJS/ESM packages whose
+  // server entry points (e.g. @patchbay/domain logger) import node: builtins that
+  // webpack cannot bundle ("Unhandled scheme" errors).
+  serverExternalPackages: [
+    "bullmq",
+    "ioredis",
+    "@patchbay/db",
+    "@patchbay/domain",
+    "@patchbay/audit",
+    "@patchbay/queue",
+    "@patchbay/repo-analysis",
+  ],
   webpack: (config) => {
     config.resolve.alias = {
       ...config.resolve.alias,

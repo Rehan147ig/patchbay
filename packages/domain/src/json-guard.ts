@@ -13,7 +13,8 @@ export const MAX_RAW_PAYLOAD_DEPTH = 12;
 export const MAX_RAW_PAYLOAD_BYTES = 128 * 1024;
 export const MAX_STRING_CHARS = 1_024;
 
-export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+export type JsonValue =
+  string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
