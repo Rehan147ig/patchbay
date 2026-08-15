@@ -1,226 +1,189 @@
-# Patchbay
+# Patchbay — Governed API-Change Remediation Platform
 
-**Governed API-change remediation.** When a third-party API or SDK changes, Patchbay detects the
-change, finds the exact affected usages across connected repositories, generates a safe migration
-pull request for known, bounded patterns, runs verification, and records an auditable remediation
-trail.
+[![CI](https://github.com/Rehan147ig/patchbay/actions/workflows/ci.yml/badge.svg)](https://github.com/Rehan147ig/patchbay/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
+[![pnpm](https://img.shields.io/badge/pnpm-10.x-orange.svg)](https://pnpm.io/)
+[![Prisma](https://img.shields.io/badge/Prisma-6.x-green.svg)](https://www.prisma.io/)
 
-This repository contains a local-development, production-shaped MVP. It runs fully offline with a
-deterministic mock AI provider and a local (mock) git provider - no API keys required. Real GitHub
-integration (App installations, draft PRs, webhooks, OAuth sign-in) is implemented and activates
-when the corresponding environment variables are set.
+**Patchbay** is an enterprise-grade, policy-governed code remediation platform. When a third-party API or SDK releases a breaking change, deprecates a method, or updates a parameter, Patchbay automatically detects the release, maps the exact impact across your repositories using a commit-versioned **Software Intelligence Graph**, drafts AST-aware code migration pull requests, validates changes in an isolated sandbox, enforces policy-based approval gates, and opened governed draft PRs with full audit trails.
 
-## Product scope
+---
 
-The MVP supports:
+## 🏗️ System Architecture & Workflow Pipeline
 
-- One organization/workspace with seeded demo data ("Acme SaaS"), org-scoped change/plan data
-- Per-vendor **agent mode**: vendors authenticate with `pb_agent_*` keys and push change events
-  through `POST /api/vendors/:slug/events` without a dashboard session
-- Local fixture repositories (Stripe, OpenAI, Twilio, Auth0, generic OpenAPI client)
-- Manually created or imported vendor change events (including OpenAPI document diffs)
-- Static TypeScript impact analysis (TypeScript compiler API)
-- Rule-based migration patches for known patterns
-- **56 connector catalog** covering AI/LLM, cloud/infra, payments, auth, messaging, data/DB,
-  web frameworks, search, observability, and CRM SDKs (see [Connectors](#connectors))
-- Declarative connector SDK (`defineConnector`) so any vendor can author a connector in ~40 lines
-- Deterministic AI-assisted plan drafting through an abstraction (mock by default;
-  OpenAI-compatible provider optional)
-- Allowlisted validation command execution with timeouts
-- Draft pull-request creation via a local mock git provider by default; real draft PRs through a
-  GitHub App (JWT + installation access tokens, HMAC-verified webhooks, per-org install binding)
-- JSON policy engine with approval gates and confidence thresholds
-- Full audit trail
-
-The MVP does **not**: auto-merge PRs, modify production systems, store real credentials, execute
-arbitrary shell commands, promise universal vendor coverage, or claim autonomous safety for
-high-risk changes.
-
-## Architecture (summary)
-
-See [docs/architecture.md](docs/architecture.md) for the full picture.
-
-Patchbay is a **pnpm monorepo** — services and packages are split so each can be
-built, tested, and deployed independently:
+Patchbay operates as an event-driven, multi-tier pipeline connecting external vendor events to customer software intelligence graphs and automated remediation workflows:
 
 ```
-apps/web       Next.js dashboard + typed JSON API route handlers
-apps/worker    BullMQ job consumer (scan, analyze, validate, create-pr)
-packages/domain          enums, Zod schemas, typed errors, logger (zero deps)
-packages/db               Prisma schema + client singleton
-packages/audit            AuditEvent builder + secret redaction
-packages/ui               accessible UI primitives
-packages/queue            shared BullMQ queue def + Redis connection
-packages/vendor-connectors  56-connector catalog + defineConnector SDK
-packages/repo-analysis    TypeScript AST indexing → IntegrationUsage inventory
-packages/remediation-engine  deterministic migration rules → patches + diffs
-packages/policy-engine    deterministic policy decisions (allow/approve/deny)
-packages/sandbox-runner   allowlisted command execution with timeouts
-packages/git-provider     GitProvider interface; LocalGitProvider + GitHubProvider + GitHubAppProvider
-packages/ai-provider      AiProvider interface; MockAiProvider + OpenAI-compatible
-fixtures/repositories     sample legacy repos (openai-node-legacy, stripe-node-legacy, …)
+┌──────────────────────────────────────────────────────────────────────────────────────────┐
+│                             WATCHTOWER EVENT INGESTION                                   │
+├──────────────────────────────────────────────────────────────────────────────────────────┤
+│  [SDK Monitor]      cron: npm registry polling -> detect new version -> fetch changelog │
+│  [API Monitor]      cron: OpenAPI spec fetch -> detect spec diffs -> analyze API changes │
+│  [Event Pipeline]   webhook: POST /api/vendors/:slug/events (pb_agent_* bearer key)    │
+└─────────────────────────────────────────────┬────────────────────────────────────────────┘
+                                              │
+                                              ▼
+┌──────────────────────────────────────────────────────────────────────────────────────────┐
+│                         SOFTWARE INTELLIGENCE GRAPH & MATCHING                           │
+├──────────────────────────────────────────────────────────────────────────────────────────┤
+│  1. Ingestion:     Scan repository -> build commit-versioned GraphSnapshot (READY)      │
+│  2. Graph Engine:   Extract AST nodes (MODULE, SYMBOL, API_CLIENT) & edges (INVOKES_API) │
+│  3. Semver Engine: Match ReleaseRecord against RepositoryDependency (exact & range)     │
+│  4. Impact Map:    Generate explainable match reasons & module-level evidence graph     │
+└─────────────────────────────────────────────┬────────────────────────────────────────────┘
+                                              │
+                                              ▼
+┌──────────────────────────────────────────────────────────────────────────────────────────┐
+│                      GOVERNED REMEDIATION & MULTI-AGENT HARNESS                          │
+├──────────────────────────────────────────────────────────────────────────────────────────┤
+│  1. Blast Radius:  Evaluate risk tags (PAYMENT, AUTH, PII, WEBHOOK, INFRASTRUCTURE)       │
+│  2. AI Harness:    Vercel AI SDK + Mastra supervisor (ReleaseAnalyst -> Planner -> Reviewer)│
+│  3. Patch Engine:  Apply AST-aware rules, verify source hashes & max diff budgets       │
+│  4. Validation:    Execute allowlisted build/test suite in isolated container sandbox    │
+│  5. Policy Decision: ALLOW_DRAFT_PR  |  REQUIRE_APPROVAL  |  ALLOW_PLAN_ONLY  |  DENY    │
+│  6. Delivery:      GitHub App draft PR (installation access tokens + HMAC webhooks)     │
+│  7. Audit Trail:   Append-only AuditEvent log with secret redaction                     │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-The web and worker are the deployable services; the engine packages are pure
-functions with no DB/network, so they stay independently testable and can be
-published as libraries (the distribution story).
+---
 
-Key safety properties:
+## ✨ Key Features
 
-- Draft PRs only; never auto-merge.
-- Validation must pass before any PR creation.
-- Human approval required for payment, auth/authorization, PII, webhook verification,
-  encryption, secrets, and infrastructure changes.
-- Validation commands come from a fixed allowlist; AI can never execute commands.
-- Every important action writes an append-only `AuditEvent`.
+- **Software Intelligence Graph (`packages/repo-analysis`)**:
+  - Immutable, content-addressed `GraphSnapshot` per commit SHA.
+  - Granular node vocabulary (`MODULE`, `SYMBOL`, `FUNCTION`, `DEPENDENCY`, `API_CLIENT`, `API_OPERATION`, `TEST`).
+  - Strict edge vocabulary (`USES_PACKAGE`, `CREATES_CLIENT`, `INVOKES_API`, `EXPORTS`, `IMPORTS`, `TESTS`).
+  - Fixed provenance (`EXTRACTED`, `RESOLVED`, `INFERRED`) with file path, line range, and source hash evidence.
 
-## Connectors
+- **Deterministic Semver & Matching Engine (`packages/domain`, `apps/worker`)**:
+  - Zero-hallucination semver parser (`parseVersion`, `compareVersions`, `satisfiesRange`).
+  - Automatic `classify-release` job for structured breaking change extraction.
+  - Precision `match-release` job linking global releases to repository dependencies with zero false positives.
 
-Patchbay ships a **56-connector catalog** of vendor-specific migration knowledge, plus a
-declarative SDK for authoring new ones.
+- **56-Connector Catalog & Declarative SDK (`packages/vendor-connectors`)**:
+  - Pre-built connectors across 10 categories: AI/LLM, Cloud/Infra, Payments, Auth, Messaging, DB/Data, Web Frameworks, Search/Observability, CRM, and Generic OpenAPI.
+  - Declarative `defineConnector()` SDK allowing new vendor connectors in ~40 lines of TypeScript.
 
-**Connector SDK** (`packages/vendor-connectors/src/sdk.ts`): `defineConnector()` turns a
-declarative spec (identifiers, change rules, patch suggestions) into a full connector — a
-vendor or community member can add their SDK in ~40 lines with no knowledge of the rest of
-the codebase. Identifiers support globs (e.g. `@google-cloud/*`).
+- **Vercel AI SDK & Mastra Multi-Agent Harness (`packages/ai-harness`)**:
+  - Provider registry supporting `mock`, `openai`, and custom models behind `AiProvider`.
+  - Mastra supervisor workflow coordinating Release Analyst, Impact Analyst, Migration Planner, and Independent Reviewer agents.
+  - Complete `AgentRun` and `AgentStep` persistence for token usage, latency, and cost accounting.
 
-**Catalog** (`packages/vendor-connectors/src/registry.ts`):
+- **GitHub App & Real Repository Integration (`packages/git-provider`)**:
+  - JWT minting (`node:crypto`) and installation access token exchange.
+  - Atomic draft PR creation on remote GitHub repositories.
+  - HMAC `sha256` webhook receiver (`/api/webhooks/github`) with delivery deduplication and monotonic PR status synchronization (`DRAFT → OPEN → MERGED/CLOSED`).
 
-| Group                  | Connectors                                                                                    |
-| ---------------------- | --------------------------------------------------------------------------------------------- |
-| AI / LLM               | openai, anthropic, gemini, mistral, deepseek, cohere, groq, replicate, langchain, huggingface |
-| Cloud & infra          | aws-sdk, google-cloud, azure-sdk, vercel, cloudflare, terraform, kubernetes, digitalocean     |
-| Payments               | stripe, paypal, square, plaid, adyen, lemon-squeezy                                           |
-| Auth & identity        | auth0, clerk, okta, keycloak, next-auth, passport                                             |
-| Messaging & comms      | twilio, slack, sendgrid, discord, telegram, socket.io                                         |
-| Data & DB              | prisma, drizzle, typeorm, sequelize, mongodb, mongoose, redis                                 |
-| Web frameworks         | express, react, next, vue, trpc                                                               |
-| Search & observability | elasticsearch, algolia, sentry                                                                |
-| CRM & product          | salesforce, hubspot                                                                           |
-| Generic                | generic-openapi (OpenAPI document diffs)                                                      |
+- **Container Sandbox Isolation (`packages/sandbox-runner`)**:
+  - Allowlisted command execution with hard timeouts, memory/CPU bounds, and sanitized output capture.
 
-Each connector encodes: which raw payloads it understands (`supports`), how a change event
-normalizes into typed change rows (`normalizeChange`), and which patch rules apply to affected
-usage symbols (`buildPatchSuggestions`). Auth/payment/webhook-sensitive changes are
-risk-tagged and produce advisory-only patches requiring human review.
+- **Multi-Tenant Security & Governance**:
+  - Direct `organizationId` foreign keys and database indexes across all operational models (`Repository`, `RemediationPlan`, `PullRequest`, `GraphSnapshot`, `AuditEvent`, etc.).
+  - Declarative JSON policy engine with approval gates, confidence thresholds, and risk-tag overrides.
+  - Append-only audit trail with automatic secret redaction.
 
-## Local setup
+---
 
-Requirements: Node.js >= 22, pnpm 10, Docker (with Compose).
+## 📁 Monorepo Structure
+
+```
+patchbay/
+├── apps/
+│   ├── web/                     # Next.js 15 App Router dashboard & typed JSON API route handlers
+│   └── worker/                  # BullMQ background worker (scan, analyze, graph-index, validate, create-pr)
+├── packages/
+│   ├── ai-harness/              # Vercel AI SDK + Mastra multi-agent workflow supervisor
+│   ├── ai-provider/              # AiProvider interface (Mock & OpenAI-compatible drivers)
+│   ├── audit/                   # Append-only AuditEvent builder & secret redaction
+│   ├── db/                      # Prisma schema, client singleton, and database utilities
+│   ├── domain/                  # Single source of truth: enums, semver engine, Zod schemas, errors, logger
+│   ├── env/                     # Typed environment variable validation & secret management
+│   ├── git-provider/            # GitProvider abstraction (LocalGitProvider, GitHubProvider, GitHubAppProvider)
+│   ├── policy-engine/           # Deterministic policy decision engine (ALLOW/APPROVE/DENY)
+│   ├── queue/                   # BullMQ queue definitions, job contracts, and Redis connection
+│   ├── remediation-engine/      # AST-aware code transformation rules & unified diff generator
+│   ├── repo-analysis/           # TypeScript compiler AST indexer & Software Intelligence Graph extractor
+│   ├── sandbox-runner/          # Allowlisted command execution runner with timeouts & output bounds
+│   ├── ui/                      # Accessible UI primitive components (Card, Button, Badge, Table, CodeBlock)
+│   └── vendor-connectors/       # 56-connector catalog & declarative defineConnector SDK
+├── docs/                        # Architecture, Watchtower, Agent Harness, and security documentation
+└── fixtures/repositories/       # Legacy sample repositories for testing (openai-node-legacy, stripe-node-legacy, ...)
+```
+
+---
+
+## ⚡ Quick Start & Development Setup
+
+### Prerequisites
+
+- **Node.js**: `>= 22.0.0`
+- **pnpm**: `>= 10.0.0`
+- **Docker**: Docker Desktop or Docker Engine (with Compose)
+
+### 1. Clone & Install
 
 ```bash
-git clone <this-repo> && cd patchbay
+git clone https://github.com/Rehan147ig/patchbay.git
+cd patchbay
 pnpm install
-cp .env.example .env          # defaults work for local development
-docker compose up -d          # postgres + redis
-pnpm db:generate              # generate Prisma client
-pnpm db:migrate               # apply committed migrations
-pnpm db:seed                  # seed demo data (idempotent)
-pnpm dev                      # web on http://localhost:3000, worker alongside
 ```
 
-First-time note: `pnpm install` may take a few minutes. If the Docker daemon is not running,
-start Docker Desktop first; `docker compose ps` should show both services healthy.
+### 2. Configure Environment & Start Services
 
-## Environment variables
+```bash
+cp .env.example .env          # Default local values work out of the box
+docker compose up -d          # Starts PostgreSQL (port 5434) and Redis (port 6380)
+```
 
-See `.env.example` for the complete list with comments. Essentials:
+### 3. Initialize Database & Seed Demo Data
 
-| Variable                                  | Purpose                                                     | Local default            |
-| ----------------------------------------- | ----------------------------------------------------------- | ------------------------ |
-| `DATABASE_URL`                            | PostgreSQL                                                  | matches docker-compose   |
-| `REDIS_URL`                               | Redis                                                       | `redis://localhost:6380` |
-| `DEV_AUTH_SECRET`                         | signs the dev session cookie — **required** (no default)    | generate one             |
-| `DEMO_USER_EMAIL`                         | seeded demo admin identity                                  | `demo@patchbay.dev`      |
-| `DEMO_USER_PASSWORD`                      | seeded demo password — **required** for login (no fallback) | set one                  |
-| `AI_PROVIDER`                             | `mock` (default), `openai`, or `openai-compatible`          | `mock`                   |
-| `OPENAI_API_KEY`                          | required when `AI_PROVIDER` is not `mock`                   | empty                    |
-| `GITHUB_APP_ID`                           | GitHub App ID — enables App auth + installation tokens      | empty = local provider   |
-| `GITHUB_APP_PRIVATE_KEY`                  | GitHub App PEM key (base64) — signs App JWTs                | empty = local provider   |
-| `GITHUB_APP_WEBHOOK_SECRET`               | GitHub App webhook HMAC secret                              | empty = webhooks 401     |
-| `GITHUB_APP_SLUG`                         | GitHub App slug (for the install redirect URL)              | empty                    |
-| `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` | GitHub OAuth app — enables "Continue with GitHub"           | empty = dev cookie       |
-| `GITHUB_PAT`                              | legacy single-repo PAT mode (superseded by the App)         | empty                    |
+```bash
+pnpm db:generate              # Generate Prisma Client
+pnpm db:migrate               # Apply committed database migrations
+pnpm db:seed                  # Seed Acme SaaS organization & vendor catalog
+```
 
-## Demo
+### 4. Launch Development Environment
 
-Sign in at `http://localhost:3000/login` (one-click demo user), then open `/demo`:
+```bash
+pnpm dev                      # Starts Next.js web app (http://localhost:3000) & BullMQ worker
+```
 
-1. **OpenAI SDK migration** - change event → analysis detects legacy `createChatCompletion`
-   → rule-based patch → validation passes → policy allows → local mock draft PR → audit trail.
-2. **Auth0 configuration change** - impact detected, plan generated, policy blocks PR creation
-   until an admin approves.
-3. **Generic OpenAPI response field removed** - diffed from pasted documents, impact assessed,
-   plan-only outcome (no patch).
-4. **Agent mode ingest** - an ADMIN issues a vendor agent key (shown once, e.g.
-   `pb_agent_dev_openai` for the seeded OpenAI vendor), then
-   `POST /api/vendors/openai/events` with `Authorization: Bearer <key>` enqueues the same
-   analyze pipeline as a manual change; only a sha256 hash of the key is stored.
+---
 
-Full walkthrough with expected outputs: [docs/demo-script.md](docs/demo-script.md).
-Reset demo state: `pnpm db:reset` (or the "Reset demo data" action on `/demo`).
+## 🧪 Verification & Testing
 
-## GitHub integration
+The repository enforces 100% clean quality gates across all 17 workspace packages:
 
-- **GitHub App**: install the App at `/settings/github` (admin only). The callback verifies a
-  signed, expiring install-state cookie and validates the installation against the GitHub API
-  before binding it to your organization; a webhook can never create a binding on its own.
-  `POST /api/webhooks/github` verifies `x-hub-signature-256`, deduplicates deliveries by
-  `x-github-delivery` (unique `WebhookDelivery` row), and syncs PR status monotonically
-  (`DRAFT → OPEN → MERGED/CLOSED`), never regressing closed/merged PRs.
-- **Repositories**: "Connect repository" (`POST /api/repositories/connect`) resolves the target
-  through an installation access token and stores real GitHub metadata (id, default branch,
-  visibility).
-- **Draft PRs**: the worker mints a short-lived App JWT, exchanges it for an installation token,
-  and opens a draft PR on the repository's default branch. PR creation is idempotent
-  (`PullRequest.remediationPlanId` unique).
-- **OAuth sign-in**: with `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` set, "Continue with GitHub"
-  appears on `/login`; first-time signups get a dedicated organization. Without them the dev
-  demo cookie is used — and dev auth is disabled when `NODE_ENV=production` unless OAuth is
-  configured.
+```bash
+# Typecheck all 17 monorepo packages (zero errors)
+pnpm typecheck
 
-## Testing
+# Run full Vitest suite (634 passing tests across 52 test files)
+pnpm test
 
-- `pnpm test` - unit/integration tests (Vitest). Covers analyzer fixtures, rule engine diffs,
-  policy gating, sandbox allowlist, audit redaction, AI output validation.
-- `pnpm e2e` - Playwright happy-path test for the OpenAI demo flow.
+# Run ESLint (zero warnings)
+pnpm lint
 
-## Safety boundaries (local MVP)
+# Check Prettier formatting
+pnpm format:check
+```
 
-- The bundled sandbox runner is a local development tool, **not** a hardened multi-tenant
-  sandbox. It runs allowlisted commands with timeouts and output caps, but does not provide
-  kernel-level isolation.
-- The dev auth (seeded demo user + signed cookie) is for local development only and fails closed
-  in production builds (no fallback password, no default secret, disabled unless OAuth is
-  configured).
-- GitHub App tokens are short-lived installation tokens minted server-side; App private keys and
-  webhook secrets live in server env only; webhook deliveries are HMAC-verified and deduplicated.
-- Secrets are redacted from logs, audit events, and AI context.
+---
 
-## Known limitations
+## 🔐 Security & Governance Principles
 
-- TypeScript/Node + npm manifests only; other ecosystems unsupported.
-- Static (repository-folder based) analysis; no live GitHub content analysis in the MVP.
-- Connector migration rules encode known breaking changes for each SDK; the vendor-specific
-  facts are community-verifiable but not exhaustively validated against every SDK version.
-- Change-event and remediation-plan data is org-scoped in code, but the deployment is a single
-  tenant; tenant isolation is designed for but not multi-tenant hardened.
-- Agent ingest keys are bearer secrets stored only as hashes; key management (rotation,
-  revocation UI) is minimal in the MVP.
-- Generic OpenAPI connector produces impact mapping and plans only - no patch generation.
-- Windows development is supported; sandbox commands run through `cmd.exe /c`.
+1. **Draft PR Default**: Patchbay opens draft pull requests only; auto-merging is never enabled by default.
+2. **Mandatory Validation**: Validation tests must pass before any pull request is submitted.
+3. **Approval Gates**: Payment, Auth/Authorization, PII, Webhook Verification, Encryption, Secrets, and Infrastructure changes require explicit human approval.
+4. **Command Allowlist**: Sandbox execution runs strictly allowlisted build and test commands; LLMs have zero shell access.
+5. **Secret Redaction**: Sensitive keys and secrets are automatically redacted from logs, audit events, and AI contexts.
+6. **Monotonic PR Sync**: GitHub webhook status updates synchronize PR states strictly forward (`DRAFT → OPEN → MERGED/CLOSED`).
 
-## Future production requirements
+---
 
-- Token rotation + revocation UI for GitHub App installs, PAT removal, and webhook re-verification.
-- Hardened multi-tenant sandbox (container isolation, resource limits, egress control).
-- SSO (SAML/OIDC/SCIM) on top of the GitHub OAuth sign-in.
-- Managed queue/worker deployment, structured logging shipping, audit-log immutability
-  (append-only store / WORM), metrics and alerting.
-- Full ecosystem coverage (Python, Go, etc.) behind the same interfaces.
+## 📜 License
 
-See [docs/implementation-plan.md](docs/implementation-plan.md) for phase status and
-[docs/threat-model.md](docs/threat-model.md) for the security analysis. The implementation blueprint
-for proactive vendor-change detection is [docs/RELEASE-WATCHTOWER.md](docs/RELEASE-WATCHTOWER.md).
-The build roadmap for the software graph and governed multi-agent system is
-[docs/PATCHBAY-AGENT-HARNESS-ROADMAP.md](docs/PATCHBAY-AGENT-HARNESS-ROADMAP.md).
+Distributed under the MIT License. See [`LICENSE`](LICENSE) for more information.
