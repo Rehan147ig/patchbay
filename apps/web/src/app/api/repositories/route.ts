@@ -5,6 +5,7 @@ import type { NextRequest } from "next/server";
 import { getCorrelationId, jsonError, jsonOk, parseBody, writeAuditEvent } from "@/lib/api";
 import { requireRole } from "@/lib/auth";
 import { assertCsrfToken } from "@/lib/csrf-server";
+import { assertRepositoryCapacity, countActiveRepositories } from "@/lib/billing";
 
 export async function GET(request: NextRequest) {
   const correlationId = getCorrelationId(request);
@@ -43,6 +44,9 @@ export async function POST(request: NextRequest) {
     if (existing) {
       throw validationFailed("A repository with this externalId is already registered");
     }
+
+    const activeCount = await countActiveRepositories(user.organizationId);
+    await assertRepositoryCapacity(user.organizationId, activeCount);
 
     const repository = await prisma.repository.create({
       data: {

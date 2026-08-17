@@ -28,7 +28,7 @@ export function LoginForm() {
         return;
       }
       const next = searchParams.get("next");
-      window.location.assign(next ?? "/");
+      window.location.assign(next ?? "/overview");
     });
   }
 

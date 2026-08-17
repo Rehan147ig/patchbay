@@ -24,6 +24,22 @@ export const RepositoryStatus = {
 } as const;
 export type RepositoryStatus = (typeof RepositoryStatus)[keyof typeof RepositoryStatus];
 
+export const PlanTier = {
+  FREE: "FREE",
+  PRO: "PRO",
+  TEAM: "TEAM",
+  ENTERPRISE: "ENTERPRISE",
+} as const;
+export type PlanTier = (typeof PlanTier)[keyof typeof PlanTier];
+
+export const SubscriptionStatus = {
+  TRIALING: "TRIALING",
+  ACTIVE: "ACTIVE",
+  PAST_DUE: "PAST_DUE",
+  CANCELED: "CANCELED",
+} as const;
+export type SubscriptionStatus = (typeof SubscriptionStatus)[keyof typeof SubscriptionStatus];
+
 export const ScanStatus = {
   QUEUED: "QUEUED",
   RUNNING: "RUNNING",
@@ -346,6 +362,8 @@ export const ALL_ENUMS = {
   Role,
   RepositoryProvider,
   RepositoryStatus,
+  PlanTier,
+  SubscriptionStatus,
   ScanStatus,
   VendorChangeSource,
   VendorChangeStatus,

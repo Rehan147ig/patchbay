@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@patchbay/ui";
 
 const LINKS = [
-  { href: "/", label: "Overview" },
+  { href: "/overview", label: "Overview" },
   { href: "/repositories", label: "Repositories" },
   { href: "/releases", label: "Releases" },
   { href: "/changes", label: "Changes" },
@@ -21,7 +21,8 @@ export function Nav() {
   return (
     <nav aria-label="Primary" className="flex items-center gap-1 overflow-x-auto">
       {LINKS.map((link) => {
-        const active = link.href === "/" ? pathname === "/" : pathname.startsWith(link.href);
+        const active =
+          link.href === "/overview" ? pathname === "/overview" : pathname.startsWith(link.href);
         return (
           <Link
             key={link.href}

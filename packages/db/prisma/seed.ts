@@ -63,11 +63,34 @@ async function main(): Promise<void> {
   await seedVendors();
   await seedPolicies();
   await seedRepositories();
+  await seedSubscription();
   await seedChangeEvents();
   await seedAuditHistory(org.id);
   await seedTaskParameters();
 
   console.log("[seed] done");
+}
+
+/**
+ * Gives the demo org a PRO subscription so the four seeded repositories fit
+ * under the 10-repo cap (the FREE tier allows only 1). Idempotent; never
+ * downgrades an existing subscription.
+ */
+async function seedSubscription(): Promise<void> {
+  const existing = await prisma.subscription.findUnique({ where: { organizationId: ORG_ID } });
+  if (existing) {
+    console.log(`[seed] subscription already exists (${existing.planTier})`);
+    return;
+  }
+  await prisma.subscription.create({
+    data: {
+      organizationId: ORG_ID,
+      planTier: "PRO",
+      status: "ACTIVE",
+      currentPeriodEnd: new Date(Date.now() + 30 * 86_400_000),
+    },
+  });
+  console.log("[seed] subscription (PRO)");
 }
 
 /**

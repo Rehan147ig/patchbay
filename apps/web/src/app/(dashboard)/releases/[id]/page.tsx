@@ -12,7 +12,8 @@ import {
   StatusPill,
 } from "@patchbay/ui";
 import { requireRole } from "@/lib/auth";
-import { formatDate } from "@/lib/format";
+import { formatDate, AUTHENTICITY_LABEL, AUTHENTICITY_TONE } from "@/lib/format";
+import { TriggerRemediationButton } from "@/components/trigger-remediation-button";
 
 export const metadata: Metadata = {
   title: "Release detail",
@@ -40,7 +41,13 @@ export default async function ReleaseDetailPage({ params }: { params: Promise<{ 
   const release = await prisma.releaseRecord.findUnique({
     where: { id },
     include: {
-      product: { select: { packageName: true, vendor: { select: { slug: true, name: true } } } },
+      product: {
+        select: {
+          packageName: true,
+          vendorId: true,
+          vendor: { select: { slug: true, name: true } },
+        },
+      },
       classifications: true,
     },
   });
@@ -56,6 +63,20 @@ export default async function ReleaseDetailPage({ params }: { params: Promise<{ 
       },
     },
   });
+
+  const usageRows = await prisma.integrationUsage.findMany({
+    where: {
+      repositoryId: { in: matches.map((match) => match.repositoryId) },
+      vendorId: release.product.vendorId,
+    },
+    select: { id: true, repositoryId: true, filePath: true, symbol: true, usageType: true },
+  });
+  const usagesByRepository = new Map<string, typeof usageRows>();
+  for (const usage of usageRows) {
+    const bucket = usagesByRepository.get(usage.repositoryId) ?? [];
+    bucket.push(usage);
+    usagesByRepository.set(usage.repositoryId, bucket);
+  }
 
   const evidence = [];
   for (const match of matches) {
@@ -79,8 +100,11 @@ export default async function ReleaseDetailPage({ params }: { params: Promise<{ 
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">
+        <h1 className="flex items-center gap-2 text-xl font-semibold text-slate-900">
           {release.product.packageName} {release.version}
+          <Badge tone={AUTHENTICITY_TONE[release.authenticity]}>
+            {AUTHENTICITY_LABEL[release.authenticity]}
+          </Badge>
         </h1>
         <p className="text-sm text-slate-500">
           {release.product.vendor.name} · previous {release.previousVersion ?? "unknown"} · observed{" "}
@@ -163,44 +187,69 @@ export default async function ReleaseDetailPage({ params }: { params: Promise<{ 
             </p>
           ) : (
             <ul className="space-y-3">
-              {evidence.map(({ match, impact }) => (
-                <li key={match.id} className="rounded border border-slate-200 px-3 py-2">
-                  <div className="flex items-center justify-between">
-                    <Link
-                      href={`/repositories/${match.repositoryId}`}
-                      className="font-medium text-blue-600 hover:underline"
-                    >
-                      {match.repository.name}
-                    </Link>
-                    <span className="text-xs text-slate-400">{match.repository.fullName}</span>
-                  </div>
-                  <p className="mt-1 text-xs text-slate-500">{match.matchReason}</p>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Resolved {match.dependency.resolvedVersion} · declared{" "}
-                    {match.dependency.declaredRange ?? "—"} · at{" "}
-                    {match.dependency.commitSha.slice(0, 12)}
-                  </p>
-                  {impact ? (
-                    <div className="mt-2">
-                      <p className="text-xs font-medium text-slate-600">
-                        Why affected (graph evidence)
-                      </p>
-                      <ul className="mt-1 list-disc pl-4 text-xs text-slate-600">
-                        {impact.modules.length === 0 ? (
-                          <li>No usage modules in the latest graph snapshot</li>
-                        ) : (
-                          impact.modules.map((module) => (
-                            <li key={module.filePath}>
-                              {module.filePath} — {module.edgeKinds.join(", ")} (
-                              {module.evidenceCount} evidence rows)
-                            </li>
-                          ))
-                        )}
-                      </ul>
+              {evidence.map(({ match, impact }) => {
+                const usages = usagesByRepository.get(match.repositoryId) ?? [];
+                return (
+                  <li key={match.id} className="rounded border border-slate-200 px-3 py-2">
+                    <div className="flex items-center justify-between">
+                      <Link
+                        href={`/repositories/${match.repositoryId}`}
+                        className="font-medium text-blue-600 hover:underline"
+                      >
+                        {match.repository.name}
+                      </Link>
+                      <span className="text-xs text-slate-400">{match.repository.fullName}</span>
                     </div>
-                  ) : null}
-                </li>
-              ))}
+                    <p className="mt-1 text-xs text-slate-500">{match.matchReason}</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Resolved {match.dependency.resolvedVersion} · declared{" "}
+                      {match.dependency.declaredRange ?? "—"} · at{" "}
+                      {match.dependency.commitSha.slice(0, 12)}
+                    </p>
+                    {impact ? (
+                      <div className="mt-2">
+                        <p className="text-xs font-medium text-slate-600">
+                          Why affected (graph evidence)
+                        </p>
+                        <ul className="mt-1 list-disc pl-4 text-xs text-slate-600">
+                          {impact.modules.length === 0 ? (
+                            <li>No usage modules in the latest graph snapshot</li>
+                          ) : (
+                            impact.modules.map((module) => (
+                              <li key={module.filePath}>
+                                {module.filePath} — {module.edgeKinds.join(", ")} (
+                                {module.evidenceCount} evidence rows)
+                              </li>
+                            ))
+                          )}
+                        </ul>
+                      </div>
+                    ) : null}
+                    {usages.length > 0 ? (
+                      <div className="mt-2">
+                        <p className="text-xs font-medium text-slate-600">
+                          Integration usage ({usages.length})
+                        </p>
+                        <ul className="mt-1 list-disc pl-4 text-xs text-slate-600">
+                          {usages.map((usage) => (
+                            <li key={usage.id}>
+                              <code className="text-slate-700">{usage.filePath}</code> —{" "}
+                              {usage.symbol} ({usage.usageType.toLowerCase()})
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                    <div className="mt-3">
+                      <TriggerRemediationButton
+                        releaseId={release.id}
+                        matchId={match.id}
+                        repositoryName={match.repository.name}
+                      />
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </CardContent>

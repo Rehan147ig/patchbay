@@ -13,6 +13,8 @@ export type ErrorCode =
   | "POLICY_DENIED"
   | "RATE_LIMITED"
   | "PAYLOAD_TOO_LARGE"
+  | "PLAN_LIMIT_EXCEEDED"
+  | "BILLING_UNAVAILABLE"
   | "INTERNAL_ERROR";
 
 export interface PatchbayErrorOptions {
@@ -74,4 +76,14 @@ export function tooManyRequests(message = "Too many requests, slow down"): Patch
 
 export function payloadTooLarge(message = "Request body exceeds the size limit"): PatchbayError {
   return new PatchbayError(message, { statusCode: 413, code: "PAYLOAD_TOO_LARGE" });
+}
+
+export function planLimitExceeded(message: string, details?: unknown): PatchbayError {
+  return new PatchbayError(message, { statusCode: 402, code: "PLAN_LIMIT_EXCEEDED", details });
+}
+
+export function billingUnavailable(
+  message = "Billing is not configured for this deployment",
+): PatchbayError {
+  return new PatchbayError(message, { statusCode: 503, code: "BILLING_UNAVAILABLE" });
 }

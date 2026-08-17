@@ -7,6 +7,7 @@ import { getSecretStore } from "@patchbay/env";
 import { getCorrelationId, jsonError, jsonOk, writeAuditEvent } from "@/lib/api";
 import { requireUser } from "@/lib/auth";
 import { assertCsrfToken } from "@/lib/csrf-server";
+import { assertRepositoryCapacity, countActiveRepositories } from "@/lib/billing";
 
 /**
  * POST /api/repositories/connect
@@ -48,6 +49,19 @@ export async function POST(request: NextRequest) {
     );
     const githubRepository = await provider.fetchRepositoryInfo();
     const externalId = `github:${githubRepository.externalId}`;
+
+    const existing = await prisma.repository.findUnique({
+      where: {
+        organizationId_externalId: {
+          organizationId: user.organizationId,
+          externalId,
+        },
+      },
+    });
+    if (!existing) {
+      const activeCount = await countActiveRepositories(user.organizationId);
+      await assertRepositoryCapacity(user.organizationId, activeCount);
+    }
 
     const repository = await prisma.repository.upsert({
       where: {

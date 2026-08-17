@@ -1,9 +1,11 @@
 import type { BadgeTone, StatusPillProps } from "@patchbay/ui";
 import {
   AgentRunStatus,
+  DetectionRunStatus,
   ImpactStatus,
   PlanStatus,
   PullRequestStatus,
+  ReleaseAuthenticity,
   RiskLevel,
   ScanStatus,
   Severity,
@@ -156,3 +158,21 @@ export const RISK_TAG_TONE: Record<RiskTag, BadgeTone> = {
 export function truncate(value: string, max = 120): string {
   return value.length <= max ? value : `${value.slice(0, max)}…`;
 }
+
+export const AUTHENTICITY_TONE: Record<ReleaseAuthenticity, BadgeTone> = {
+  VERIFIED: "green",
+  SOURCE_TRUSTED: "blue",
+  UNVERIFIED: "neutral",
+};
+
+export const AUTHENTICITY_LABEL: Record<ReleaseAuthenticity, string> = {
+  VERIFIED: "Verified",
+  SOURCE_TRUSTED: "Source trusted",
+  UNVERIFIED: "Unverified",
+};
+
+export const DETECTION_RUN_STATUS_TONE: Record<DetectionRunStatus, StatusPillProps["tone"]> = {
+  RUNNING: "blue",
+  COMPLETED: "green",
+  FAILED: "red",
+};

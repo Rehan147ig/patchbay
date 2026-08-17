@@ -3,6 +3,8 @@ export {
   Role,
   RepositoryProvider,
   RepositoryStatus,
+  PlanTier,
+  SubscriptionStatus,
   ScanStatus,
   VendorChangeSource,
   VendorChangeStatus,
@@ -35,6 +37,7 @@ export {
   ReleaseStatus,
   ReleaseMatchStatus,
   ReleaseClassificationMethod,
+  DetectionRunStatus,
   SCORING,
 } from "./enums";
 export {
@@ -48,6 +51,8 @@ export {
   policyDenied,
   tooManyRequests,
   payloadTooLarge,
+  planLimitExceeded,
+  billingUnavailable,
 } from "./errors";
 export type { ErrorCode, PatchbayErrorOptions } from "./errors";
 export { logger, getCorrelationId, runWithCorrelationId } from "./logger";

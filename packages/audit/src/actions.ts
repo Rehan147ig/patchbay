@@ -61,6 +61,10 @@ export const AuditAction = {
   DETECTION_RUN_STARTED: "detection.run.started",
   DETECTION_RUN_COMPLETED: "detection.run.completed",
   DETECTION_RUN_FAILED: "detection.run.failed",
+  BILLING_CHECKOUT_STARTED: "billing.checkout_started",
+  BILLING_PORTAL_STARTED: "billing.portal_started",
+  SUBSCRIPTION_CHANGED: "subscription.changed",
+  SUBSCRIPTION_CANCELED: "subscription.canceled",
   DEMO_RUN: "demo.run",
   DEMO_RESET: "demo.reset",
 } as const;

@@ -37,6 +37,7 @@ export const ORG_SCOPED_MODELS = [
   "GraphIndexJob",
   "AgentRun",
   "AgentStep",
+  "Subscription",
 ] as const;
 
 export type OrgScopedModel = (typeof ORG_SCOPED_MODELS)[number];

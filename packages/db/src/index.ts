@@ -44,4 +44,5 @@ export type {
   GraphIndexJob,
   AgentRun,
   AgentStep,
+  Subscription,
 } from "@prisma/client";

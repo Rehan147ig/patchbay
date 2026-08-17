@@ -88,6 +88,13 @@ export const envSchema = z
       .min(60_000)
       .max(86_400_000)
       .default(30 * 60_000),
+
+    // Stripe billing. All optional: when STRIPE_SECRET_KEY is unset the app
+    // runs without billing (checkout/portal routes 503 and plan stays FREE).
+    STRIPE_SECRET_KEY: optionalText(1),
+    STRIPE_WEBHOOK_SECRET: optionalText(16),
+    STRIPE_PRICE_PRO_MONTHLY: optionalText(1),
+    STRIPE_PRICE_TEAM_MONTHLY: optionalText(1),
   })
   .superRefine((env, ctx) => {
     const issue = (message: string): void => {

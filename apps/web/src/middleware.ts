@@ -6,7 +6,7 @@ import { isGitHubOAuthConfigured, NEXTAUTH_SESSION_COOKIES, SESSION_COOKIE } fro
 const CORRELATION_HEADER = "x-correlation-id";
 const NONCE_HEADER = "x-nonce";
 
-const PUBLIC_PATHS = ["/login", "/api/health"];
+const PUBLIC_PATHS = ["/", "/login", "/api/health"];
 
 export async function middleware(request: NextRequest): Promise<NextResponse> {
   const correlationId =

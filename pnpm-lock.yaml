@@ -63,6 +63,9 @@ importers:
       "@patchbay/audit":
         specifier: workspace:*
         version: link:../../packages/audit
+      "@patchbay/billing":
+        specifier: workspace:*
+        version: link:../../packages/billing
       "@patchbay/db":
         specifier: workspace:*
         version: link:../../packages/db
@@ -235,6 +238,25 @@ importers:
       "@patchbay/domain":
         specifier: workspace:*
         version: link:../domain
+    devDependencies:
+      "@types/node":
+        specifier: ^22.15.0
+        version: 22.20.1
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.7(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.5)
+
+  packages/billing:
+    dependencies:
+      "@patchbay/domain":
+        specifier: workspace:*
+        version: link:../domain
+      zod:
+        specifier: ^4.0.0
+        version: 4.4.3
     devDependencies:
       "@types/node":
         specifier: ^22.15.0

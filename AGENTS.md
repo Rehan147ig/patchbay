@@ -19,6 +19,7 @@ It is NOT a generic chatbot, changelog summarizer, or OpenAPI diff dashboard.
 - `packages/domain` - enums, Zod schemas, shared errors, JSON logger (no framework deps)
 - `packages/db` - Prisma schema, client singleton, seed script
 - `packages/audit` - immutable audit event helpers, secret redaction
+- `packages/billing` - subscription plans/caps, SDK-free Stripe REST client, webhook signature verification
 - `packages/ui` - accessible UI primitives
 - `packages/vendor-connectors` - Stripe/OpenAI/Twilio/Auth0/Generic OpenAPI adapters
 - `packages/repo-analysis` - TypeScript AST indexing, integration usage inventory, impact scoring

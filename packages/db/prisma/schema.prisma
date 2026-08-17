@@ -28,6 +28,21 @@ enum RepositoryStatus {
   ARCHIVED
 }
 
+/** Stripe-backed subscription tiers. Repo caps: FREE=1, PRO=10, TEAM=50, ENTERPRISE=unlimited. */
+enum PlanTier {
+  FREE
+  PRO
+  TEAM
+  ENTERPRISE
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+}
+
 enum ScanStatus {
   QUEUED
   RUNNING
@@ -279,6 +294,24 @@ model Organization {
   graphEdges             GraphEdge[]
   graphEvidence          GraphSourceEvidence[]
   graphIndexJobs         GraphIndexJob[]
+  subscription           Subscription?
+}
+
+/** Stripe billing subscription for one organization (1:1 with Organization). */
+model Subscription {
+  id                    String             @id @default(uuid())
+  organizationId        String             @unique
+  stripeCustomerId      String?
+  stripeSubscriptionId  String?
+  planTier              PlanTier           @default(FREE)
+  status                SubscriptionStatus @default(TRIALING)
+  currentPeriodEnd      DateTime?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([stripeCustomerId])
 }
 
 model User {

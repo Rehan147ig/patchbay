@@ -14,6 +14,7 @@
     "@node-rs/argon2": "^2.0.2",
     "@patchbay/ai-provider": "workspace:*",
     "@patchbay/audit": "workspace:*",
+    "@patchbay/billing": "workspace:*",
     "@patchbay/db": "workspace:*",
     "@patchbay/domain": "workspace:*",
     "@patchbay/env": "workspace:*",
