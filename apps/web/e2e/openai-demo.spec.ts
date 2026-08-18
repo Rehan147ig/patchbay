@@ -8,7 +8,7 @@ import { expect, test } from "@playwright/test";
 test("OpenAI demo happy path ends in a stored draft PR", async ({ page }) => {
   await page.goto("/login");
   await page.getByRole("button", { name: "Sign in as demo user" }).click();
-  await page.waitForURL("http://localhost:3000/");
+  await page.waitForURL(/\/overview/);
 
   await page.goto("/demo");
   await page.getByRole("button", { name: "Run demo change" }).first().click();

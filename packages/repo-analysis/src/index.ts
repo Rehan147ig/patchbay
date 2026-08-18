@@ -6,9 +6,16 @@ export type {
   ModuleExports,
   PackageManifest,
   PackageManager,
+  PythonManifest,
   RelativeModuleResolver,
   RepositoryAnalysis,
 } from "./types";
+export {
+  extractPythonUsages,
+  parsePythonManifest,
+  parsePyProjectToml,
+  parseRequirementsTxt,
+} from "./python";
 export { analyzeSource, collectBindings, rootIdentifier } from "./ast";
 export { collectModuleExports, makeRelativeResolver, resolveRelativeTarget } from "./exports";
 export { classifyRiskTags } from "./risk";

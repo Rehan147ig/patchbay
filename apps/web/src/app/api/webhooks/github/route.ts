@@ -1,14 +1,22 @@
 import { createHash } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { z } from "zod";
-import { prisma } from "@patchbay/db";
+import { prisma, Prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
-import { ActorType, PatchbayError, logger, unauthorized } from "@patchbay/domain";
+import {
+  ActorType,
+  OutcomeSource,
+  PatchbayError,
+  PullRequestStatus,
+  logger,
+  unauthorized,
+} from "@patchbay/domain";
 import { getSecretStore } from "@patchbay/env";
 import { getCorrelationId, jsonError, jsonOk, writeAuditEvent } from "@/lib/api";
 import { verifyGitHubWebhookSignature } from "@/lib/github-webhook";
 import { isAllowedPullRequestTransition, resolveNextPullRequestStatus } from "@/lib/pr-status";
 import { enqueue, JobType } from "@patchbay/queue";
+import { recordPrOutcome } from "@/lib/pr-outcomes";
 
 /**
  * POST /api/webhooks/github
@@ -311,7 +319,25 @@ async function handlePullRequest(
         impactAssessment: { repository: { externalId: String(repository.id) } },
       },
     },
-    select: { id: true, organizationId: true, status: true },
+    select: {
+      id: true,
+      organizationId: true,
+      status: true,
+      remediationPlan: {
+        select: {
+          id: true,
+          remediationCaseId: true,
+          policyDecision: true,
+          impactAssessment: {
+            select: {
+              changeEvent: {
+                select: { vendor: { select: { slug: true } } },
+              },
+            },
+          },
+        },
+      },
+    },
   });
   if (!pullRequest || pullRequest.status === nextStatus) return;
   if (!isAllowedPullRequestTransition(pullRequest.status, nextStatus)) return;
@@ -332,4 +358,21 @@ async function handlePullRequest(
     before: { status: pullRequest.status },
     after: { status: nextStatus, githubPrNumber: pr.number },
   });
+
+  // Outcome learning: a merged/closed PR becomes a structured outcome linked
+  // to the capability, model, snapshot, and validation that produced it.
+  if (nextStatus === PullRequestStatus.MERGED || nextStatus === PullRequestStatus.CLOSED) {
+    await recordPrOutcome({
+      organizationId: pullRequest.organizationId,
+      pullRequestId: pullRequest.id,
+      status: nextStatus,
+      source: OutcomeSource.GITHUB_WEBHOOK,
+      planId: pullRequest.remediationPlan?.id ?? null,
+      caseId: pullRequest.remediationPlan?.remediationCaseId ?? null,
+      vendorSlug: pullRequest.remediationPlan?.impactAssessment.changeEvent.vendor.slug ?? null,
+      policyDecision:
+        (pullRequest.remediationPlan?.policyDecision as Prisma.InputJsonValue | null) ?? null,
+      correlationId,
+    });
+  }
 }

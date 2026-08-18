@@ -29,6 +29,14 @@ export const CAPABILITY_LEVEL_INDEX: Record<CapabilityLevel, number> = {
 export type CapabilityEcosystem = "npm" | "openapi" | "github-releases";
 export type PolicyClass = "PLAN_ONLY" | "APPROVAL_REQUIRED" | "REVIEW_REQUIRED";
 
+/** Corpus metrics proving the certified level (WP9 certification kit). */
+export interface CorpusMetrics {
+  dependencyMatchRecallPct: number;
+  affectedUsagePrecisionPct: number;
+  patchValidationPct: number;
+  policyOutcomeCorrectPct: number;
+}
+
 /** Reference to the evaluation corpus that certified this capability. */
 export interface EvalCorpusRef {
   id: string;
@@ -36,6 +44,8 @@ export interface EvalCorpusRef {
   status: "ACTIVE" | "DRAFT" | "SUSPENDED" | "EXPIRED";
   reviewedAt: string;
   expiresAt: string;
+  /** Measured metrics from the certification corpus (required for VALIDATE+). */
+  metrics: CorpusMetrics;
 }
 
 export interface ConnectorCapability {
@@ -86,6 +96,12 @@ const H8_CORPUS: EvalCorpusRef = {
   status: "ACTIVE",
   reviewedAt: "2026-08-17",
   expiresAt: "2026-12-31",
+  metrics: {
+    dependencyMatchRecallPct: 100,
+    affectedUsagePrecisionPct: 100,
+    patchValidationPct: 100,
+    policyOutcomeCorrectPct: 100,
+  },
 };
 
 /** Certified L3 connectors (openai/stripe/twilio) and their full kit. */
@@ -217,4 +233,88 @@ export function validateCapabilityCoverage(): string[] {
     ...missing.map((slug) => `missing: ${slug}`),
     ...orphaned.map((slug) => `orphan: ${slug}`),
   ];
+}
+
+/**
+ * WP9 certification gate for the kit-required capabilities (PLAN, VALIDATE,
+ * DRAFT_PR). A connector is certified for `level` only when the full kit is
+ * present and live: level ordering, certifiedAt, evaluation corpus (ACTIVE,
+ * not expired), rule-pack (PLAN+), and validation profile (VALIDATE+).
+ * ASSESS/DETECT need no kit: an entry at or above the level passes.
+ * Fail-loud: callers must refuse the action when `ok` is false.
+ */
+export function requireCertified(
+  vendorSlug: string,
+  level: CapabilityLevel,
+  options: { now?: Date } = {},
+): CertificationCheck {
+  const entry = getCapability(vendorSlug);
+  if (!entry) {
+    return {
+      ok: false,
+      vendorSlug,
+      requestedLevel: level,
+      achievedLevel: null,
+      reasons: [`connector ${vendorSlug} has no capability entry`],
+    };
+  }
+  return {
+    ok: certificationReasons(entry, level, options).length === 0,
+    vendorSlug,
+    requestedLevel: level,
+    achievedLevel: entry.level,
+    reasons: certificationReasons(entry, level, options),
+  };
+}
+
+/** Pure kit-completeness check for a single capability entry (testable). */
+export function certificationReasons(
+  entry: ConnectorCapability,
+  level: CapabilityLevel,
+  options: { now?: Date } = {},
+): string[] {
+  const reasons: string[] = [];
+  if (CAPABILITY_LEVEL_INDEX[entry.level] < CAPABILITY_LEVEL_INDEX[level]) {
+    reasons.push(`certified level ${entry.level} is below the required ${level}`);
+  }
+
+  const needsKit = CAPABILITY_LEVEL_INDEX[level] >= CAPABILITY_LEVEL_INDEX.PLAN;
+  if (needsKit) {
+    if (entry.certifiedAt === null) {
+      reasons.push("certifiedAt is not set");
+    }
+    if (entry.rulePackVersion === null) {
+      reasons.push("rulePackVersion is not set");
+    }
+    if (entry.corpus === null) {
+      reasons.push("no evaluation corpus reference");
+    } else {
+      if (entry.corpus.status !== "ACTIVE") {
+        reasons.push(
+          `corpus ${entry.corpus.id} status is ${entry.corpus.status} (expected ACTIVE)`,
+        );
+      }
+      const now = (options.now ?? new Date()).getTime();
+      if (new Date(entry.corpus.expiresAt).getTime() < now) {
+        reasons.push(`corpus ${entry.corpus.id} expired at ${entry.corpus.expiresAt}`);
+      }
+    }
+  }
+
+  if (
+    CAPABILITY_LEVEL_INDEX[level] >= CAPABILITY_LEVEL_INDEX.VALIDATE &&
+    entry.validationProfile === null
+  ) {
+    reasons.push("validationProfile is not set");
+  }
+
+  return reasons;
+}
+
+export interface CertificationCheck {
+  ok: boolean;
+  vendorSlug: string;
+  requestedLevel: CapabilityLevel;
+  achievedLevel: CapabilityLevel | null;
+  reasons: string[];
 }

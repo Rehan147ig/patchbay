@@ -5,12 +5,14 @@ import ts from "typescript";
 import { analyzeSource, collectBindings } from "./ast";
 import { collectModuleExports, makeRelativeResolver } from "./exports";
 import { resolveLockfileVersions } from "./lockfile";
+import { extractPythonUsages, parsePythonManifest } from "./python";
 import type {
   AnalyzeRepositoryOptions,
   AnalysisError,
   AnalyzedUsage,
   ModuleExports,
   PackageManifest,
+  PythonManifest,
   RepositoryAnalysis,
 } from "./types";
 
@@ -76,8 +78,37 @@ export async function analyzeRepository(
     }
   }
 
+  const pythonSourcesByFile = new Map<string, string>();
+  for (const rel of files.pyFiles) {
+    try {
+      pythonSourcesByFile.set(rel, await fs.readFile(path.join(rootDir, rel), "utf8"));
+    } catch (error) {
+      errors.push({ filePath: rel, message: String(error) });
+    }
+  }
+
+  const pythonManifests: PythonManifest[] = [];
+  for (const rel of files.pythonManifestFiles) {
+    try {
+      const raw = await fs.readFile(path.join(rootDir, rel), "utf8");
+      pythonManifests.push({ path: rel, ...parsePythonManifest(rel, raw) });
+    } catch (error) {
+      errors.push({ filePath: rel, message: String(error) });
+    }
+  }
+  pythonManifests.sort((a, b) => a.path.localeCompare(b.path));
+
   const usages = await analyzeUsages(sourcesByFile, trackSet, envPrefixes);
   errors.push(...usages.errors);
+
+  const pythonUsages: AnalyzedUsage[] = [];
+  for (const [rel, source] of pythonSourcesByFile) {
+    try {
+      pythonUsages.push(...(await extractPythonUsages(source, rel, trackSet)));
+    } catch (error) {
+      errors.push({ filePath: rel, message: String(error) });
+    }
+  }
 
   const { packageManager, versions } = await resolveLockfileVersions(rootDir);
   const packageCount = manifests.reduce(
@@ -91,13 +122,19 @@ export async function analyzeRepository(
   return {
     packageManager,
     packageCount,
-    filesScanned: files.tsFiles.length + files.jsonFiles.length,
+    filesScanned:
+      files.tsFiles.length +
+      files.jsonFiles.length +
+      files.pyFiles.length +
+      files.pythonManifestFiles.length,
     typescriptFiles: files.tsFiles.length,
+    pythonFiles: files.pyFiles.length,
     durationMs: Date.now() - startedAt,
     commitSha: computeSnapshotHash(files),
     lockfileVersions: versions,
     manifests,
-    usages: usages.usages,
+    pythonManifests,
+    usages: [...usages.usages, ...pythonUsages],
     errors,
     untrackedUsages: usages.untrackedUsages,
   };
@@ -176,13 +213,17 @@ async function analyzeUsages(
 interface CollectedFiles {
   tsFiles: string[];
   jsonFiles: string[];
-  /** Every file fed into the snapshot hash (ts + json). */
+  pyFiles: string[];
+  pythonManifestFiles: string[];
+  /** Every file fed into the snapshot hash (all scanned sources + manifests). */
   allFiles: string[];
 }
 
 async function collectFiles(rootDir: string): Promise<CollectedFiles> {
   const tsFiles: string[] = [];
   const jsonFiles: string[] = [];
+  const pyFiles: string[] = [];
+  const pythonManifestFiles: string[] = [];
   const allFiles: string[] = [];
 
   async function walk(dir: string): Promise<void> {
@@ -200,11 +241,15 @@ async function collectFiles(rootDir: string): Promise<CollectedFiles> {
       allFiles.push(rel);
       if (/\.(ts|tsx|mts|cts)$/.test(entry.name)) tsFiles.push(rel);
       if (/\.json$/.test(entry.name)) jsonFiles.push(rel);
+      if (/\.py$/.test(entry.name)) pyFiles.push(rel);
+      if (/^pyproject\.toml$/.test(entry.name) || /^requirements.*\.txt$/.test(entry.name)) {
+        pythonManifestFiles.push(rel);
+      }
     }
   }
 
   await walk(rootDir);
-  return { tsFiles, jsonFiles, allFiles };
+  return { tsFiles, jsonFiles, pyFiles, pythonManifestFiles, allFiles };
 }
 
 /** Deterministic hash over the scanned file set (paths only, order stable). */

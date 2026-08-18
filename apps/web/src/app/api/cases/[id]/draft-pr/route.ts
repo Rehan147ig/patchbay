@@ -2,12 +2,13 @@ import { prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import { ActorType, CaseStatus, notFound, validationFailed, PlanStatus } from "@patchbay/domain";
 import { evaluatePolicy } from "@patchbay/policy-engine";
-import { capabilityAtLeast } from "@patchbay/vendor-connectors";
+import { requireCertified } from "@patchbay/vendor-connectors";
 import { enqueue, JobType } from "@patchbay/queue";
 import type { NextRequest } from "next/server";
 import { getCorrelationId, jsonError, jsonOk, writeAuditEvent } from "@/lib/api";
 import { requireRole } from "@/lib/auth";
 import { assertCsrfToken } from "@/lib/csrf-server";
+import { assertCapabilityGateOpen } from "@/lib/capability-gates";
 
 /**
  * POST /api/cases/[id]/draft-pr
@@ -47,11 +48,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       throw notFound("Remediation case not found");
     }
 
-    if (!capabilityAtLeast(remediationCase.release.product.vendor.slug, "DRAFT_PR")) {
+    const vendorSlug = remediationCase.release.product.vendor.slug;
+    const certification = requireCertified(vendorSlug, "DRAFT_PR");
+    if (!certification.ok) {
       throw validationFailed(
-        `Connector ${remediationCase.release.product.vendor.slug} is not certified for DRAFT_PR`,
+        `Connector ${vendorSlug} is not certified for DRAFT_PR: ${certification.reasons.join("; ")}`,
       );
     }
+    await assertCapabilityGateOpen(user.organizationId, vendorSlug, "DRAFT_PR");
 
     const plan = remediationCase.plans[0];
     if (!plan) {

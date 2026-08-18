@@ -8,12 +8,15 @@ export {
   getCapability,
   listCapabilities,
   listCapabilitiesByLevel,
+  requireCertified,
   validateCapabilityCoverage,
 } from "./capabilities";
 export type {
   CapabilityEcosystem,
   CapabilityLevel,
+  CertificationCheck,
   ConnectorCapability,
+  CorpusMetrics,
   EvalCorpusRef,
   PolicyClass,
 } from "./capabilities";

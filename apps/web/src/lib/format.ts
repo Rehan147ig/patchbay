@@ -1,9 +1,12 @@
 import type { BadgeTone, StatusPillProps } from "@patchbay/ui";
 import {
   AgentRunStatus,
+  CapabilityGateStatus,
   DetectionRunStatus,
   ImpactStatus,
+  OutcomeSource,
   PlanStatus,
+  PrOutcomeClassification,
   PullRequestStatus,
   ReleaseAuthenticity,
   RiskLevel,
@@ -175,4 +178,37 @@ export const DETECTION_RUN_STATUS_TONE: Record<DetectionRunStatus, StatusPillPro
   RUNNING: "blue",
   COMPLETED: "green",
   FAILED: "red",
+};
+
+export const PR_OUTCOME_CLASSIFICATION_LABEL: Record<PrOutcomeClassification, string> = {
+  SUCCESS: "Success",
+  WRONG_IMPACT: "Wrong impact",
+  WRONG_PATCH: "Wrong patch",
+  INSUFFICIENT_TESTS: "Insufficient tests",
+  VALIDATION_FAILURE: "Validation failure",
+  MANUAL_EDITS: "Manual edits",
+  POLICY_PREFERENCE: "Policy preference",
+  UNCLASSIFIED: "Unclassified",
+};
+
+export const PR_OUTCOME_CLASSIFICATION_TONE: Record<PrOutcomeClassification, BadgeTone> = {
+  SUCCESS: "green",
+  WRONG_IMPACT: "red",
+  WRONG_PATCH: "red",
+  INSUFFICIENT_TESTS: "amber",
+  VALIDATION_FAILURE: "amber",
+  MANUAL_EDITS: "purple",
+  POLICY_PREFERENCE: "blue",
+  UNCLASSIFIED: "neutral",
+};
+
+export const OUTCOME_SOURCE_LABEL: Record<OutcomeSource, string> = {
+  GITHUB_WEBHOOK: "GitHub webhook",
+  USER_FEEDBACK: "User feedback",
+  SYSTEM: "System",
+};
+
+export const GATE_STATUS_TONE: Record<CapabilityGateStatus, StatusPillProps["tone"]> = {
+  ACTIVE: "green",
+  SUSPENDED: "red",
 };

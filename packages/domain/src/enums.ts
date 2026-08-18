@@ -166,6 +166,44 @@ export const PullRequestStatus = {
 } as const;
 export type PullRequestStatus = (typeof PullRequestStatus)[keyof typeof PullRequestStatus];
 
+export const PrOutcomeStatus = {
+  OPEN: "OPEN",
+  MERGED: "MERGED",
+  CLOSED: "CLOSED",
+} as const;
+export type PrOutcomeStatus = (typeof PrOutcomeStatus)[keyof typeof PrOutcomeStatus];
+
+/**
+ * Human- and machine-verifiable verdict for a remediation PR.
+ * UNCLASSIFIED is the initial state set by webhook ingestion; the rest are
+ * user feedback / system attribution categories.
+ */
+export const PrOutcomeClassification = {
+  SUCCESS: "SUCCESS",
+  WRONG_IMPACT: "WRONG_IMPACT",
+  WRONG_PATCH: "WRONG_PATCH",
+  INSUFFICIENT_TESTS: "INSUFFICIENT_TESTS",
+  VALIDATION_FAILURE: "VALIDATION_FAILURE",
+  MANUAL_EDITS: "MANUAL_EDITS",
+  POLICY_PREFERENCE: "POLICY_PREFERENCE",
+  UNCLASSIFIED: "UNCLASSIFIED",
+} as const;
+export type PrOutcomeClassification =
+  (typeof PrOutcomeClassification)[keyof typeof PrOutcomeClassification];
+
+export const OutcomeSource = {
+  GITHUB_WEBHOOK: "GITHUB_WEBHOOK",
+  USER_FEEDBACK: "USER_FEEDBACK",
+  SYSTEM: "SYSTEM",
+} as const;
+export type OutcomeSource = (typeof OutcomeSource)[keyof typeof OutcomeSource];
+
+export const CapabilityGateStatus = {
+  ACTIVE: "ACTIVE",
+  SUSPENDED: "SUSPENDED",
+} as const;
+export type CapabilityGateStatus = (typeof CapabilityGateStatus)[keyof typeof CapabilityGateStatus];
+
 export const ApprovalDecision = {
   APPROVED: "APPROVED",
   REJECTED: "REJECTED",
@@ -439,6 +477,10 @@ export const ALL_ENUMS = {
   GenerationMethod,
   ValidationStatus,
   PullRequestStatus,
+  PrOutcomeStatus,
+  PrOutcomeClassification,
+  OutcomeSource,
+  CapabilityGateStatus,
   ApprovalDecision,
   ActorType,
   PolicyDecision,

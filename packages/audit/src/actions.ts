@@ -75,5 +75,12 @@ export const AuditAction = {
   SUBSCRIPTION_CANCELED: "subscription.canceled",
   DEMO_RUN: "demo.run",
   DEMO_RESET: "demo.reset",
+  PR_OUTCOME_RECORDED: "pr.outcome_recorded",
+  PR_OUTCOME_CLASSIFIED: "pr.outcome_classified",
+  CAPABILITY_GATE_CHANGED: "capability.gate_changed",
+  CAPABILITY_GATE_SUSPENDED: "capability.gate_suspended",
+  DATA_EXPORTED: "data.exported",
+  DATA_DELETED: "data.deleted",
+  AGENT_RUN_PURGED: "agent.run_purged",
 } as const;
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];

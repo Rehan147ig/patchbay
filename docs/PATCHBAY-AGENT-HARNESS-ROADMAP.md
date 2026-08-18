@@ -343,6 +343,39 @@ already enforceable in the worker if adoption is ever justified. Mastra never
 owns retries, policy, authorization, approval waits, database access,
 shell/Docker access, or GitHub writes.
 
+**Status (WP9 — delivered):** connector capability certification is now a
+hard gate. `requireCertified(slug, level)` (kit checks from `PLAN` up: release
+sources, normalization, matcher, usage analysis, migration rules, fixtures,
+validation profile, policy defaults, owner, metrics — surfaced as
+`certifiedAt`/`rulePackVersion`/corpus/`validationProfile` in the capability
+contract) gates the `draft-pr` route (`DRAFT_PR`) and the `validate` route
+(`VALIDATE`, previously ungated). `GET /api/vendors?minLevel=` and the
+settings dashboard expose the certified surface. Python L1 landed via
+`web-tree-sitter` (WASM — the native binding crashes Node on Windows):
+`pyproject.toml`/`requirements*.txt` manifests plus import/call-chain usage
+extraction merge into `analyzeRepository`. L1 only; LibCST transforms for
+certified OpenAI/Stripe/Twilio patterns stay gated on proven demand.
+TypeScript/JavaScript remains the strongest L3 path via the TS compiler API.
+
+**Status (WP10 — delivered, local core):** the harness now closes the loop
+with outcome learning and enterprise operations. `PrOutcome` records every
+terminal PR (merged/closed + human classification) linked to rule-pack/
+extractor/model/prompt-template versions, graph snapshot, validation run, and
+policy decision; the env-gated GitHub webhook ingests merge/close events and
+the `/outcomes` dashboard collects human feedback with one click. From those
+outcomes, `@patchbay/operations` computes SLO rollups (merge rate, false
+positive rate, detection p95, plan acceptance, sandbox pass rate, agent
+failure/budget, cost per successful remediation, time to remediation) and the
+worker job `evaluate-capability-health` auto-suspends a vendor's `DRAFT_PR`
+kill switch when merge rate < 50%, FP rate > 50%, or latency p95 > 60s over a
+30-day window — the `draft-pr`/`validate` routes fail closed while suspended,
+and only an admin restore reopens. Retention (90-day raw-payload purge,
+audited), ADMIN export (agent inputs/outputs excluded) and org data deletion
+(immutable `data.deleted` marker) complete the ops surface. Live GitHub
+deliveries and live model spend remain env-gated; the next milestones are
+replay controls, spend caps, sandbox concurrency, and repository/vendor
+opt-in knobs.
+
 ## Patch and Validation Design
 
 The model returns a declarative `PatchPlan`, never executable commands:

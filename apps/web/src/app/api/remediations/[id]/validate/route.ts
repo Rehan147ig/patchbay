@@ -1,11 +1,13 @@
 import { prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import { ActorType, ValidationStatus, validationFailed } from "@patchbay/domain";
+import { requireCertified } from "@patchbay/vendor-connectors";
 import { enqueue, JobType } from "@patchbay/queue";
 import type { NextRequest } from "next/server";
 import { getCorrelationId, jsonError, jsonOk, writeAuditEvent } from "@/lib/api";
 import { requireRole } from "@/lib/auth";
 import { assertCsrfToken } from "@/lib/csrf-server";
+import { assertCapabilityGateOpen } from "@/lib/capability-gates";
 
 /** Deterministic validation command set (ADR-0004 allowlist). */
 const VALIDATION_COMMANDS = ["pnpm install --frozen-lockfile"];
@@ -26,7 +28,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const plan = await prisma.remediationPlan.findUnique({
       where: { id },
       include: {
-        impactAssessment: { include: { repository: true } },
+        impactAssessment: {
+          include: {
+            repository: true,
+            changeEvent: { include: { vendor: { select: { slug: true } } } },
+          },
+        },
         patches: { select: { id: true } },
       },
     });
@@ -34,6 +41,20 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (plan.impactAssessment.repository.organizationId !== user.organizationId) {
       throw validationFailed("Remediation plan not found");
     }
+    const certification = requireCertified(
+      plan.impactAssessment.changeEvent.vendor.slug,
+      "VALIDATE",
+    );
+    if (!certification.ok) {
+      throw validationFailed(
+        `Connector ${plan.impactAssessment.changeEvent.vendor.slug} is not certified for VALIDATE: ${certification.reasons.join("; ")}`,
+      );
+    }
+    await assertCapabilityGateOpen(
+      user.organizationId,
+      plan.impactAssessment.changeEvent.vendor.slug,
+      "VALIDATE",
+    );
     if (plan.patches.length === 0) {
       throw validationFailed("This plan has no patches to validate");
     }

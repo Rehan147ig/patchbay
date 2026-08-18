@@ -23,6 +23,15 @@ export interface PackageManifest {
   devDependencies: Record<string, string>;
 }
 
+export interface PythonManifest {
+  /** Path relative to the repository root, posix separators. */
+  path: string;
+  name: string | null;
+  version: string | null;
+  dependencies: Record<string, string>;
+  devDependencies: Record<string, string>;
+}
+
 export type PackageManager = "pnpm" | "npm" | "yarn" | "unknown";
 
 export interface AnalysisError {
@@ -36,6 +45,7 @@ export interface RepositoryAnalysis {
   packageCount: number;
   filesScanned: number;
   typescriptFiles: number;
+  pythonFiles: number;
   durationMs: number;
   /** Deterministic snapshot hash of all scanned file contents. */
   commitSha: string;
@@ -44,6 +54,7 @@ export interface RepositoryAnalysis {
   /** CONFIG/ENV usages dropped because no tracked package could be inferred. */
   untrackedUsages: number;
   manifests: PackageManifest[];
+  pythonManifests: PythonManifest[];
   usages: AnalyzedUsage[];
   errors: AnalysisError[];
 }

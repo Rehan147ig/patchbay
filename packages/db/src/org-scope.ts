@@ -39,6 +39,8 @@ export const ORG_SCOPED_MODELS = [
   "AgentStep",
   "RemediationCase",
   "RemediationCaseEvent",
+  "PrOutcome",
+  "CapabilityGate",
   "Subscription",
 ] as const;
 

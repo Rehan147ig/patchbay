@@ -318,6 +318,8 @@ model Organization {
   graphIndexJobs         GraphIndexJob[]
   remediationCases       RemediationCase[]
   remediationCaseEvents  RemediationCaseEvent[]
+  prOutcomes             PrOutcome[]
+  capabilityGates        CapabilityGate[]
   subscription           Subscription?
 }
 
@@ -683,6 +685,7 @@ model RemediationCase {
   events         RemediationCaseEvent[]
   agentRuns      AgentRun[]
   plans          RemediationPlan[]
+  outcomes       PrOutcome[]
 
   @@unique([scopeKey])
   @@index([organizationId, status, updatedAt])
@@ -915,6 +918,7 @@ model GraphSnapshot {
   evidence     GraphSourceEvidence[]
   indexJobs    GraphIndexJob[]
   remediationCases RemediationCase[]
+  outcomes     PrOutcome[]
 
   @@unique([repositoryId, commitSha, extractionVersion])
   @@index([organizationId, repositoryId, status])
@@ -1205,6 +1209,7 @@ model ValidationRun {
 
   organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   remediationPlan RemediationPlan @relation(fields: [remediationPlanId], references: [id], onDelete: Cascade)
+  outcomes        PrOutcome[]
 
   @@index([organizationId])
   @@index([remediationPlanId])
@@ -1225,6 +1230,7 @@ model PullRequest {
 
   organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   remediationPlan RemediationPlan @relation(fields: [remediationPlanId], references: [id], onDelete: Cascade)
+  outcome         PrOutcome?
 
   @@unique([remediationPlanId])
   @@index([organizationId])
@@ -1284,4 +1290,95 @@ model AuditEvent {
   @@index([entityType, entityId])
   @@index([action])
   @@index([correlationId])
+}
+
+// ---------------------------------------------------------------------------
+// Outcome learning and enterprise operations (WP10).
+// ---------------------------------------------------------------------------
+
+enum PrOutcomeStatus {
+  OPEN
+  MERGED
+  CLOSED
+}
+
+enum PrOutcomeClassification {
+  SUCCESS
+  WRONG_IMPACT
+  WRONG_PATCH
+  INSUFFICIENT_TESTS
+  VALIDATION_FAILURE
+  MANUAL_EDITS
+  POLICY_PREFERENCE
+  UNCLASSIFIED
+}
+
+enum OutcomeSource {
+  GITHUB_WEBHOOK
+  USER_FEEDBACK
+  SYSTEM
+}
+
+enum CapabilityGateStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+/**
+ * Terminal result of one remediation pull request, linked to the exact
+ * versions and evidence that produced it so SLO / auto-suspend logic can
+ * attribute outcomes to rule-pack, extractor, model, and graph snapshot.
+ */
+model PrOutcome {
+  id String @id @default(uuid())
+  organizationId String
+  pullRequestId  String   @unique
+  caseId         String?
+  status         PrOutcomeStatus
+  classification PrOutcomeClassification @default(UNCLASSIFIED)
+  source         OutcomeSource @default(GITHUB_WEBHOOK)
+  note           String?
+  /** Version linkage: rule-pack / extractor / model / prompt template. */
+  rulePackVersion      String?
+  extractorVersion     String?
+  modelVersion         String?
+  promptTemplateVersion String?
+  graphSnapshotId      String?
+  validationRunId      String?
+  /** Policy snapshot at PR creation time. */
+  policyDecision       Json?
+  recordedBy           String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  organization  Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pullRequest   PullRequest     @relation(fields: [pullRequestId], references: [id], onDelete: Cascade)
+  case          RemediationCase? @relation(fields: [caseId], references: [id], onDelete: SetNull)
+  snapshot      GraphSnapshot?  @relation(fields: [graphSnapshotId], references: [id], onDelete: SetNull)
+  validationRun ValidationRun?  @relation(fields: [validationRunId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, classification, createdAt])
+}
+
+/**
+ * Organization-scoped runtime kill switch for a certified capability level.
+ * Certification (packages/vendor-connectors) is static; this gate is dynamic
+ * and is what auto-suspend toggles when SLO thresholds fail.
+ */
+model CapabilityGate {
+  id String @id @default(uuid())
+  organizationId String
+  vendorSlug     String
+  level          String
+  status         CapabilityGateStatus @default(ACTIVE)
+  reason         String?
+  suspendedAt    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, vendorSlug, level])
+  @@index([organizationId, status])
 }

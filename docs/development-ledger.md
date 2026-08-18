@@ -320,6 +320,67 @@ Engineering report for the Release Watchtower → software graph → impact loop
   - **VALIDATED**: 10 new tests; 828 tests / 70 files green, lint/format/
     typecheck clean, production build green.
 
+- **Outcome learning and enterprise operations (WP10 — delivered, local core)**:
+  - Outcome ledger: `PrOutcome` + `CapabilityGate` models (migration
+    `wp10_outcome_learning`), domain mirrors with drift test, org-scope
+    registration, new audit actions (`pr.outcome_recorded`,
+    `pr.outcome_classified`, `capability.gate_changed`,
+    `capability.gate_suspended`, `data.exported`, `data.deleted`,
+    `agent.run_purged`), and `JobType.EVALUATE_CAPABILITY_HEALTH`.
+  - `recordPrOutcome` (web lib) is the single writer for webhook and feedback
+    paths: links rule-pack/extractor/model/prompt-template versions, graph
+    snapshot, latest validation run, and policy decision; terminalizes the
+    remediation case on merge; enqueues capability-health evaluation.
+    Webhook ingestion is env-gated (`GITHUB_APP_WEBHOOK_SECRET` + replay
+    window + delivery receipts) with `+3` tests.
+  - `@patchbay/operations` (new, DB-free structural types): SLO rollups
+    (`computeOrganizationMetrics` — detection p95, sandbox pass rate, plan
+    acceptance, merge rate, false positive rate, agent failure/budget, cost
+    per successful remediation, time to remediation), capability evaluation
+    with auto-suspend (merge < 50%, FP > 50%, latency p95 > 60s over 30 days),
+    and agent-run retention purge (90-day default, raw payloads nulled +
+    audited) — `+18` tests.
+  - Routes: `/api/outcomes` list (VIEWER), feedback classification
+    (`/api/pull-requests/[id]/outcome`, MEMBER, CSRF, UNCLASSIFIED sentinel
+    rejected), capability-gate suspend/restore (ADMIN), SLO metrics
+    (VIEWER, window 1–365), export (ADMIN, agent inputs/outputs excluded),
+    and org data deletion (ADMIN, immutable `data.deleted` marker survives) —
+    `+22` route/job tests.
+  - Kill switch wired into `draft-pr` (DRAFT_PR) and `validate` (VALIDATE)
+    routes; worker sweep (30 min) + retention sweep (6 h) registered in the
+    worker index; new `/outcomes` dashboard (SLO cards, ledger with linkage,
+    inline feedback form) and a Capability gates card in Settings.
+  - **VALIDATED**: 925 tests / 86 files green (+73), 11/11 bracket-path route
+    tests via `vitest.wp10.config.ts`, lint/format/typecheck clean, production
+    build green. Live GitHub deliveries and live model spend remain
+    env-gated by design.
+
+- **Connector certification and languages (WP9 — delivered)**:
+  - Capability filters: `GET /api/vendors` now merges the capability contract
+    (level, language, ecosystem, package, requiredPolicyClass, certified,
+    corpusStatus, certifiedAt) and supports `?minLevel=` (400 on invalid);
+    settings dashboard shows a per-vendor level/certified badge and a
+    server-side capability filter (`+4` route tests).
+  - Certification gate: `requireCertified(slug, level)` in
+    `packages/vendor-connectors` — from `PLAN` up requires `certifiedAt`,
+    `rulePackVersion`, and an ACTIVE/current corpus; from `VALIDATE` up also a
+    validation profile; pure `certificationReasons` helper keeps kit checks
+    unit-testable. `draft-pr` gates on `DRAFT_PR` certification (was level-only
+    `capabilityAtLeast`) and `validate` gates on `VALIDATE` (was ungated),
+    resolving the vendor slug through the change event (`+7` capability tests,
+    `+5` route tests).
+  - Python L1: native `tree-sitter` crashes Node on Windows (prebuild loads
+    fail), so `packages/repo-analysis/src/python.ts` parses via
+    `web-tree-sitter` (WASM) using the shipped `tree-sitter-python.wasm` —
+    zero native build step. Adds `pyproject.toml` (PEP 621 + poetry) and
+    `requirements*.txt` manifest parsing, `.py` scanning, and L1 usage
+    extraction (imports + call chains through module aliases) merged into
+    `RepositoryAnalysis` (`pythonFiles`, `pythonManifests`). L1 only;
+    LibCST transforms for certified OpenAI/Stripe/Twilio patterns remain gated
+    on proven demand (`+8` tests).
+  - **VALIDATED**: 44/44 repo-analysis tests, 35/35 touched web route tests,
+    828+ tests / 70+ files green, lint/format/typecheck clean.
+
 ## PENDING (needs money / credentials / infra)
 
 ### Critical path (the product is not sellable without these)

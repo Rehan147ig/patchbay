@@ -11,6 +11,7 @@
  * Remaining processors arrive with their engine phases (docs/implementation-plan.md).
  */
 import { Worker } from "bullmq";
+import { prisma } from "@patchbay/db";
 import { parseEnv } from "@patchbay/env";
 import { logger } from "@patchbay/domain";
 import { JobType, QUEUE_NAME, connection, queue } from "@patchbay/queue";
@@ -30,9 +31,15 @@ import { processMatchRelease } from "./jobs/match-release";
 import { processAgentPlan } from "./jobs/agent-plan";
 import { processAgentReplay } from "./jobs/agent-replay";
 import { processDetectReleases } from "./jobs/detect-releases";
+import { processEvaluateCapabilityHealth } from "./jobs/evaluate-capability-health";
 import { registerWatchtowerSchedulers } from "./schedule/watchtower";
+import { purgeExpiredAgentRuns } from "@patchbay/operations";
+import { sweepCapabilityHealth } from "./lib/capability-sweep";
 
 const TASK_SWEEP_INTERVAL_MS = 60_000;
+const RETENTION_SWEEP_INTERVAL_MS = 6 * 60 * 60 * 1_000;
+const CAPABILITY_SWEEP_INTERVAL_MS = 30 * 60 * 1_000;
+const AGENT_RUN_RETENTION_DAYS = Number(process.env.AGENT_RUN_RETENTION_DAYS ?? 90);
 
 // Fail fast at boot: refuse to start with a missing or invalid configuration.
 const env = parseEnv();
@@ -83,6 +90,8 @@ async function main(): Promise<void> {
           return processAgentReplay(job);
         case JobType.DETECT_RELEASES:
           return processDetectReleases(job);
+        case JobType.EVALUATE_CAPABILITY_HEALTH:
+          return processEvaluateCapabilityHealth(job);
         default:
           throw new Error(`unknown job type: ${job.name}`);
       }
@@ -105,9 +114,26 @@ async function main(): Promise<void> {
     });
   }, TASK_SWEEP_INTERVAL_MS);
 
+  const retentionTimer = setInterval(() => {
+    purgeExpiredAgentRuns(prisma, {
+      retentionDays: AGENT_RUN_RETENTION_DAYS,
+      correlationId: `retention-${Date.now()}`,
+    }).catch((error: unknown) => {
+      logger.error("agent run retention sweep failed", { error: String(error) });
+    });
+  }, RETENTION_SWEEP_INTERVAL_MS);
+
+  const capabilitySweepTimer = setInterval(() => {
+    sweepCapabilityHealth().catch((error: unknown) => {
+      logger.error("capability health sweep failed", { error: String(error) });
+    });
+  }, CAPABILITY_SWEEP_INTERVAL_MS);
+
   const shutdown = async (signal: string): Promise<void> => {
     logger.info("patchbay-worker shutting down", { signal });
     clearInterval(sweepTimer);
+    clearInterval(retentionTimer);
+    clearInterval(capabilitySweepTimer);
     await worker.close();
     await queue.close();
     connection.disconnect();

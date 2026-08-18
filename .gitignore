@@ -29,3 +29,4 @@ Thumbs.db
 
 # local runtime
 sandbox-workspaces/
+apps/worker/data/

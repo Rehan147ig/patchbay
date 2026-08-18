@@ -283,6 +283,31 @@ worker).
 - Add Go, Java, C#, Rust, PHP, Swift, Elixir, C, and C++ only by customer demand and with
   language-appropriate semantic analysis. Tree-sitter syntax extraction alone is L1, not L3.
 
+**Status: DELIVERED (WP9).**
+
+Capability surface:
+
+- `GET /api/vendors` merges the capability contract (level, language, ecosystem, package,
+  requiredPolicyClass, certified, corpusStatus, certifiedAt) and filters with `?minLevel=`
+  (400 on invalid levels). Settings dashboard shows the level/certified badge per vendor with
+  a server-side capability filter.
+- `requireCertified(slug, level)` is the certification gate: from `PLAN` up it demands
+  `certifiedAt`, `rulePackVersion`, and an ACTIVE/current evaluation corpus; from `VALIDATE`
+  up it also demands a validation profile. The `draft-pr` route now gates on `DRAFT_PR`
+  certification and the `validate` route on `VALIDATE` certification (vendor slug resolved
+  through the change event), replacing the level-only `capabilityAtLeast` check.
+
+Python L1 (Tree-sitter):
+
+- Native `tree-sitter` crashes the Node process on Windows (prebuild loads fail silently), so
+  the parser runs on `web-tree-sitter` (WASM) with the grammar compiled into the shipped
+  `tree-sitter-python.wasm` — no native compile step, works on any platform.
+- `pyproject.toml` (PEP 621 + poetry tables) and `requirements*.txt` parse into
+  `PythonManifest` entries; `analyzeRepository` scans `.py` sources and merges Python usages
+  (imports + call chains through imported module aliases) into the same `AnalyzedUsage` shape.
+- L1 only: syntax-level usage detection. LibCST transformations for certified
+  OpenAI/Stripe/Twilio patterns remain the next milestone (only by proven demand).
+
 ## Work Package 10: Outcome Learning and Enterprise Operations
 
 - Record structured PR outcomes: merged, closed, wrong-impact, wrong-patch, insufficient-tests,
@@ -294,6 +319,44 @@ worker).
 - Measure detection latency, match precision/recall, plan acceptance, sandbox pass rate, PR merge
   rate, cost per successful remediation, false positive rate, and time to remediation.
 - Automatically suspend an auto-PR capability when its evaluation/error thresholds fail.
+
+**Status: DELIVERED (WP10, local core).** Real GitHub deliveries and live model spend remain
+environment-gated; everything else ships and is covered by tests.
+
+Outcome ledger and learning loop:
+
+- `PrOutcome` + `CapabilityGate` models (migration `wp10_outcome_learning`); enums mirrored in
+  `packages/domain` (drift-tested). Every org-scoped query runs through `withOrgContext`.
+- `recordPrOutcome` (web lib, single writer): recorded by the GitHub webhook (env-gated) on
+  merged/closed transitions and by the feedback API; captures rule-pack/extractor/model/prompt
+  template versions, graph snapshot, latest validation run, and the policy decision snapshot.
+  Merged outcomes terminalize their remediation case (`PR_MERGED`) and enqueue a capability-health
+  evaluation.
+- `/outcomes` dashboard: SLO cards (merge rate, false positive rate, detection latency p95,
+  validation pass rate, agent failure rate, cost per successful remediation), outcome ledger with
+  linkage, and an inline classification form for merged/closed pulls (MEMBER+).
+- `POST /api/pull-requests/[id]/outcome` records user feedback; `POST /api/capability-gates`
+  (ADMIN) suspends/restores gates; the draft-pr and validate routes refuse to enqueue while the
+  gate is suspended.
+
+Operational SLOs and controls:
+
+- `@patchbay/operations` (DB-free, structural prisma types): `computeOrganizationMetrics` rolls up
+  detection p95, sandbox pass rate, plan acceptance, merge rate, false positive rate, agent
+  failure/budget, cost per successful remediation, and time to remediation for a window.
+- Worker job `evaluate-capability-health` (enqueued after each terminal outcome and by a 30-minute
+  sweep) suspends the vendor's `DRAFT_PR` gate when merge rate < 50%, false positive rate > 50%,
+  or agent latency p95 > 60s over a 30-day window. Suspension is fail-loud and requires an admin
+  restore.
+- `purgeExpiredAgentRuns` (6-hourly) nulls raw inputs/outputs/token usage of terminal runs older
+  than `AGENT_RUN_RETENTION_DAYS` (default 90) and audits each purge.
+- `GET /api/export` (ADMIN) exports operational records without raw agent inputs/outputs;
+  `DELETE /api/data` (ADMIN) removes every org operational record, keeping an immutable
+  `data.deleted` audit marker.
+
+Still environment-gated (documented in code): GitHub webhook secret + replay window, live
+AI-provider spend caps, sandbox concurrency and repository/vendor opt-in knobs, and approval
+routing (workspace-level notification routing).
 
 ## Required Build Order
 

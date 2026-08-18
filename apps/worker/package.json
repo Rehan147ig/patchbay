@@ -18,6 +18,7 @@
     "@patchbay/domain": "workspace:*",
     "@patchbay/env": "workspace:*",
     "@patchbay/git-provider": "workspace:*",
+    "@patchbay/operations": "workspace:*",
     "@patchbay/policy-engine": "workspace:*",
     "@patchbay/queue": "workspace:*",
     "@patchbay/repo-analysis": "workspace:*",

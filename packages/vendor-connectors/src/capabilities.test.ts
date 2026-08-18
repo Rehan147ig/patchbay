@@ -3,8 +3,10 @@ import {
   CAPABILITY_LEVEL_INDEX,
   CAPABILITY_REGISTRY,
   capabilityAtLeast,
+  certificationReasons,
   getCapability,
   listCapabilitiesByLevel,
+  requireCertified,
   validateCapabilityCoverage,
   type ConnectorCapability,
 } from "./capabilities";
@@ -89,5 +91,79 @@ describe("connector capability registry", () => {
       "stripe",
       "twilio",
     ]);
+  });
+});
+
+describe("requireCertified (WP9 certification gate)", () => {
+  it("passes certified connectors at or above the requested level", () => {
+    expect(requireCertified("openai", "DRAFT_PR").ok).toBe(true);
+    expect(requireCertified("openai", "VALIDATE").ok).toBe(true);
+    expect(requireCertified("auth0", "PLAN").ok).toBe(true);
+    expect(requireCertified("openai", "DRAFT_PR").achievedLevel).toBe("DRAFT_PR");
+  });
+
+  it("fails with reasons when the level is below the request", () => {
+    const check = requireCertified("auth0", "VALIDATE");
+    expect(check.ok).toBe(false);
+    expect(check.reasons.join("; ")).toMatch(/PLAN is below the required VALIDATE/);
+  });
+
+  it("fails for uncertified connectors at kit-required levels", () => {
+    for (const slug of ["anthropic", "axios", "express"]) {
+      const check = requireCertified(slug, "PLAN");
+      expect(check.ok, slug).toBe(false);
+      expect(check.reasons.join("; "), slug).toMatch(/ASSESS is below the required PLAN/);
+    }
+  });
+
+  it("fails for connectors with no capability entry", () => {
+    const check = requireCertified("not-a-vendor", "DETECT");
+    expect(check.ok).toBe(false);
+    expect(check.reasons.join("; ")).toMatch(/no capability entry/);
+  });
+
+  it("fails an expired corpus at the kit-required level", () => {
+    const check = requireCertified("openai", "PLAN", { now: new Date("2027-02-01") });
+    expect(check.ok).toBe(false);
+    expect(check.reasons.join("; ")).toMatch(/expired at 2026-12-31/);
+  });
+
+  it("passes a non-expired corpus before expiry", () => {
+    expect(requireCertified("openai", "PLAN", { now: new Date("2026-09-01") }).ok).toBe(true);
+  });
+
+  it("requires the validation profile for VALIDATE and above", () => {
+    const base: ConnectorCapability = {
+      vendorSlug: "synthetic",
+      level: "VALIDATE",
+      language: "python",
+      ecosystem: "npm",
+      package: "synthetic-connector",
+      requiredPolicyClass: "APPROVAL_REQUIRED",
+      certifiedAt: "2026-01-01T00:00:00.000Z",
+      rulePackVersion: "1.0.0",
+      extractorVersion: "1.0.0",
+      validationProfile: null,
+      corpus: {
+        id: "SYNTHETIC_CORPUS",
+        owner: "synthetic-connector-owner",
+        status: "ACTIVE",
+        reviewedAt: "2026-01-01T00:00:00.000Z",
+        expiresAt: "2026-12-31T23:59:59.000Z",
+        metrics: {
+          dependencyMatchRecallPct: 100,
+          affectedUsagePrecisionPct: 100,
+          patchValidationPct: 100,
+          policyOutcomeCorrectPct: 100,
+        },
+      },
+    };
+    expect(certificationReasons(base, "VALIDATE").join("; ")).toMatch(
+      /validationProfile is not set/,
+    );
+    expect(
+      certificationReasons({ ...base, validationProfile: "python-venv-reparse" }, "VALIDATE"),
+    ).toEqual([]);
+    expect(requireCertified("openai", "VALIDATE").ok).toBe(true);
   });
 });

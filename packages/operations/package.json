@@ -1,0 +1,19 @@
+{
+  "name": "@patchbay/operations",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@patchbay/audit": "workspace:*",
+    "@patchbay/domain": "workspace:*",
+    "@patchbay/vendor-connectors": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^5.8.3"
+  }
+}

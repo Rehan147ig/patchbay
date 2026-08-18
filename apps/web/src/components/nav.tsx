@@ -12,6 +12,7 @@ const LINKS = [
   { href: "/changes", label: "Changes" },
   { href: "/remediations", label: "Remediations" },
   { href: "/policies", label: "Policies" },
+  { href: "/outcomes", label: "Outcomes" },
   { href: "/audit", label: "Audit" },
   { href: "/demo", label: "Demo" },
   { href: "/settings", label: "Settings" },
