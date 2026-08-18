@@ -33,9 +33,15 @@ x-csrf-token: ...
 }
 ```
 
-- Keys use the prefix `pb_agent_` and are stored as SHA-256 hashes (`agentKeyHash`).
-- Key rotation is supported: the previous key hash remains valid during the rotation window (`agentKeyHashPrevious`).
-- **Dev-Only Seed Key**: The seeded database comes with `pb_agent_dev_openai` pre-configured for the `openai` vendor in local development only. Real production deployments generate unique keys via the route above.
+- Keys use the prefix `pb_agent_` and are stored as **argon2id hashes** (`agentKeyHash`).
+- Legacy keys that were issued before the argon2 migration are stored as plain sha256 hex and
+  remain valid during a transition window — agents are not cut off until an ADMIN rotates the key.
+- Key rotation is supported: the previous key hash remains valid during the rotation window
+  (`agentKeyHashPrevious`), after which the legacy hash is discarded.
+- **Dev-Only Seed Key**: The seeded database comes with `pb_agent_dev_openai` pre-configured for
+  the `openai` vendor in local development only. This seed key uses a **sha256** hash (legacy
+  format) for simplicity. It must never be used in production; real production deployments generate
+  unique argon2id keys via the route above.
 
 ---
 

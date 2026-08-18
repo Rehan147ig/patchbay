@@ -31,7 +31,9 @@ All data shown is seeded demo data and labeled as such.
    - Connector emits `AUTH_CHANGE` with `AUTH` risk tag.
    - Policy engine evaluates `p-auth-approval` -> `REQUIRE_APPROVAL`.
    - PR creation endpoint returns blocked decision; audit log records `POLICY_BLOCKED`.
-3. An admin can review and approve on `/remediations/[id]` to unblock draft PR generation.
+3. An admin can record plan approval on `/remediations/[id]`. The approval is recorded and
+   audited. Auth0 is not certified for `DRAFT_PR`; draft PR creation remains blocked by the
+   certification gate even after approval.
 
 ## Scenario C - Generic OpenAPI response field removed (plan-only)
 
@@ -52,5 +54,6 @@ validations, approvals, and demo-created events, then re-seeds baseline state.
 
 - A stored RemediationPlan + PatchArtifact + ValidationRun + PullRequest (mock) + >= 8 audit
   events for scenario A.
-- A blocked-by-policy audit event for scenario B before approval.
+- A blocked-by-policy audit event for scenario B (`POLICY_BLOCKED`); approval is recorded and
+  audited; no draft PR is created (Auth0 is not certified for `DRAFT_PR`).
 - A plan-only outcome with no PatchArtifact for scenario C.

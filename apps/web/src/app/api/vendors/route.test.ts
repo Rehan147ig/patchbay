@@ -38,6 +38,15 @@ const mockVendors = [
     agentKeyHash: null,
   },
   {
+    id: "v-generic-openapi",
+    slug: "generic-openapi",
+    name: "Generic OpenAPI",
+    category: "Other",
+    docsUrl: null,
+    enabled: true,
+    agentKeyHash: null,
+  },
+  {
     id: "v-acme",
     slug: "acme-not-in-catalog",
     name: "Acme",
@@ -92,15 +101,15 @@ describe("GET /api/vendors", () => {
     );
     expect(acme?.capability).toBeNull();
 
+    // generic-openapi is in the catalog but only ASSESS — never certified for DRAFT_PR or PLAN.
     const genericOpenapi = (body.data.vendors as Array<Record<string, unknown>>).find(
       (vendor) => vendor.slug === "generic-openapi",
     );
-    if (genericOpenapi) {
-      expect(genericOpenapi.capability).toMatchObject({
-        level: "ASSESS",
-        certified: false,
-      });
-    }
+    expect(genericOpenapi).toBeDefined();
+    expect(genericOpenapi?.capability).toMatchObject({
+      level: "ASSESS",
+      certified: false,
+    });
   });
 
   it("filters to vendors certified at or above the minLevel", async () => {

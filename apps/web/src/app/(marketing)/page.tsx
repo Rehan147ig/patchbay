@@ -12,7 +12,7 @@ const CERTIFIED_MATRIX = [
     vendor: "OpenAI Node SDK",
     package: "openai",
     level: "DRAFT_PR",
-    scope: "createChatCompletion → chat.completions.create, responses",
+    scope: "createChatCompletion → chat.completions.create, completion.data unwrap",
     policyGate: "Auto Draft PR (when validation passes)",
     status: "Certified",
   },
@@ -20,7 +20,7 @@ const CERTIFIED_MATRIX = [
     vendor: "Stripe Node SDK",
     package: "stripe",
     level: "DRAFT_PR",
-    scope: "Method renames, parameter signature changes",
+    scope: "customers.create metadata requirement (PAYMENT approval required)",
     policyGate: "Requires Human Approval (PAYMENT risk)",
     status: "Certified",
   },
@@ -28,7 +28,7 @@ const CERTIFIED_MATRIX = [
     vendor: "Twilio Node SDK",
     package: "twilio",
     level: "DRAFT_PR",
-    scope: "messages.create deprecations & parameter migrations",
+    scope: "client.messages.create → client.messages.createV2",
     policyGate: "Auto Draft PR (when validation passes)",
     status: "Certified",
   },
@@ -37,16 +37,16 @@ const CERTIFIED_MATRIX = [
     package: "auth0",
     level: "PLAN",
     scope: "Authentication middleware & JWT signature updates",
-    policyGate: "Mandatory Human Approval (AUTH risk)",
+    policyGate: "Mandatory Human Approval (AUTH risk) — plan visible, no code patch",
     status: "Certified Plan-Only",
   },
   {
     vendor: "Generic OpenAPI Diff",
     package: "openapi-spec",
-    level: "PLAN",
+    level: "ASSESS",
     scope: "Schema property & response changes from spec diffs",
-    policyGate: "Plan-Only Strategy (No automated code patch)",
-    status: "Observe & Plan",
+    policyGate: "Observe & assess impact only — no automated code patch",
+    status: "Observe & Assess",
   },
 ];
 
@@ -269,7 +269,9 @@ export default function LandingPage() {
                         className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-semibold ${
                           row.level === "DRAFT_PR"
                             ? "bg-emerald-50 text-emerald-700"
-                            : "bg-blue-50 text-blue-700"
+                            : row.level === "PLAN"
+                              ? "bg-blue-50 text-blue-700"
+                              : "bg-slate-100 text-slate-600"
                         }`}
                       >
                         {row.level}

@@ -19,7 +19,7 @@ const SCENARIOS = [
     id: "auth0-config",
     title: "Auth0 configuration change",
     description:
-      "Runs the Auth0 middleware change: impact detected on auth-gateway, policy engine evaluates REQUIRE_APPROVAL (AUTH risk tag), and draft PR creation is blocked until explicit admin approval.",
+      "Runs the Auth0 middleware change: impact detected on auth-gateway, policy engine evaluates REQUIRE_APPROVAL (AUTH risk tag). An admin can record plan approval — the approval is audited. Auth0 is not certified for DRAFT_PR; no draft PR is created even after approval.",
     available: true,
   },
   {
