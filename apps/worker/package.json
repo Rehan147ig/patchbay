@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "dotenv -e ../../.env -- tsx watch src/index.ts",
     "start": "dotenv -e ../../.env -- tsx src/index.ts",
+    "bench": "dotenv -e ../../.env -- tsx scripts/bench-planner-reviewer.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {

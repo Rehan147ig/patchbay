@@ -64,6 +64,7 @@ export async function processAgentReplay(job: Job): Promise<void> {
     input,
     budgetCents: storedInput.budgetCents,
     model: storedInput.model,
+    provider: run.provider ?? "mock",
   });
   if (await isAgentRunCancelled(run.id)) return;
 
@@ -148,6 +149,8 @@ function makeReplayStepRecorder(
       data: {
         status: "COMPLETED",
         outputJson: recording.outputJson as Prisma.InputJsonValue,
+        tokenUsage: recording.tokenUsage as Prisma.InputJsonValue | undefined,
+        providerRequestId: recording.providerRequestId ?? undefined,
         latencyMs: Date.now() - startedAt + recording.latencyMs,
         completedAt: new Date(),
       },

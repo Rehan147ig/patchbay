@@ -116,6 +116,8 @@ export interface AgentRunWithRelations {
   outputJson: unknown;
   budgetCents: number | null;
   model: string | null;
+  provider: string | null;
+  startedAt: Date | null;
 }
 
 export interface StepRecording {
@@ -125,6 +127,12 @@ export interface StepRecording {
   inputDigest: string;
   outputJson: JsonValue;
   latencyMs: number;
+  /** Provider kind label ("mock" | "ai-sdk" | "openai-compatible"). */
+  provider?: string | null;
+  /** Provider-side request id for model-call steps. */
+  providerRequestId?: string | null;
+  /** Token usage for model-call steps. */
+  tokenUsage?: JsonValue | null;
 }
 
 export interface AgentWorkflowDeps {
@@ -249,6 +257,9 @@ export function createAgentWorkflow(deps: AgentWorkflowDeps): WorkflowHandle {
               costEstimateCents,
             } as unknown as JsonValue,
             latencyMs: Date.now() - startedAt,
+            provider: result.provider ?? null,
+            providerRequestId: result.requestId ?? null,
+            tokenUsage: (result.usage ?? {}) as JsonValue,
           });
           return {
             plan: bound.plan,
@@ -292,6 +303,9 @@ export function createAgentWorkflow(deps: AgentWorkflowDeps): WorkflowHandle {
             }),
             outputJson: { verdict, costEstimateCents } as unknown as JsonValue,
             latencyMs: Date.now() - startedAt,
+            provider: result.provider ?? null,
+            providerRequestId: result.requestId ?? null,
+            tokenUsage: (result.usage ?? {}) as JsonValue,
           });
           return {
             verdict,
@@ -411,8 +425,9 @@ export async function markAgentRunRunning(params: {
   input: AgentWorkflowInput;
   budgetCents: number;
   model: string;
+  provider: string;
 }): Promise<void> {
-  const { run, correlationId, input, budgetCents, model } = params;
+  const { run, correlationId, input, budgetCents, model, provider } = params;
   await prisma.agentRun.update({
     where: { id: run.id },
     data: {
@@ -420,6 +435,7 @@ export async function markAgentRunRunning(params: {
       startedAt: new Date(),
       budgetCents,
       model,
+      provider,
       promptTemplateVersion: input.templateVersion,
     },
   });
@@ -458,6 +474,7 @@ export async function finishAgentWorkflow(params: {
   const reviewer = result.output?.["reviewer"] as ReviewerOutput | undefined;
   const costEstimateCents = (planner?.costEstimateCents ?? 0) + (reviewer?.costEstimateCents ?? 0);
   const inputAsJson = input as unknown as JsonValue;
+  const latencyMs = runLatencyMs(run);
 
   const workflowArtifact = {
     workflowId: result.workflowId,
@@ -489,6 +506,7 @@ export async function finishAgentWorkflow(params: {
           reviewer: reviewer?.tokenUsage ?? {},
         } as Prisma.InputJsonValue,
         costEstimateCents,
+        latencyMs,
         completedAt: new Date(),
       },
     });
@@ -542,6 +560,7 @@ export async function finishAgentWorkflow(params: {
       outputJson: { workflow: workflowArtifact } as unknown as Prisma.InputJsonValue,
       inputJson: input as never,
       redactedInputDigest: digestJson(inputAsJson),
+      latencyMs,
       completedAt: new Date(),
     },
   });
@@ -588,4 +607,9 @@ export async function isAgentRunCancelled(agentRunId: string): Promise<boolean> 
 /** First step in the persisted records that did not complete: the replay boundary. */
 export function firstNonCompletedStepId(steps: StepRecord[]): string | null {
   return steps.find((step) => step.status !== "COMPLETED")?.stepId ?? null;
+}
+
+function runLatencyMs(run: AgentRunWithRelations): number | null {
+  if (!run.startedAt) return null;
+  return Date.now() - run.startedAt.getTime();
 }

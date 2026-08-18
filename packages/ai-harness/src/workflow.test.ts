@@ -358,6 +358,13 @@ describe("workflow adapter: failure mapping", () => {
         },
         "TOOL_FAILURE",
       ],
+      [
+        "AiSdkProviderError",
+        async () => {
+          throw namedError("AiSdkProviderError", "provider failed");
+        },
+        "PROVIDER_FAILURE",
+      ],
     ];
     for (const [label, run, kind] of cases) {
       const workflow = defineWorkflow({

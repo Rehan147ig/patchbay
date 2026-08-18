@@ -5,6 +5,7 @@ import type {
   AiProviderResult,
   PatchPlanPromptRequest,
   PlanReviewPromptRequest,
+  ProviderCallOptions,
 } from "./openai-compatible";
 
 const HIGH_RISK_TAGS: ReadonlySet<RiskTag> = new Set([
@@ -22,7 +23,10 @@ const HASH_PLACEHOLDER = "000000000000000000000000000000000000000000000000000000
  * entirely from the input so every environment and CI run agrees on the result.
  */
 export class MockAiProvider implements AiProvider {
-  async draftRemediationPlan(input: AiPlanDraftInput): Promise<AiPlanDraft> {
+  async draftRemediationPlan(
+    input: AiPlanDraftInput,
+    _options?: ProviderCallOptions,
+  ): Promise<AiPlanDraft> {
     const breakingKeywords = ["removed", "required", "breaking", "deprecated"];
     const breaking = breakingKeywords.some(
       (keyword) =>
@@ -77,7 +81,10 @@ export class MockAiProvider implements AiProvider {
    * expectedSourceHash to the real file content later; the placeholder stands
    * in until then.
    */
-  async generatePatchPlan(input: PatchPlanPromptRequest): Promise<AiProviderResult> {
+  async generatePatchPlan(
+    input: PatchPlanPromptRequest,
+    _options?: ProviderCallOptions,
+  ): Promise<AiProviderResult> {
     const renameDrafts = input.drafts.filter(
       (draft) => draft.changeType.includes("RENAME") && draft.oldValue && draft.newValue,
     );
@@ -129,11 +136,17 @@ export class MockAiProvider implements AiProvider {
         addressedSymbols: [...addressedSymbols],
       },
       usage: { inputTokens: 0, outputTokens: 0, model: "mock" },
+      requestId: null,
+      latencyMs: 0,
+      provider: "mock",
     };
   }
 
   /** Deterministic independent reviewer: approves only when the plan edits affected modules. */
-  async reviewPatchPlan(input: PlanReviewPromptRequest): Promise<AiProviderResult> {
+  async reviewPatchPlan(
+    input: PlanReviewPromptRequest,
+    _options?: ProviderCallOptions,
+  ): Promise<AiProviderResult> {
     const issues: Array<{ severity: string; target: string; message: string }> = [];
 
     const missing = input.evidence.modules.filter(
@@ -176,6 +189,9 @@ export class MockAiProvider implements AiProvider {
         issues,
       },
       usage: { inputTokens: 0, outputTokens: 0, model: "mock" },
+      requestId: null,
+      latencyMs: 0,
+      provider: "mock",
     };
   }
 }

@@ -9,7 +9,9 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@patchbay/domain": "workspace:*"
+    "@ai-sdk/openai-compatible": "^3.0.31",
+    "@patchbay/domain": "workspace:*",
+    "ai": "^7.0.66"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

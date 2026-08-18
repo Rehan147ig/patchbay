@@ -296,6 +296,30 @@ Engineering report for the Release Watchtower → software graph → impact loop
     step/transition/parallel surface so a real `@mastra/core` flow can replace it behind
     the same contract.
 
+- **Planner/reviewer performance measurement (WP8 — delivered)**:
+  - New `packages/ai-harness/src/measure.ts` + `measure.test.ts` (+10 tests):
+    provider-neutral `measureWorkflow` runs the bounded planner →
+    independent-reviewer sequence N rounds through the existing
+    budget/schema-validated harness and aggregates wall + provider latency
+    (p50/p95/max via nearest-rank `percentile`), token usage, cost estimate,
+    and classified failures (error examples capped at 3); verdict PASS/FAIL
+    against thresholds (p95 ≤ 15 s, failure rate ≤ 20%, cost ≤ 100¢/run).
+  - Worker CLI: `pnpm --filter @patchbay/worker bench`
+    (`apps/worker/scripts/bench-planner-reviewer.ts`) — deterministic mock by
+    default; `AI_PROVIDER=ai-sdk` + `OPENAI_API_KEY` for live measurement of
+    the real 2-call sequence; exits 1 on a failed verdict.
+  - Mock-mode baseline (5 rounds): planner wall p95 10.2 ms (mean 2.5 ms),
+    reviewer p95 1.4 ms, provider latency 0, cost 0, verdict PASS — harness
+    overhead only; the model call dominates real latency.
+  - **Mastra decision: not adopted.** The measurement plus the existing
+    Mastra-contract adapter show `@mastra/core` would add orchestration over
+    the two-step sequence without reducing complexity or improving
+    quality/cost; BullMQ/Postgres stay the retry/state authority and the
+    adapter remains the swap point for the fixed role sequence with per-role
+    tool allowlists.
+  - **VALIDATED**: 10 new tests; 828 tests / 70 files green, lint/format/
+    typecheck clean, production build green.
+
 ## PENDING (needs money / credentials / infra)
 
 ### Critical path (the product is not sellable without these)

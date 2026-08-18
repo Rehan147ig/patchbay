@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { MockAiProvider } from "@patchbay/ai-provider";
 import { patchPlanSchema, reviewVerdictSchema, type PatchGenerationInput } from "@patchbay/domain";
-import { bindSourceHashes, BudgetExceededError, hashInput, runPlanner, runReviewer } from "./index";
+import {
+  WorkflowAbortedError,
+  bindSourceHashes,
+  BudgetExceededError,
+  hashInput,
+  runPlanner,
+  runReviewer,
+} from "./index";
 
 const INPUT: PatchGenerationInput = {
   releaseRecordId: "r-4",
@@ -114,6 +121,67 @@ describe("agent harness planner", () => {
     const { plan: boundPartial, invalidated: dropped } = bindSourceHashes(plan, new Map());
     expect(dropped).toHaveLength(1);
     expect(boundPartial.edits).toEqual([]);
+  });
+
+  it("maps a cancelled planner signal to WorkflowAbortedError, never a provider failure", async () => {
+    const controller = new AbortController();
+    const provider = {
+      generatePatchPlan: async () => {
+        await new Promise((_resolve, reject) => {
+          const timer = setTimeout(() => {
+            /* never resolves */
+          }, 500);
+          controller.signal.addEventListener("abort", () => {
+            clearTimeout(timer);
+            reject(new DOMException("Aborted", "AbortError"));
+          });
+        });
+        return { output: {} };
+      },
+      reviewPatchPlan: async () => ({ output: {} }),
+      draftRemediationPlan: async () => {
+        throw new Error("unused");
+      },
+    } as unknown as MockAiProvider;
+
+    setTimeout(() => controller.abort(), 20);
+    await expect(runPlanner(provider, INPUT, { signal: controller.signal })).rejects.toThrow(
+      WorkflowAbortedError,
+    );
+  });
+
+  it("surfaces provider telemetry (provider, requestId, latency, usage) in the rollup", async () => {
+    const provider = {
+      generatePatchPlan: async () => ({
+        output: {
+          releaseRecordId: "<bound>",
+          repositoryId: "<bound>",
+          rationale: "mock plan",
+          confidence: 50,
+          requiresHumanReview: true,
+          riskLevel: "LOW",
+          riskTags: [],
+          edits: [],
+          validationProfile: [],
+          addressedSymbols: [],
+        },
+        usage: { inputTokens: 10, outputTokens: 20, model: "gpt-4o-mini" },
+        requestId: "req_1",
+        latencyMs: 42,
+        provider: "ai-sdk",
+      }),
+      reviewPatchPlan: async () => ({ output: {} }),
+      draftRemediationPlan: async () => {
+        throw new Error("unused");
+      },
+    } as unknown as MockAiProvider;
+
+    const { result } = await runPlanner(provider, INPUT);
+    expect(result.provider).toBe("ai-sdk");
+    expect(result.requestId).toBe("req_1");
+    expect(result.latencyMs).toBe(42);
+    expect(result.usage?.inputTokens).toBe(10);
+    expect(await runPlanner(provider, INPUT)).toBeDefined();
   });
 });
 

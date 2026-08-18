@@ -727,6 +727,8 @@ model AgentRun {
   status AgentRunStatus @default(QUEUED)
   correlationId String
   model String
+  /** Provider kind that produced this run: mock | ai-sdk | openai-compatible. */
+  provider String @default("mock")
   promptTemplateVersion String
   /** sha256 of the sanitized, bounded input context (replay identity). */
   redactedInputDigest String
@@ -735,6 +737,8 @@ model AgentRun {
   tokenUsage Json?
   costEstimateCents Int @default(0)
   budgetCents Int @default(0)
+  /** Wall-clock duration of the whole run in ms (telemetry). */
+  latencyMs Int?
   error String?
   startedAt DateTime?
   completedAt DateTime?
@@ -764,6 +768,8 @@ model AgentStep {
   inputDigest String
   outputJson Json?
   tokenUsage Json?
+  /** Provider-side request id for the model call, e.g. the OpenAI request id. */
+  providerRequestId String?
   latencyMs Int?
   error String?
   startedAt DateTime @default(now())

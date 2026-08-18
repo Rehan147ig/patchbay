@@ -248,6 +248,29 @@ Each role receives a separate Patchbay-owned tool allowlist. Tools enforce organ
 repository scope, graph hop/result limits, source redaction, and audit. Mastra never owns retries,
 policy, authorization, approval waits, database access, shell/Docker access, or GitHub writes.
 
+**Status: DELIVERED (WP8).** Planner/reviewer performance measurement added —
+`measureWorkflow` in `packages/ai-harness/src/measure.ts` runs the bounded
+planner → independent-reviewer sequence N rounds through the existing
+budget/schema-validated harness and aggregates wall + provider latency
+(p50/p95/max), token usage, cost estimate, and classified failures; verdict
+PASS/FAIL against thresholds (p95 ≤ 15 s, failure rate ≤ 20%, cost ≤ 100¢/run).
+Bench CLI: `pnpm --filter @patchbay/worker bench`
+(`apps/worker/scripts/bench-planner-reviewer.ts`) — deterministic mock by
+default; `AI_PROVIDER=ai-sdk` + `OPENAI_API_KEY` measures live model latency;
+exits 1 on a failed verdict.
+
+Mock-mode baseline (5 rounds, 10 calls): planner wall p95 10.2 ms (mean
+2.5 ms), reviewer p95 1.4 ms, provider latency 0, cost 0, verdict PASS — pure
+harness overhead; the model call dominates real runs.
+
+**Mastra decision: NOT adopted.** The `@mastra/core` dependency would add an
+orchestration layer over a two-step sequence whose step/transition/parallel
+surface the existing contract adapter already mirrors, without reducing
+complexity or improving quality/cost. BullMQ/Postgres remain the retry/state
+authority; the adapter stays the swap point if real Mastra is ever justified
+(fixed sequence above; per-role tool allowlists are already enforceable in the
+worker).
+
 ## Work Package 9: Connector Certification and Languages
 
 - Add dashboard/API capability filters from the capability contract.

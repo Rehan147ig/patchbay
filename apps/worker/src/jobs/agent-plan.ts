@@ -76,6 +76,7 @@ export async function processAgentPlan(job: Job): Promise<void> {
     input,
     budgetCents: runBudgetCents(),
     model: providerLabel(),
+    provider: providerKind(),
   });
   if (await isAgentRunCancelled(run.id)) return;
 
@@ -165,15 +166,30 @@ export async function loadAgentRun(agentRunId: string): Promise<{
 } | null> {
   const record = await prisma.agentRun.findUnique({
     where: { id: agentRunId },
-    include: {
+    select: {
+      id: true,
+      organizationId: true,
+      releaseRecordId: true,
+      repositoryId: true,
+      releaseRepositoryMatchId: true,
+      remediationCaseId: true,
+      status: true,
+      inputJson: true,
+      outputJson: true,
+      budgetCents: true,
+      model: true,
+      provider: true,
+      startedAt: true,
+      repository: true,
+      match: {
+        include: { dependency: true },
+      },
       releaseRecord: {
         include: {
           product: { include: { vendor: true } },
           classifications: true,
         },
       },
-      repository: true,
-      match: { include: { dependency: true } },
     },
   });
   if (!record) return null;
@@ -192,6 +208,8 @@ export async function loadAgentRun(agentRunId: string): Promise<{
       outputJson: record.outputJson,
       budgetCents: record.budgetCents,
       model: record.model,
+      provider: record.provider,
+      startedAt: record.startedAt,
       releaseRecord: {
         version: record.releaseRecord.version,
         product: {
@@ -227,6 +245,8 @@ function makeStepRecorder(run: AgentRunWithRelations): (recording: StepRecording
       data: {
         status: "COMPLETED",
         outputJson: recording.outputJson as Prisma.InputJsonValue,
+        tokenUsage: recording.tokenUsage as Prisma.InputJsonValue | undefined,
+        providerRequestId: recording.providerRequestId ?? undefined,
         latencyMs: Date.now() - startedAt + recording.latencyMs,
         completedAt: new Date(),
       },
@@ -243,8 +263,16 @@ function fixturesOf(run: AgentRunWithRelations): string | null {
 
 function providerLabel(): string {
   const mode = process.env.AI_PROVIDER;
-  if (mode === "openai" || mode === "openai-compatible") {
+  if (mode === "openai" || mode === "openai-compatible" || mode === "ai-sdk") {
     return `${mode}:${process.env.OPENAI_MODEL ?? "gpt-4o-mini"}`;
+  }
+  return "mock";
+}
+
+function providerKind(): string {
+  const mode = process.env.AI_PROVIDER;
+  if (mode === "ai-sdk" || mode === "openai" || mode === "openai-compatible") {
+    return mode;
   }
   return "mock";
 }

@@ -41,6 +41,8 @@ const RUN: AgentRunWithRelations = {
   outputJson: null,
   budgetCents: null,
   model: null,
+  provider: null,
+  startedAt: null,
 };
 
 const FACTS: FactsJson = {

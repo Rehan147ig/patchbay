@@ -29,7 +29,12 @@ export interface ToolCallRecord {
 }
 
 export type WorkflowFailureKind =
-  "BUDGET_EXCEEDED" | "SCHEMA_VIOLATION" | "TOOL_FAILURE" | "ABORTED" | "UNKNOWN";
+  | "BUDGET_EXCEEDED"
+  | "SCHEMA_VIOLATION"
+  | "TOOL_FAILURE"
+  | "PROVIDER_FAILURE"
+  | "ABORTED"
+  | "UNKNOWN";
 
 export interface WorkflowFailure {
   stepId: string;
@@ -164,6 +169,9 @@ export function defaultFailureClassifier(error: unknown, stepId: string): Workfl
   }
   if (isNamedError(error, "PlanSchemaError")) {
     return { stepId, kind: "SCHEMA_VIOLATION", message: messageOf(error) };
+  }
+  if (isNamedError(error, "AiSdkProviderError")) {
+    return { stepId, kind: "PROVIDER_FAILURE", message: messageOf(error) };
   }
   return { stepId, kind: "UNKNOWN", message: messageOf(error) };
 }

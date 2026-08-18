@@ -329,6 +329,20 @@ dependency remains deferred: the adapter's step/transition contract is the same 
 Mastra flow would use, and swapping it in requires no worker change — only the adapter's
 execution backend.
 
+**Status (WP8 — decision made with measurement):** `measureWorkflow`
+(`packages/ai-harness/src/measure.ts`) plus the worker `bench` CLI now measures
+the planner/reviewer sequence (wall + provider latency, tokens, cost, classified
+failures, PASS/FAIL thresholds). Mock-mode baseline: planner wall p95 10.2 ms,
+reviewer p95 1.4 ms — harness overhead only. The measurement shows the AI SDK
+model call is the entire latency/cost surface; **`@mastra/core` remains
+deferred** — it would add orchestration without reducing complexity or
+improving quality/cost. The contract adapter stays the exact swap point, and
+the fixed role sequence (release analyst → impact analyst → migration planner
+→ independent reviewer) with per-role Patchbay-owned tool allowlists is
+already enforceable in the worker if adoption is ever justified. Mastra never
+owns retries, policy, authorization, approval waits, database access,
+shell/Docker access, or GitHub writes.
+
 ## Patch and Validation Design
 
 The model returns a declarative `PatchPlan`, never executable commands:

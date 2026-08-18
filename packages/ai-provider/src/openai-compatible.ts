@@ -15,9 +15,17 @@ export interface AiPlanDraftInput {
   usages: Array<{ filePath: string; excerpt: string }>;
 }
 
+/** Per-call cancellation: callers (e.g. the workflow adapter) may abort a model call. */
+export interface ProviderCallOptions {
+  signal?: AbortSignal;
+}
+
 export interface AiProvider {
   /** Drafts an advisory remediation plan. Output is parsed through aiPlanDraftSchema. */
-  draftRemediationPlan(input: AiPlanDraftInput): Promise<AiPlanDraft>;
+  draftRemediationPlan(
+    input: AiPlanDraftInput,
+    options?: ProviderCallOptions,
+  ): Promise<AiPlanDraft>;
 
   /**
    * Agent-harness planner call: emits the raw model output for a typed
@@ -25,10 +33,16 @@ export interface AiProvider {
    * conformance, budgeting, and persistence; this method is pure transport.
    * Returns `unknown` JSON — validation happens in the harness.
    */
-  generatePatchPlan(input: PatchPlanPromptRequest): Promise<AiProviderResult>;
+  generatePatchPlan(
+    input: PatchPlanPromptRequest,
+    options?: ProviderCallOptions,
+  ): Promise<AiProviderResult>;
 
   /** Independent reviewer call: compares evidence vs plan vs validation evidence. */
-  reviewPatchPlan(input: PlanReviewPromptRequest): Promise<AiProviderResult>;
+  reviewPatchPlan(
+    input: PlanReviewPromptRequest,
+    options?: ProviderCallOptions,
+  ): Promise<AiProviderResult>;
 }
 
 /** Usage/cost metadata returned alongside any provider output. */
@@ -39,6 +53,12 @@ export interface AiProviderResult {
     outputTokens?: number;
     model: string;
   } | null;
+  /** Provider-side request id (e.g. the OpenAI request id), for telemetry. */
+  requestId?: string | null;
+  /** Wall-clock latency of the provider call in ms. */
+  latencyMs?: number;
+  /** Provider kind label, e.g. "ai-sdk" | "openai-compatible" | "mock". */
+  provider?: string;
 }
 
 /** Bounded, sanitized planner request. Must never contain secrets or unbounded repo content. */
@@ -158,11 +178,15 @@ export class OpenAiCompatibleProvider implements AiProvider {
     this.planReviewPrompt = loadPlanReviewTemplate();
   }
 
-  async draftRemediationPlan(input: AiPlanDraftInput): Promise<AiPlanDraft> {
+  async draftRemediationPlan(
+    input: AiPlanDraftInput,
+    options?: ProviderCallOptions,
+  ): Promise<AiPlanDraft> {
     const userPrompt = buildUserPrompt(input);
     const response = await this.chatJson(
       [{ role: "system", content: this.systemPrompt }],
       userPrompt,
+      options,
     );
     const parsed = this.extractJsonContent(response);
     const result = aiPlanDraftSchema.safeParse(parsed);
@@ -176,10 +200,15 @@ export class OpenAiCompatibleProvider implements AiProvider {
     return result.data;
   }
 
-  async generatePatchPlan(input: PatchPlanPromptRequest): Promise<AiProviderResult> {
+  async generatePatchPlan(
+    input: PatchPlanPromptRequest,
+    options?: ProviderCallOptions,
+  ): Promise<AiProviderResult> {
+    const startedAt = Date.now();
     const response = await this.chatJson(
       [{ role: "system", content: this.planGenerationPrompt }],
       buildPlanGenerationPrompt(input),
+      options,
     );
     const output = this.extractJsonContent(response);
     return {
@@ -189,13 +218,21 @@ export class OpenAiCompatibleProvider implements AiProvider {
         outputTokens: response.completionTokens,
         model: this.model,
       },
+      requestId: response.requestId,
+      latencyMs: Date.now() - startedAt,
+      provider: "openai-compatible",
     };
   }
 
-  async reviewPatchPlan(input: PlanReviewPromptRequest): Promise<AiProviderResult> {
+  async reviewPatchPlan(
+    input: PlanReviewPromptRequest,
+    options?: ProviderCallOptions,
+  ): Promise<AiProviderResult> {
+    const startedAt = Date.now();
     const response = await this.chatJson(
       [{ role: "system", content: this.planReviewPrompt }],
       buildPlanReviewPrompt(input),
+      options,
     );
     const output = this.extractJsonContent(response);
     return {
@@ -205,19 +242,29 @@ export class OpenAiCompatibleProvider implements AiProvider {
         outputTokens: response.completionTokens,
         model: this.model,
       },
+      requestId: response.requestId,
+      latencyMs: Date.now() - startedAt,
+      provider: "openai-compatible",
     };
   }
 
   private async chatJson(
     messages: Array<{ role: "system" | "user"; content: string }>,
     userPrompt: string,
-  ): Promise<{ content: unknown; promptTokens?: number; completionTokens?: number }> {
+    options?: ProviderCallOptions,
+  ): Promise<{
+    content: unknown;
+    promptTokens?: number;
+    completionTokens?: number;
+    requestId: string | null;
+  }> {
     const response = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${this.apiKey}`,
       },
+      signal: options?.signal,
       body: JSON.stringify({
         model: this.model,
         temperature: 0,
@@ -249,6 +296,7 @@ export class OpenAiCompatibleProvider implements AiProvider {
       content: body.choices?.[0]?.message?.content,
       promptTokens: body.usage?.prompt_tokens,
       completionTokens: body.usage?.completion_tokens,
+      requestId: response.headers.get("x-request-id"),
     };
   }
 
@@ -267,7 +315,7 @@ export class OpenAiCompatibleProvider implements AiProvider {
   }
 }
 
-function buildUserPrompt(input: AiPlanDraftInput): string {
+export function buildUserPrompt(input: AiPlanDraftInput): string {
   const usageLines = input.usages
     .map((usage) => `- file: ${sanitizeField(usage.filePath)}\n${wrapUntrusted(usage.excerpt)}`)
     .join("\n");
@@ -294,7 +342,7 @@ async function safeBodyText(response: Response): Promise<string> {
   }
 }
 
-function buildPlanGenerationPrompt(input: PatchPlanPromptRequest): string {
+export function buildPlanGenerationPrompt(input: PatchPlanPromptRequest): string {
   const draftLines = input.drafts
     .map(
       (draft) =>
@@ -323,7 +371,7 @@ function buildPlanGenerationPrompt(input: PatchPlanPromptRequest): string {
   ].join("\n");
 }
 
-function buildPlanReviewPrompt(input: PlanReviewPromptRequest): string {
+export function buildPlanReviewPrompt(input: PlanReviewPromptRequest): string {
   const editLines = input.plan.edits
     .map(
       (edit) =>

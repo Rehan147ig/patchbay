@@ -13,6 +13,7 @@ import type {
   PatchPlanPromptRequest,
   PlanReviewPromptRequest,
 } from "@patchbay/ai-provider";
+import { WorkflowAbortedError } from "./workflow";
 
 /**
  * Patchbay Agent Harness (roadmap Phase H3).
@@ -105,11 +106,15 @@ export interface PlannerRollup {
 export async function runPlanner(
   provider: AiProvider,
   input: PatchGenerationInput,
-  options: { budgetCents?: number } = {},
+  options: { budgetCents?: number; signal?: AbortSignal } = {},
 ): Promise<PlannerRollup> {
   const budgetCents = options.budgetCents ?? 100;
   const request = buildPlannerRequest(input);
-  const result = await provider.generatePatchPlan(request);
+  const result = await callProvider(
+    () => provider.generatePatchPlan(request, { signal: options.signal }),
+    "planner",
+    options.signal,
+  );
   const costEstimateCents = estimateCostCents(result);
   if (costEstimateCents > budgetCents) {
     throw new BudgetExceededError(budgetCents, costEstimateCents);
@@ -151,7 +156,7 @@ export async function runReviewer(
     toVersion: string;
     breaking: boolean;
   },
-  options: { budgetCents?: number } = {},
+  options: { budgetCents?: number; signal?: AbortSignal } = {},
 ): Promise<ReviewRollup> {
   const budgetCents = options.budgetCents ?? 100;
   const request: PlanReviewPromptRequest = {
@@ -172,7 +177,11 @@ export async function runReviewer(
     },
     evidence,
   };
-  const result = await provider.reviewPatchPlan(request);
+  const result = await callProvider(
+    () => provider.reviewPatchPlan(request, { signal: options.signal }),
+    "reviewer",
+    options.signal,
+  );
   const costEstimateCents = estimateCostCents(result);
   if (costEstimateCents > budgetCents) {
     throw new BudgetExceededError(budgetCents, costEstimateCents);
@@ -225,6 +234,40 @@ export function estimateCostCents(result: AiProviderResult): number {
   const cents = (inputTokens * price.input + outputTokens * price.output) / 1_000_000;
   return Math.ceil(cents * 100);
 }
+
+/**
+ * One provider call with caller-cancellation support: a cancelled signal maps
+ * to WorkflowAbortedError (workflow kind ABORTED) so aborted runs are never
+ * misclassified as provider failures or retried as truth.
+ */
+async function callProvider(
+  call: () => Promise<AiProviderResult>,
+  role: string,
+  signal: AbortSignal | undefined,
+): Promise<AiProviderResult> {
+  try {
+    return await call();
+  } catch (error) {
+    if (signal?.aborted) {
+      throw new WorkflowAbortedError(
+        `${role} model call aborted by caller: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+    throw error;
+  }
+}
+
+export { DEFAULT_ROUNDS, measureWorkflow, percentile } from "./measure";
+export type {
+  BenchmarkReport,
+  BenchmarkThresholds,
+  BenchStep,
+  MeasureWorkflowOptions,
+  StepLatencyStats,
+  StepSummary,
+} from "./measure";
 
 export {
   defineWorkflow,
