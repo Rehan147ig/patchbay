@@ -28,9 +28,18 @@ export function PlanRunButton({ releaseId, matchId }: { releaseId: string; match
         setStatus(body.error?.message ?? "Failed to queue agent plan run");
         return;
       }
-      const body = (await response.json()) as { agentRunId?: string; replay?: boolean };
+      const body = (await response.json()) as {
+        agentRunId?: string;
+        replay?: boolean;
+        eligible?: boolean;
+        message?: string;
+      };
       if (body.agentRunId) {
         router.push(`/runs/${body.agentRunId}`);
+        return;
+      }
+      if (body.eligible === false) {
+        setStatus(body.message ?? "Planning is not allowed for this case");
         return;
       }
       setStatus("Agent run queued");

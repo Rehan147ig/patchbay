@@ -193,6 +193,30 @@ async function createDraftPR(
     data: { status: PlanStatus.PR_CREATED },
   });
 
+  if (plan.remediationCaseId) {
+    await prisma.$transaction([
+      prisma.remediationCase.update({
+        where: { id: plan.remediationCaseId },
+        data: { status: "DRAFT_PR_CREATED" },
+      }),
+      prisma.remediationCaseEvent.create({
+        data: {
+          organizationId,
+          remediationCaseId: plan.remediationCaseId,
+          status: "DRAFT_PR_CREATED",
+          reasonCode: plan.requiresHumanReview ? "approved" : "usage-evidence",
+          detailJson: {
+            remediationPlanId: plan.id,
+            pullRequestId: pullRequestRecord.id,
+            url: prResult.url,
+            branchName: prResult.branchName,
+          },
+          correlationId,
+        },
+      }),
+    ]);
+  }
+
   await writeAuditEvent({
     organizationId,
     actorType: ActorType.SYSTEM,

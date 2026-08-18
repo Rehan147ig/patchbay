@@ -100,6 +100,64 @@ export async function processAgentPlan(job: Job): Promise<void> {
   if (outcome.status !== "SUCCEEDED" && outcome.failureMessage) {
     throw new Error(outcome.failureMessage);
   }
+  const planner = result.output?.["planner"] as { plan?: { edits?: unknown[] } } | undefined;
+  await recordCaseOutcome(run, outcome, correlationId, planner?.plan?.edits?.length ?? 0);
+}
+
+/**
+ * WP3: reflect the plan run on its RemediationCase. Success with proposed
+ * edits -> PATCH_PROPOSED; success with no edits -> PLAN_ONLY; failures leave
+ * the case at PLANNING (retryable) and only append a timeline event.
+ */
+async function recordCaseOutcome(
+  run: AgentRunWithRelations,
+  outcome: { status: string; failureMessage: string | null },
+  correlationId: string,
+  editCount: number,
+): Promise<void> {
+  if (!run.remediationCaseId) return;
+  const existing = await prisma.remediationCase.findUnique({
+    where: { id: run.remediationCaseId },
+    select: { id: true, status: true, reasonCode: true },
+  });
+  if (!existing) return;
+
+  if (outcome.status === "SUCCEEDED") {
+    if (existing.status === "PLANNING" || existing.status === "POLICY_ELIGIBLE") {
+      const next = editCount === 0 ? "PLAN_ONLY" : "PATCH_PROPOSED";
+      await prisma.$transaction([
+        prisma.remediationCase.update({
+          where: { id: existing.id },
+          data: { status: next },
+        }),
+        prisma.remediationCaseEvent.create({
+          data: {
+            organizationId: run.organizationId,
+            remediationCaseId: existing.id,
+            status: next,
+            reasonCode: existing.reasonCode,
+            detailJson: { agentRunId: run.id, editCount },
+            correlationId,
+          },
+        }),
+      ]);
+    }
+    return;
+  }
+
+  await prisma.remediationCaseEvent.create({
+    data: {
+      organizationId: run.organizationId,
+      remediationCaseId: existing.id,
+      status: existing.status,
+      reasonCode: existing.reasonCode,
+      detailJson: {
+        agentRunId: run.id,
+        failure: outcome.failureMessage,
+      },
+      correlationId,
+    },
+  });
 }
 
 export async function loadAgentRun(agentRunId: string): Promise<{
@@ -126,6 +184,7 @@ export async function loadAgentRun(agentRunId: string): Promise<{
       releaseRecordId: record.releaseRecordId,
       repositoryId: record.repositoryId,
       releaseRepositoryMatchId: record.releaseRepositoryMatchId,
+      remediationCaseId: record.remediationCaseId,
       status: record.status,
       repository: record.repository,
       match: record.match,

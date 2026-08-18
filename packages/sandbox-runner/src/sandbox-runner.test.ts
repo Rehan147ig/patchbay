@@ -1,7 +1,7 @@
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ALLOWED_COMMANDS,
   buildDockerRunArgs,
@@ -10,13 +10,17 @@ import {
   isAllowedCommand,
   MicroVmSandboxRunner,
   ProcessSandboxRunner,
+  resolveSandboxMode,
   runValidation,
   SandboxError,
+  SandboxPolicyError,
+  SANDBOX_CONTAINER_USER,
   SANDBOX_MAX_OUTPUT_CHARS,
 } from "./index";
 
 const tempDirs: string[] = [];
 afterEach(async () => {
+  vi.unstubAllEnvs();
   for (const dir of tempDirs.splice(0)) {
     for (let attempt = 0; attempt < 5; attempt += 1) {
       try {
@@ -56,6 +60,62 @@ describe("allowlist", () => {
     );
     expect(error).toBeInstanceOf(SandboxError);
     expect((error as SandboxError).code).toBe("COMMAND_NOT_ALLOWLISTED");
+  });
+});
+
+describe("runtime modes", () => {
+  it("defaults to test under vitest, development otherwise, production via env", () => {
+    expect(resolveSandboxMode()).toBe("test");
+    vi.stubEnv("SANDBOX_MODE", "development");
+    expect(resolveSandboxMode()).toBe("development");
+    vi.stubEnv("SANDBOX_MODE", "production");
+    expect(resolveSandboxMode()).toBe("production");
+    vi.stubEnv("SANDBOX_MODE", "development");
+    vi.stubEnv("NODE_ENV", "production");
+    expect(resolveSandboxMode()).toBe("development");
+    vi.unstubAllEnvs();
+    vi.stubEnv("NODE_ENV", "production");
+    expect(resolveSandboxMode()).toBe("production");
+    vi.stubEnv("SANDBOX_MODE", "garbage");
+    expect(resolveSandboxMode()).toBe("production");
+  });
+
+  it("production rejects the process runtime at startup and at execution", async () => {
+    vi.stubEnv("SANDBOX_MODE", "production");
+    expect(() => createSandboxRunner("process")).toThrow(SandboxPolicyError);
+    expect(() => createSandboxRunner()).toThrow(SandboxPolicyError);
+    const error = await runValidation("npm test", tmpdir()).then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+    expect(error).toBeInstanceOf(SandboxPolicyError);
+  });
+
+  it("production rejects the microVM stub and demands the container runtime", () => {
+    vi.stubEnv("SANDBOX_MODE", "production");
+    expect(() => createSandboxRunner("microvm")).toThrow(SandboxPolicyError);
+    expect(createSandboxRunner("container")).toBeInstanceOf(ContainerSandboxRunner);
+  });
+
+  it("a process runner instance also refuses to run in production", async () => {
+    vi.stubEnv("SANDBOX_MODE", "production");
+    const runner = new ProcessSandboxRunner();
+    const error = await runner.run("npm test", tmpdir()).then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+    expect(error).toBeInstanceOf(SandboxPolicyError);
+    const micro = new MicroVmSandboxRunner({ available: true });
+    const microError = await micro.run("npm test", tmpdir()).then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+    expect(microError).toBeInstanceOf(SandboxPolicyError);
+  });
+
+  it("development allows the process runtime", () => {
+    vi.stubEnv("SANDBOX_MODE", "development");
+    expect(createSandboxRunner("process")).toBeInstanceOf(ProcessSandboxRunner);
   });
 });
 
@@ -162,6 +222,61 @@ describe("sandbox runners", () => {
   });
 });
 
+describe("provenance", () => {
+  it("records runtime, mode, network policy and failure class for a success", async () => {
+    const dir = makeWorkspace({ test: 'node -e "console.log(\\"ok\\")"' });
+    const result = await runValidation("npm test", dir);
+    expect(result.provenance.runtime).toBe("process");
+    expect(result.provenance.mode).toBe("test");
+    expect(result.provenance.imageDigest).toBeNull();
+    expect(result.provenance.networkPolicy).toBe("host-network");
+    expect(result.provenance.failureClass).toBe("none");
+    expect(result.provenance.workspace.path).toBe(dir);
+    expect(result.provenance.workspace.disposable).toBe(false);
+    expect(result.provenance.limits.timeoutMs).toBeGreaterThan(0);
+  });
+
+  it("classifies command failures and timeouts", async () => {
+    const failing = makeWorkspace({ test: 'node -e "process.exit(7)"' });
+    const failedResult = await runValidation("npm test", failing);
+    expect(failedResult.provenance.failureClass).toBe("command-failed");
+
+    const hanging = makeWorkspace({ test: 'node -e "setTimeout(() => {}, 60000)"' });
+    const timedOutResult = await runValidation("npm test", hanging, { timeoutMs: 500 });
+    expect(timedOutResult.provenance.failureClass).toBe("timed-out");
+  }, 20_000);
+
+  it("container provenance carries image digest and configured limits", async () => {
+    const runner = new ContainerSandboxRunner({
+      probe: async () => true,
+      digestResolver: async () => "sha256:abc123",
+      cpus: "1.5",
+      memory: "1g",
+      pidsLimit: 256,
+    });
+    const dir = makeWorkspace({ test: 'node -e "console.log(\\"provenance\\")"' });
+    const result = await runner.run("npm test", dir, { timeoutMs: 5_000 });
+    expect(result.provenance.runtime).toBe("container");
+    expect(result.provenance.imageDigest).toBe("sha256:abc123");
+    expect(result.provenance.limits).toEqual({
+      cpus: "1.5",
+      memory: "1g",
+      pidsLimit: 256,
+      timeoutMs: 5_000,
+    });
+    expect(result.provenance.networkPolicy).toBe("none");
+    expect(result.provenance.workspace.disposable).toBe(true);
+    expect(result.provenance.failureClass).toBe("none");
+  }, 30_000);
+
+  it("reports runtime-unavailable for a container without a daemon", async () => {
+    const runner = new ContainerSandboxRunner({ probe: async () => false });
+    const result = await runner.run("npm test", tmpdir());
+    expect(result.provenance.failureClass).toBe("runtime-unavailable");
+    expect(result.provenance.runtime).toBe("container");
+  });
+});
+
 describe("container runner", async () => {
   const dockerAvailable = await new ContainerSandboxRunner().isAvailable();
 
@@ -206,6 +321,48 @@ describe("container runner", async () => {
       (caught: unknown) => caught,
     );
     expect(error).toBeInstanceOf(SandboxError);
+  });
+
+  it("runs as a non-root user and never mounts the docker socket", () => {
+    const args = buildDockerRunArgs("npm test", tmpdir(), { containerName: "patchbay-sb-noroot" });
+    expect(args[args.indexOf("--user") + 1]).toBe(SANDBOX_CONTAINER_USER);
+    expect(args[args.indexOf("--user") + 1]).not.toBe("0:0");
+    expect(args.join(" ")).not.toContain("/var/run/docker.sock");
+    expect(args.join(" ")).not.toContain("--privileged");
+  });
+
+  it("requires an explicit policy for registry egress", () => {
+    const args = buildDockerRunArgs("npm test", tmpdir(), {
+      containerName: "patchbay-sb-net",
+      networkPolicy: "registry-only",
+    });
+    expect(args[args.indexOf("--network") + 1]).toBe("bridge");
+    expect(() =>
+      buildDockerRunArgs("npm test", tmpdir(), {
+        networkPolicy: "host-network" as never,
+      }),
+    ).toThrow(SandboxPolicyError);
+    const runner = new ContainerSandboxRunner({ probe: async () => true });
+    return runner.run("npm test", tmpdir(), { networkPolicy: "host-network" }).then(
+      () => {
+        throw new Error("expected host-network to be rejected");
+      },
+      (error: unknown) => expect(error).toBeInstanceOf(SandboxPolicyError),
+    );
+  });
+
+  it("mounts an immutable dependency cache read-only when configured", () => {
+    const args = buildDockerRunArgs("npm test", tmpdir(), {
+      containerName: "patchbay-sb-cache",
+      cacheDir: "C:\\dep-cache",
+    });
+    expect(args).toContain("C:\\dep-cache:/npm-cache:ro");
+    const env = args
+      .filter((_, index) => args[index - 1] === "--env")
+      .map((value) => value.split("=")[0]);
+    expect(env).toContain("npm_config_cache");
+    const npmCacheValue = args[args.indexOf("npm_config_cache=/npm-cache") + 0];
+    expect(npmCacheValue).toBe("npm_config_cache=/npm-cache");
   });
 
   it("fails loudly when the daemon is unavailable", async () => {

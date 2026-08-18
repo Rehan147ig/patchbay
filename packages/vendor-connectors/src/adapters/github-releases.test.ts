@@ -79,7 +79,7 @@ describe("createGitHubReleasesAdapter", () => {
     const result = await adapter.fetch({ etag: '"gh-1"' });
     expect(result.evidence).toEqual([]);
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("repos/openai/openai-node/releases"),
+      new URL("https://api.github.com/repos/openai/openai-node/releases?per_page=10"),
       expect.objectContaining({ headers: expect.objectContaining({ "If-None-Match": '"gh-1"' }) }),
     );
   });

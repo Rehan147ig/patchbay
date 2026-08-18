@@ -11,6 +11,18 @@ export {
 export type { ClaimTaskParameterResult, SubmitTaskParameterResult } from "./task-parameters";
 export { impactByKind, latestSnapshot, packageImpact } from "./graph-reads";
 export type { ImpactedModule, PackageImpact, SnapshotSummary } from "./graph-reads";
+export { MAX_READY_SNAPSHOTS, pruneGraphSnapshots, STALE_SNAPSHOT_AGE_MS } from "./graph-retention";
+export type { RetentionResult } from "./graph-retention";
+export {
+  contentHashOf,
+  evidenceObjectExists,
+  evidenceStoreDir,
+  objectKeyForHash,
+  objectKeyForPayload,
+  readRawEvidence,
+  storeRawEvidence,
+} from "./object-store";
+export type { EvidenceObjectWrite } from "./object-store";
 export { Prisma } from "@prisma/client";
 export type {
   Organization,

@@ -357,6 +357,68 @@ export const AgentStepStatus = {
 } as const;
 export type AgentStepStatus = (typeof AgentStepStatus)[keyof typeof AgentStepStatus];
 
+/**
+ * Remediation case lifecycle (control-plane funnel, WP3). Transitions are
+ * tenant-scoped, idempotent, audited and explicit; a case can never skip
+ * policy or validation via a retry or direct API call.
+ */
+export const CaseStatus = {
+  OBSERVED: "OBSERVED",
+  EVIDENCE_VERIFIED: "EVIDENCE_VERIFIED",
+  IMPACT_CONFIRMED: "IMPACT_CONFIRMED",
+  POLICY_ELIGIBLE: "POLICY_ELIGIBLE",
+  PLANNING: "PLANNING",
+  PATCH_PROPOSED: "PATCH_PROPOSED",
+  VALIDATING: "VALIDATING",
+  APPROVAL_REQUIRED: "APPROVAL_REQUIRED",
+  DRAFT_PR_CREATED: "DRAFT_PR_CREATED",
+  PLAN_ONLY: "PLAN_ONLY",
+  REJECTED: "REJECTED",
+  CANCELLED: "CANCELLED",
+  MERGED: "MERGED",
+  CLOSED: "CLOSED",
+  LEARNED: "LEARNED",
+} as const;
+export type CaseStatus = (typeof CaseStatus)[keyof typeof CaseStatus];
+
+/** Terminal states: no further transition without an explicit replay action. */
+export const CASE_TERMINAL_STATUSES: ReadonlySet<CaseStatus> = new Set([
+  CaseStatus.REJECTED,
+  CaseStatus.CANCELLED,
+  CaseStatus.MERGED,
+  CaseStatus.CLOSED,
+  CaseStatus.LEARNED,
+]);
+
+/**
+ * Why a case exists or was stopped. Cases that cannot proceed (unsupported
+ * capability, policy denial, insufficient evidence) stay visible at
+ * IMPACT_CONFIRMED and never spend model budget.
+ */
+export const CaseReasonCode = {
+  DEPENDENCY_MATCH: "dependency-match",
+  USAGE_EVIDENCE: "usage-evidence",
+  CAPABILITY_UNSUPPORTED: "capability-unsupported",
+  POLICY_DENIED: "policy-denied",
+  INSUFFICIENT_EVIDENCE: "insufficient-evidence",
+  USER_REQUESTED: "user-requested",
+  APPROVED: "approved",
+  REPLAYED: "replayed",
+  REJECTED_BY_OWNER: "rejected-by-owner",
+  CANCELLED: "cancelled",
+} as const;
+export type CaseReasonCode = (typeof CaseReasonCode)[keyof typeof CaseReasonCode];
+
+/** Terminal outcomes recorded on a case when it finishes. */
+export const CaseTerminalOutcome = {
+  CANCELLED: "cancelled",
+  REJECTED: "rejected",
+  MERGED: "merged",
+  CLOSED: "closed",
+  LEARNED: "learned",
+} as const;
+export type CaseTerminalOutcome = (typeof CaseTerminalOutcome)[keyof typeof CaseTerminalOutcome];
+
 /** All enum arrays, used by the Prisma drift test. */
 export const ALL_ENUMS = {
   Role,
@@ -391,6 +453,7 @@ export const ALL_ENUMS = {
   AgentRole,
   AgentStepKind,
   AgentStepStatus,
+  CaseStatus,
   TaskStatus,
   GraphSnapshotStatus,
   GraphIndexMode,

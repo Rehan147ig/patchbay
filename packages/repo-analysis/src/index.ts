@@ -22,3 +22,6 @@ export type {
   GraphExtraction,
   GraphNodeFact,
 } from "./graph";
+export { computeReextractionSet, inverseIndex } from "./invalidation";
+export type { InvalidationInput, InvalidationResult } from "./invalidation";
+export { mergeIncrementalExtraction, nodeComparisonKey, edgeComparisonKey } from "./merge";

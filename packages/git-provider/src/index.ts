@@ -6,8 +6,10 @@ export {
   type CreateDraftPRInput,
   type PullRequestResult,
   type GitProvider,
+  type CheckoutInput,
+  type CheckoutResult,
 } from "./local-provider";
-export { GitHubProvider, createGitProviderFromEnv } from "./github-provider";
+export { GitHubProvider, createGitProviderFromEnv, redactTokenInError } from "./github-provider";
 export type { GitHubConfig } from "./github-provider";
 export {
   GitHubAppProvider,

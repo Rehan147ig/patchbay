@@ -206,6 +206,28 @@ enum ReleaseMatchStatus {
   REMEDIATE
 }
 
+// ---------------------------------------------------------------------------
+// Remediation case lifecycle (WP3). Must mirror packages/domain/src/enums.ts.
+// ---------------------------------------------------------------------------
+
+enum CaseStatus {
+  OBSERVED
+  EVIDENCE_VERIFIED
+  IMPACT_CONFIRMED
+  POLICY_ELIGIBLE
+  PLANNING
+  PATCH_PROPOSED
+  VALIDATING
+  APPROVAL_REQUIRED
+  DRAFT_PR_CREATED
+  PLAN_ONLY
+  REJECTED
+  CANCELLED
+  MERGED
+  CLOSED
+  LEARNED
+}
+
 enum DetectionRunStatus {
   RUNNING
   COMPLETED
@@ -294,6 +316,8 @@ model Organization {
   graphEdges             GraphEdge[]
   graphEvidence          GraphSourceEvidence[]
   graphIndexJobs         GraphIndexJob[]
+  remediationCases       RemediationCase[]
+  remediationCaseEvents  RemediationCaseEvent[]
   subscription           Subscription?
 }
 
@@ -433,6 +457,7 @@ model Repository {
   graphEdges         GraphEdge[]
   graphEvidence      GraphSourceEvidence[]
   graphIndexJobs     GraphIndexJob[]
+  remediationCases   RemediationCase[]
 
   @@unique([organizationId, externalId])
   @@index([organizationId])
@@ -528,6 +553,7 @@ model ReleaseRecord {
   classifications ReleaseClassification[]
   matches         ReleaseRepositoryMatch[]
   agentRuns       AgentRun[]
+  remediationCases RemediationCase[]
 
   @@unique([source, productId, version, contentHash])
   @@index([productId, publishedAt])
@@ -565,6 +591,7 @@ model RepositoryDependency {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   repository   Repository   @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
   matches      ReleaseRepositoryMatch[]
+  remediationCases RemediationCase[]
 
   @@unique([repositoryId, packageName, commitSha])
   @@index([organizationId])
@@ -588,6 +615,7 @@ model ReleaseRepositoryMatch {
   repository    Repository         @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
   dependency    RepositoryDependency @relation(fields: [dependencyId], references: [id], onDelete: Cascade)
   agentRuns     AgentRun[]
+  remediationCases RemediationCase[]
 
   @@unique([releaseRecordId, repositoryId, dependencyId])
   @@index([organizationId, status])
@@ -612,6 +640,76 @@ model ReleaseClassification {
 }
 
 // ---------------------------------------------------------------------------
+// Remediation cases (WP3): the tenant-scoped control-plane record for one
+// (release, repository, dependency) remediation. Cases are created by the
+// policy-first funnel in the worker; denied/unsupported cases stay visible at
+// IMPACT_CONFIRMED with a reasonCode and never spend model budget. All
+// transitions are appended to RemediationCaseEvent and audited.
+// ---------------------------------------------------------------------------
+
+model RemediationCase {
+  id String @id @default(uuid())
+  organizationId   String
+  scopeKey         String
+  status           CaseStatus @default(OBSERVED)
+  /** Why the case exists or stopped (CASE_REASON_CODES in domain). */
+  reasonCode       String
+  /** Blast radius snapshot: score/severity/factors (domain blast-radius.ts). */
+  blastRadius      Json?
+  /** Policy evaluation snapshot: decision/requiresHumanReview/policyId. */
+  policyDecision   Json?
+  /** Certified connector capability level at decision time (DETECT..DRAFT_PR). */
+  capabilityLevel  String
+  validationProfile String?
+  /** Graph snapshot the impact evidence was read from (immutable). */
+  snapshotId       String?
+  ownerUserId      String?
+  terminalOutcome  String?
+  terminalAt       DateTime?
+  releaseId        String
+  repositoryId     String
+  dependencyId     String
+  releaseRepositoryMatchId String?
+  correlationId    String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  release        ReleaseRecord         @relation(fields: [releaseId], references: [id], onDelete: Cascade)
+  repository     Repository            @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  dependency     RepositoryDependency  @relation(fields: [dependencyId], references: [id], onDelete: Cascade)
+  match          ReleaseRepositoryMatch? @relation(fields: [releaseRepositoryMatchId], references: [id], onDelete: SetNull)
+  snapshot       GraphSnapshot?        @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
+  events         RemediationCaseEvent[]
+  agentRuns      AgentRun[]
+  plans          RemediationPlan[]
+
+  @@unique([scopeKey])
+  @@index([organizationId, status, updatedAt])
+  @@index([organizationId, releaseId])
+  @@index([organizationId, repositoryId, status])
+  @@index([releaseId, repositoryId, dependencyId])
+}
+
+/** Immutable timeline of a remediation case; every transition appends one row. */
+model RemediationCaseEvent {
+  id String @id @default(uuid())
+  organizationId String
+  remediationCaseId String
+  status      CaseStatus
+  reasonCode  String?
+  /** Event-specific detail (e.g. plan id, agent run id, PR id). */
+  detailJson  Json?
+  correlationId String
+  createdAt   DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  case RemediationCase @relation(fields: [remediationCaseId], references: [id], onDelete: Cascade)
+
+  @@index([remediationCaseId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
 // Agent Harness (bounded, typed, replayable AI runs).
 // An AgentRun is one analyst -> planner -> reviewer execution for one
 // (release, match). Stores redacted input digests, schema-validated outputs,
@@ -624,6 +722,7 @@ model AgentRun {
   releaseRecordId String
   repositoryId String
   releaseRepositoryMatchId String?
+  remediationCaseId String?
   type AgentRunType @default(PLAN_REVIEW)
   status AgentRunStatus @default(QUEUED)
   correlationId String
@@ -645,6 +744,7 @@ model AgentRun {
   releaseRecord ReleaseRecord @relation(fields: [releaseRecordId], references: [id], onDelete: Cascade)
   repository  Repository  @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
   match      ReleaseRepositoryMatch? @relation(fields: [releaseRepositoryMatchId], references: [id], onDelete: SetNull)
+  remediationCase RemediationCase? @relation(fields: [remediationCaseId], references: [id], onDelete: SetNull)
   steps      AgentStep[]
 
   @@index([organizationId, status])
@@ -685,6 +785,10 @@ model DetectionRun {
   cursor        Json?
   observedCount Int                @default(0)
   error         String?
+  /** Wall-clock duration of the poll (ms), for detector health latency views. */
+  latencyMs     Int?
+  /** Trust violation reason when the poll was rejected (e.g. domain_not_allowed). */
+  rejectionReason String?
 
   @@index([adapter, startedAt])
 }
@@ -790,6 +894,8 @@ model GraphSnapshot {
   extractionVersion Int       @default(1)
   status           GraphSnapshotStatus @default(INDEXING)
   rootTreeHash     String
+  /** Deterministic source hash of the checkout/scan (commit + tree). */
+  sourceHash       String?
   changedPaths     Json?
   nodesAffected    Int       @default(0)
   edgesAffected    Int       @default(0)
@@ -802,6 +908,7 @@ model GraphSnapshot {
   edges        GraphEdge[]
   evidence     GraphSourceEvidence[]
   indexJobs    GraphIndexJob[]
+  remediationCases RemediationCase[]
 
   @@unique([repositoryId, commitSha, extractionVersion])
   @@index([organizationId, repositoryId, status])
@@ -1030,6 +1137,7 @@ model RemediationPlan {
   id String @id @default(uuid())
   organizationId      String
   impactAssessmentId  String
+  remediationCaseId   String?
   status              PlanStatus @default(DRAFT)
   strategy            String
   proposedChanges     Json?
@@ -1041,6 +1149,7 @@ model RemediationPlan {
 
   organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   impactAssessment ImpactAssessment @relation(fields: [impactAssessmentId], references: [id], onDelete: Cascade)
+  remediationCase  RemediationCase? @relation(fields: [remediationCaseId], references: [id], onDelete: SetNull)
   patches          PatchArtifact[]
   validations      ValidationRun[]
   pullRequests     PullRequest[]
@@ -1082,6 +1191,8 @@ model ValidationRun {
   stdout            String?
   stderr            String?
   exitCode          Int?
+  /** Sandbox provenance: runtime, mode, image digest, limits, network policy. */
+  runtimeMetadata   Json?
   startedAt         DateTime?
   completedAt       DateTime?
   createdAt         DateTime         @default(now())

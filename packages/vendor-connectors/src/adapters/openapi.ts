@@ -7,6 +7,8 @@ import type {
   WatchtowerEvidence,
 } from "../watchtower";
 import { diffOpenApiSpecs, type OpenApiDiffFacts } from "./openapi-diff";
+import { fetchWithTrust } from "../safe-fetch";
+import { OPENAPI_TRUST_PROFILE } from "../trust";
 
 interface OpenAPISpec {
   openapi: string;
@@ -83,16 +85,13 @@ export function createOpenAPIAdapter(vendorSlug: string, specUrl: string): Watch
       const headers: Record<string, string> = { Accept: "application/json" };
       if (prev.etag) headers["If-None-Match"] = prev.etag;
 
-      const response = await fetch(specUrl, { headers });
+      const response = await fetchWithTrust(specUrl, OPENAPI_TRUST_PROFILE, { headers });
       if (response.status === 304) {
         return { evidence: [], cursor: prev };
       }
-      if (!response.ok) {
-        throw new Error(`OpenAPI spec fetch failed: ${response.status}`);
-      }
 
       const etag = response.headers.get("etag");
-      const spec = (await response.json()) as OpenAPISpec;
+      const spec = JSON.parse(response.text) as OpenAPISpec;
       const raw = JSON.stringify(spec);
       const contentHash = createHash("sha256").update(raw).digest("hex");
 
@@ -122,6 +121,7 @@ export function createOpenAPIAdapter(vendorSlug: string, specUrl: string): Watch
         source: "OPENAPI" as ReleaseSource,
         canonicalUrl: specUrl,
         contentHash,
+        rawPayload: raw,
         publishedAt: new Date(),
         metadata: {
           specTitle: spec.info.title,

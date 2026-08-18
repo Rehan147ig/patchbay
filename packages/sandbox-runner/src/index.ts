@@ -14,15 +14,27 @@ import { sanitizeText } from "@patchbay/audit";
  * paths pass a minimal allowlisted environment — the worker's secrets never
  * reach the child. Output is bounded and redacted.
  *
+ * Runtime modes (WP2, fail closed in production):
+ * - "development" (default): process runner allowed for local iteration.
+ * - "test": process runner allowed; the suite runs here.
+ * - "production": ONLY the container runner may validate customer code. The
+ *   process runner and the microVM stub are rejected at startup AND at every
+ *   validation execution; a production worker refuses to start when the
+ *   container runtime is unavailable.
+ *
  * Backends:
- * - "process" (default, always available): spawns on the local host. NOT a
- *   hardened multi-tenant sandbox: an allowlisted script name can run whatever
- *   the target package.json defines, on the host.
+ * - "process": spawns on the local host. NOT a hardened multi-tenant sandbox:
+ *   an allowlisted script name can run whatever the target package.json
+ *   defines, on the host. Development/test only.
  * - "container" (SANDBOX_RUNTIME=container, Docker daemon required): runs the
  *   allowlisted command in an ephemeral container with no network, no
- *   capabilities, a read-only root filesystem, and CPU/memory/PID caps. The
- *   workspace is the only writable path.
- * - "microvm" (stub): fails loudly until a Firecracker backend ships.
+ *   capabilities, a read-only root filesystem, a non-root user, CPU/memory/PID
+ *   caps, and a disposable workspace as the only writable path.
+ * - "microvm" (stub): fails loudly until a Firecracker backend ships; never
+ *   selectable in production.
+ *
+ * Every result carries provenance: runtime, mode, image digest, resource
+ * limits, network policy, workspace path, and a failure class.
  */
 
 export const ALLOWED_COMMANDS = [
@@ -53,6 +65,51 @@ export class SandboxError extends Error {
   }
 }
 
+/** Rejected because the runtime/mode combination is unsafe in production. */
+export class SandboxPolicyError extends Error {
+  readonly code = "SANDBOX_POLICY_VIOLATION" as const;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "SandboxPolicyError";
+  }
+}
+
+export type SandboxMode = "development" | "test" | "production";
+
+export function resolveSandboxMode(): SandboxMode {
+  const explicit = process.env.SANDBOX_MODE;
+  if (explicit === "development" || explicit === "test" || explicit === "production") {
+    return explicit;
+  }
+  if (process.env.NODE_ENV === "production") return "production";
+  if (process.env.NODE_ENV === "test") return "test";
+  return "development";
+}
+
+export type SandboxRuntime = "process" | "microvm" | "container";
+
+export type NetworkPolicy = "host-network" | "none" | "registry-only";
+
+export type FailureClass =
+  | "none"
+  | "command-failed"
+  | "timed-out"
+  | "spawn-error"
+  | "runtime-unavailable"
+  | "policy-rejected";
+
+export interface RunProvenance {
+  runtime: SandboxRuntime;
+  mode: SandboxMode;
+  /** OCI image digest for the container runtime; null for process. */
+  imageDigest: string | null;
+  networkPolicy: NetworkPolicy;
+  limits: { cpus: string; memory: string; pidsLimit: number; timeoutMs: number };
+  workspace: { path: string; disposable: boolean };
+  failureClass: FailureClass;
+}
+
 export interface RunResult {
   ok: boolean;
   timedOut: boolean;
@@ -61,6 +118,7 @@ export interface RunResult {
   stdout: string;
   stderr: string;
   output: string;
+  provenance: RunProvenance;
 }
 
 function truncate(text: string): string {
@@ -76,9 +134,21 @@ function boundAndRedact(raw: string): string {
 
 export interface RunOptions {
   timeoutMs?: number;
+  /** Egress policy: default "none"; "registry-only" requires an explicit caller policy. */
+  networkPolicy?: NetworkPolicy;
+  /** Read-only host directory mounted as the immutable package cache. */
+  cacheDir?: string;
 }
 
-export type SandboxRuntime = "process" | "microvm" | "container";
+/** Production is container-only until an implemented microVM runner exists. */
+function enforceProductionRuntime(runtime: SandboxRuntime): void {
+  if (resolveSandboxMode() === "production" && runtime !== "container") {
+    throw new SandboxPolicyError(
+      `production forbids the ${runtime} sandbox runtime; only SANDBOX_RUNTIME=container may ` +
+        "validate customer code (see packages/sandbox-runner)",
+    );
+  }
+}
 
 /**
  * Contract for executing allowlisted validation commands. Consumers depend on
@@ -138,7 +208,23 @@ export function runValidation(
   return processSandboxRunner.run(command, cwd, options);
 }
 
-/** Process-pool backend: spawns the command on the local host. */
+function processProvenance(
+  cwd: string,
+  timeoutMs: number,
+  failureClass: FailureClass,
+): RunProvenance {
+  return {
+    runtime: "process",
+    mode: resolveSandboxMode(),
+    imageDigest: null,
+    networkPolicy: "host-network",
+    limits: { cpus: "unbounded", memory: "unbounded", pidsLimit: 0, timeoutMs },
+    workspace: { path: cwd, disposable: false },
+    failureClass,
+  };
+}
+
+/** Process-pool backend: spawns the command on the local host. Dev/test only. */
 export class ProcessSandboxRunner implements SandboxRunner {
   readonly runtime: SandboxRuntime = "process";
 
@@ -147,6 +233,11 @@ export class ProcessSandboxRunner implements SandboxRunner {
   }
 
   run(command: string, cwd: string, options: RunOptions = {}): Promise<RunResult> {
+    try {
+      enforceProductionRuntime(this.runtime);
+    } catch (error) {
+      return Promise.reject(error);
+    }
     if (!isAllowedCommand(command)) {
       return Promise.reject(new SandboxError(command));
     }
@@ -305,6 +396,11 @@ export class ProcessSandboxRunner implements SandboxRunner {
           stdout: boundAndRedact(rawStdout),
           stderr: boundAndRedact(rawStderr),
           output: boundAndRedact(`${rawStdout}${rawStderr}`),
+          provenance: processProvenance(
+            cwd,
+            timeoutMs,
+            timedOut ? "timed-out" : code === 0 ? "none" : "command-failed",
+          ),
         });
       });
 
@@ -320,6 +416,7 @@ export class ProcessSandboxRunner implements SandboxRunner {
           stdout: message,
           stderr: message,
           output: message,
+          provenance: processProvenance(cwd, timeoutMs, "spawn-error"),
         });
       });
     });
@@ -339,29 +436,50 @@ export const SANDBOX_IMAGE = "node:20-slim";
 export const SANDBOX_CONTAINER_CPUS = "0.5";
 export const SANDBOX_CONTAINER_MEMORY = "512m";
 export const SANDBOX_CONTAINER_PIDS_LIMIT = 128;
+/** Non-root user inside the image (`node` in node:20-slim). */
+export const SANDBOX_CONTAINER_USER = "1000:1000";
 
 export interface ContainerSandboxOptions {
   image?: string;
   cpus?: string;
   memory?: string;
   pidsLimit?: number;
+  /** Container user as uid:gid; default 1000:1000 (node). Never root. */
+  user?: string;
   /** Availability probe override (tests inject a fake; default: docker info). */
   probe?: () => Promise<boolean>;
   /** Container name suffix (tests inject a stable name to assert on). */
   containerName?: string;
+  /** Image digest resolver (tests inject a fake; default: docker image inspect). */
+  digestResolver?: (image: string) => Promise<string | null>;
 }
 
-/** Arguments for `docker run`, fully static aside from the workspace mount. */
+function cacheVolumeArgs(cacheDir: string | undefined): string[] {
+  if (!cacheDir) return [];
+  return ["--volume", `${cacheDir}:/npm-cache:ro`, "--env", "npm_config_cache=/npm-cache"];
+}
+
+/**
+ * Arguments for `docker run`, fully static aside from the workspace mount.
+ * The workspace bind mount is the only host path: the Docker socket is never
+ * mounted, so the container cannot reach the daemon.
+ */
 export function buildDockerRunArgs(
   command: string,
   cwd: string,
-  options: ContainerSandboxOptions = {},
+  options: ContainerSandboxOptions & { networkPolicy?: NetworkPolicy; cacheDir?: string } = {},
 ): string[] {
   const image = options.image ?? process.env.SANDBOX_IMAGE ?? SANDBOX_IMAGE;
   const cpus = options.cpus ?? SANDBOX_CONTAINER_CPUS;
   const memory = options.memory ?? SANDBOX_CONTAINER_MEMORY;
   const pidsLimit = options.pidsLimit ?? SANDBOX_CONTAINER_PIDS_LIMIT;
+  const user = options.user ?? SANDBOX_CONTAINER_USER;
   const name = options.containerName ?? `patchbay-sb-${randomUUID().slice(0, 12)}`;
+  const networkPolicy = options.networkPolicy ?? "none";
+  if (networkPolicy !== "none" && networkPolicy !== "registry-only") {
+    throw new SandboxPolicyError(`unsupported container network policy: ${networkPolicy}`);
+  }
+  const networkArg = networkPolicy === "registry-only" ? "bridge" : "none";
   return [
     "run",
     "--rm",
@@ -369,9 +487,9 @@ export function buildDockerRunArgs(
     name,
     "--init",
     "--user",
-    "0:0",
+    user,
     "--network",
-    "none",
+    networkArg,
     "--cpus",
     cpus,
     "--memory",
@@ -392,9 +510,8 @@ export function buildDockerRunArgs(
     "--env",
     "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
     "--env",
-    "npm_config_cache=/tmp/npm-cache",
-    "--env",
     "npm_config_update_notifier=false",
+    ...cacheVolumeArgs(options.cacheDir),
     "--workdir",
     "/app",
     "--volume",
@@ -406,21 +523,78 @@ export function buildDockerRunArgs(
   ];
 }
 
+async function resolveImageDigest(image: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const child = spawn(
+      "docker",
+      ["image", "inspect", "--format", "{{index .RepoDigests 0}}", image],
+      { windowsHide: true, shell: false, stdio: ["ignore", "pipe", "ignore"] },
+    );
+    let out = "";
+    child.stdout.on("data", (chunk: Buffer) => (out += chunk.toString("utf8")));
+    const timer = setTimeout(() => {
+      child.kill();
+      resolve(null);
+    }, 10_000);
+    child.on("close", () => {
+      clearTimeout(timer);
+      const digest = out.trim();
+      resolve(digest.length > 0 && digest.startsWith("sha256:") ? digest : null);
+    });
+    child.on("error", () => {
+      clearTimeout(timer);
+      resolve(null);
+    });
+  });
+}
+
+function containerProvenance(
+  cwd: string,
+  options: ContainerSandboxOptions & { networkPolicy?: NetworkPolicy },
+  timeoutMs: number,
+  imageDigest: string | null,
+  failureClass: FailureClass,
+): RunProvenance {
+  return {
+    runtime: "container",
+    mode: resolveSandboxMode(),
+    imageDigest,
+    networkPolicy: options.networkPolicy ?? "none",
+    limits: {
+      cpus: options.cpus ?? SANDBOX_CONTAINER_CPUS,
+      memory: options.memory ?? SANDBOX_CONTAINER_MEMORY,
+      pidsLimit: options.pidsLimit ?? SANDBOX_CONTAINER_PIDS_LIMIT,
+      timeoutMs,
+    },
+    workspace: { path: cwd, disposable: true },
+    failureClass,
+  };
+}
+
 /**
  * Container backend: runs the allowlisted command in an ephemeral Docker
- * container with no network, all capabilities dropped, no new privileges, a
- * read-only root filesystem (workspace is the only writable path), and
- * CPU/memory/PID caps. Host secrets are never passed; the container env is the
- * static allowlist above. `sh -c` over a static allowlist constant is the same
- * trust model as cmd.exe on Windows: the string can never contain input-derived
- * metacharacters. Timeouts SIGKILL the container.
+ * container with no network by default, all capabilities dropped, no new
+ * privileges, a read-only root filesystem (workspace is the only writable
+ * path), a non-root user, and CPU/memory/PID caps. The Docker socket is never
+ * mounted. Host secrets are never passed; the container env is the static
+ * allowlist above. `sh -c` over a static allowlist constant is the same trust
+ * model as cmd.exe on Windows: the string can never contain input-derived
+ * metacharacters. Timeouts SIGKILL the container. Registry egress is only
+ * possible via an explicit networkPolicy=registry-only and should be paired
+ * with a read-only immutable dependency cache (cacheDir).
  */
 export class ContainerSandboxRunner implements SandboxRunner {
   readonly runtime: SandboxRuntime = "container";
-  private readonly options: ContainerSandboxOptions;
+  private readonly options: ContainerSandboxOptions & {
+    networkPolicy?: NetworkPolicy;
+    cacheDir?: string;
+  };
   private availability: boolean | null = null;
+  private readonly digestCache = new Map<string, string | null>();
 
-  constructor(options: ContainerSandboxOptions = {}) {
+  constructor(
+    options: ContainerSandboxOptions & { networkPolicy?: NetworkPolicy; cacheDir?: string } = {},
+  ) {
     this.options = options;
   }
 
@@ -436,13 +610,31 @@ export class ContainerSandboxRunner implements SandboxRunner {
     return ALLOWED_COMMANDS;
   }
 
+  private async imageDigestOf(image: string): Promise<string | null> {
+    if (!this.digestCache.has(image)) {
+      const resolver = this.options.digestResolver ?? resolveImageDigest;
+      this.digestCache.set(image, await resolver(image).catch(() => null));
+    }
+    return this.digestCache.get(image) ?? null;
+  }
+
   async run(command: string, cwd: string, options: RunOptions = {}): Promise<RunResult> {
+    try {
+      enforceProductionRuntime(this.runtime);
+    } catch (error) {
+      return Promise.reject(error);
+    }
     if (!isAllowedCommand(command)) {
       return Promise.reject(new SandboxError(command));
     }
+    if (options.networkPolicy === "host-network") {
+      return Promise.reject(
+        new SandboxPolicyError("containers cannot use the host network; use none or registry-only"),
+      );
+    }
     if (!(await this.isAvailable())) {
       const reason =
-        "container sandbox runtime requires a running Docker daemon; route validations to SANDBOX_RUNTIME=process or start Docker";
+        "container sandbox runtime requires a running Docker daemon; route validations to SANDBOX_RUNTIME=process (development/test) or start Docker";
       return {
         ok: false,
         timedOut: false,
@@ -451,12 +643,23 @@ export class ContainerSandboxRunner implements SandboxRunner {
         stdout: "",
         stderr: reason,
         output: reason,
+        provenance: containerProvenance(cwd, this.options, 0, null, "runtime-unavailable"),
       };
     }
 
-    const args = buildDockerRunArgs(command, cwd, this.options);
+    const runOptions: ContainerSandboxOptions & {
+      networkPolicy?: NetworkPolicy;
+      cacheDir?: string;
+    } = {
+      ...this.options,
+      networkPolicy: options.networkPolicy ?? this.options.networkPolicy ?? "none",
+      cacheDir: options.cacheDir ?? this.options.cacheDir,
+    };
+    const image = runOptions.image ?? process.env.SANDBOX_IMAGE ?? SANDBOX_IMAGE;
+    const args = buildDockerRunArgs(command, cwd, runOptions);
     const timeoutMs = options.timeoutMs ?? SANDBOX_TIMEOUT_MS;
     const started = performance.now();
+    const imageDigest = await this.imageDigestOf(image);
 
     const child = spawn("docker", args, {
       windowsHide: true,
@@ -523,6 +726,13 @@ export class ContainerSandboxRunner implements SandboxRunner {
           stdout: boundAndRedact(rawStdout),
           stderr: boundAndRedact(rawStderr),
           output: boundAndRedact(`${rawStdout}${rawStderr}`),
+          provenance: containerProvenance(
+            cwd,
+            runOptions,
+            timeoutMs,
+            imageDigest,
+            timedOut ? "timed-out" : code === 0 ? "none" : "command-failed",
+          ),
         });
       });
 
@@ -539,6 +749,7 @@ export class ContainerSandboxRunner implements SandboxRunner {
           stdout: message,
           stderr: message,
           output: message,
+          provenance: containerProvenance(cwd, runOptions, timeoutMs, imageDigest, "spawn-error"),
         });
       });
     });
@@ -572,9 +783,7 @@ async function probeDocker(): Promise<boolean> {
  * MicroVM backend (stub). The interface contract is implemented so the worker
  * can select it via SANDBOX_RUNTIME=microvm, but no Firecracker runtime is
  * bundled here. Until it is, any validation routed here fails loudly instead
- * of silently running on the wrong backend. The real backend would boot a
- * read-only rootfs microVM, mount the workspace read-only, drop networking,
- * and run the allowlisted command to completion with a hard CPU/memory cap.
+ * of silently running on the wrong backend, and production rejects it entirely.
  */
 export class MicroVmSandboxRunner implements SandboxRunner {
   readonly runtime: SandboxRuntime = "microvm";
@@ -593,11 +802,16 @@ export class MicroVmSandboxRunner implements SandboxRunner {
   }
 
   async run(command: string, cwd: string, _options: RunOptions = {}): Promise<RunResult> {
+    try {
+      enforceProductionRuntime(this.runtime);
+    } catch (error) {
+      return Promise.reject(error);
+    }
     if (!isAllowedCommand(command)) {
       return Promise.reject(new SandboxError(command));
     }
     const reason = (await this.isAvailable())
-      ? "microVM sandbox runtime is not implemented yet; route validations to SANDBOX_RUNTIME=process"
+      ? "microVM sandbox runtime is not implemented yet; route validations to SANDBOX_RUNTIME=process (development/test) or SANDBOX_RUNTIME=container"
       : "microVM sandbox runtime is not available on this host";
     const result: RunResult = {
       ok: false,
@@ -607,6 +821,15 @@ export class MicroVmSandboxRunner implements SandboxRunner {
       stdout: "",
       stderr: reason,
       output: reason,
+      provenance: {
+        runtime: "microvm",
+        mode: resolveSandboxMode(),
+        imageDigest: null,
+        networkPolicy: "none",
+        limits: { cpus: "0", memory: "0", pidsLimit: 0, timeoutMs: 0 },
+        workspace: { path: cwd, disposable: true },
+        failureClass: "runtime-unavailable",
+      },
     };
     return Promise.resolve(result);
   }
@@ -614,8 +837,8 @@ export class MicroVmSandboxRunner implements SandboxRunner {
 
 /**
  * Selects the sandbox backend for this process. Defaults to the process
- * runner; set SANDBOX_RUNTIME=container (Docker required) or
- * SANDBOX_RUNTIME=microvm (stub) to opt into a hardened backend.
+ * runner in development/test; in production ONLY the container runner is
+ * accepted and anything else throws a SandboxPolicyError (fail closed).
  */
 export function createSandboxRunner(runtime?: SandboxRuntime): SandboxRunner {
   const selected: SandboxRuntime =
@@ -625,6 +848,12 @@ export function createSandboxRunner(runtime?: SandboxRuntime): SandboxRunner {
       : process.env.SANDBOX_RUNTIME === "microvm"
         ? "microvm"
         : "process");
+  if (resolveSandboxMode() === "production" && selected !== "container") {
+    throw new SandboxPolicyError(
+      `production forbids the ${selected} sandbox runtime; set SANDBOX_RUNTIME=container and ` +
+        "verify the container runtime is available",
+    );
+  }
   if (selected === "container") return new ContainerSandboxRunner();
   if (selected === "microvm") return new MicroVmSandboxRunner();
   return new ProcessSandboxRunner();

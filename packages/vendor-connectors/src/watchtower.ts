@@ -30,6 +30,11 @@ export interface WatchtowerEvidence {
   canonicalUrl?: string;
   /** Content hash of the raw evidence (for deduplication). */
   contentHash: string;
+  /**
+   * Raw payload captured from the source. Content-addressed and stored
+   * verbatim in the evidence object store; contentHash is the SHA-256 of it.
+   */
+  rawPayload?: string;
   /** Published timestamp from the source. */
   publishedAt: Date;
   /** Any additional metadata (changelog excerpt, diff, etc.). */

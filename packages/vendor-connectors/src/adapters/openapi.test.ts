@@ -102,7 +102,7 @@ describe("createOpenAPIAdapter", () => {
     const result = await adapter.fetch({ etag: '"spec-1"' });
     expect(result.evidence).toEqual([]);
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.stripe.com/openapi/spec3.json",
+      new URL("https://api.stripe.com/openapi/spec3.json"),
       expect.objectContaining({
         headers: expect.objectContaining({ "If-None-Match": '"spec-1"' }),
       }),

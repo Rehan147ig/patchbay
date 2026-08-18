@@ -1,6 +1,6 @@
 import { prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
-import { validationFailed } from "@patchbay/domain";
+import { CASE_TERMINAL_STATUSES, CaseStatus, validationFailed } from "@patchbay/domain";
 import { enqueue, JobType } from "@patchbay/queue";
 import type { NextRequest } from "next/server";
 import { getCorrelationId, jsonError, jsonOk, writeAuditEvent } from "@/lib/api";
@@ -12,6 +12,10 @@ import { assertCsrfToken } from "@/lib/csrf-server";
  * Creates an AgentRun (analyst -> planner -> reviewer, one queue job) for a
  * matched release+repository pair and returns the run id. Replays are
  * idempotent: a non-terminal run for the same match is returned as-is.
+ *
+ * WP3 gate: planning is only allowed when the release's RemediationCase is
+ * POLICY_ELIGIBLE (or already PLANNING for a replay). Denied cases return
+ * their status + reasonCode and never create an AgentRun.
  */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const correlationId = getCorrelationId(request);
@@ -38,6 +42,43 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       throw validationFailed("Match not found for this release");
     }
 
+    const remediationCase = await prisma.remediationCase.findFirst({
+      where: {
+        organizationId: user.organizationId,
+        releaseId: release.id,
+        releaseRepositoryMatchId: match.id,
+      },
+      select: { id: true, status: true, reasonCode: true },
+    });
+    if (!remediationCase) {
+      return jsonOk(
+        {
+          eligible: false,
+          status: "IMPACT_CONFIRMED",
+          reasonCode: "insufficient-evidence",
+          message: "No remediation case exists for this match yet.",
+        },
+        correlationId,
+      );
+    }
+    const planningAllowed =
+      remediationCase.status === "POLICY_ELIGIBLE" || remediationCase.status === "PLANNING";
+    if (!planningAllowed) {
+      const terminal = CASE_TERMINAL_STATUSES.has(remediationCase.status as CaseStatus);
+      return jsonOk(
+        {
+          eligible: false,
+          status: remediationCase.status,
+          reasonCode: remediationCase.reasonCode,
+          terminal,
+          message: terminal
+            ? "This case is closed; replay it from the case page to reopen planning."
+            : "This case cannot be planned automatically.",
+        },
+        correlationId,
+      );
+    }
+
     const existing = await prisma.agentRun.findFirst({
       where: {
         organizationId: user.organizationId,
@@ -49,7 +90,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     });
     if (existing) {
       return jsonOk(
-        { agentRunId: existing.id, replay: true, status: existing.status },
+        { eligible: true, agentRunId: existing.id, replay: true, status: existing.status },
         correlationId,
       );
     }
@@ -60,6 +101,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         releaseRecordId: release.id,
         repositoryId: match.repositoryId,
         releaseRepositoryMatchId: match.id,
+        remediationCaseId: remediationCase.id,
         type: "PLAN_REVIEW",
         status: "QUEUED",
         correlationId,
@@ -69,6 +111,23 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         inputJson: { matchId: match.id },
       },
     });
+
+    await prisma.$transaction([
+      prisma.remediationCase.update({
+        where: { id: remediationCase.id },
+        data: { status: "PLANNING" },
+      }),
+      prisma.remediationCaseEvent.create({
+        data: {
+          organizationId: user.organizationId,
+          remediationCaseId: remediationCase.id,
+          status: "PLANNING",
+          reasonCode: remediationCase.reasonCode,
+          detailJson: { agentRunId: run.id },
+          correlationId,
+        },
+      }),
+    ]);
 
     await enqueue(JobType.AGENT_PLAN, {
       agentRunId: run.id,
@@ -87,13 +146,20 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         releaseRecordId: release.id,
         repositoryId: match.repositoryId,
         matchId: match.id,
+        remediationCaseId: remediationCase.id,
         packageName: release.product.packageName,
         version: release.version,
       },
     });
 
     return jsonOk(
-      { agentRunId: run.id, status: "QUEUED", releaseId: release.id, matchId: match.id },
+      {
+        eligible: true,
+        agentRunId: run.id,
+        status: "QUEUED",
+        releaseId: release.id,
+        matchId: match.id,
+      },
       correlationId,
       202,
     );

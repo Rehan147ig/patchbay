@@ -4,6 +4,12 @@ import { AuditAction } from "@patchbay/audit";
 import { ActorType, evaluateReleaseMatch, logger } from "@patchbay/domain";
 import type { Job } from "bullmq";
 import { writeAuditEvent } from "../lib/audit";
+import {
+  evaluateCasePolicies,
+  upsertRemediationCase,
+  type CasePolicyFacts,
+  type CasePolicyRule,
+} from "../lib/case-ops";
 
 /**
  * match-release processor (Phase E: deterministic impact matching).
@@ -15,6 +21,11 @@ import { writeAuditEvent } from "../lib/audit";
  * whether they become MONITOR / REVIEW / REMEDIATE. Idempotent: the unique
  * (releaseRecordId, repositoryId, dependencyId) plus skipDuplicates makes
  * retries and re-runs safe.
+ *
+ * WP3: after matches exist, the policy-first funnel reconciles one
+ * RemediationCase per match (scopeKey = release:repository:dependency:
+ * snapshot). Eligible matches promote to REMEDIATE; held matches stay
+ * visible at IMPACT_CONFIRMED with a reasonCode and never enqueue a plan.
  */
 export const MatchReleaseJobDataSchema = z.object({
   releaseId: z.string().min(1),
@@ -27,6 +38,8 @@ export interface MatchReleaseResult {
   candidates: number;
   exactMatches: number;
   rangeMatches: number;
+  casesCreated: number;
+  planEligible: number;
 }
 
 export async function processMatchRelease(job: Job): Promise<MatchReleaseResult> {
@@ -110,6 +123,18 @@ export async function processMatchRelease(job: Job): Promise<MatchReleaseResult>
     });
   }
 
+  let casesCreated = 0;
+  let planEligible = 0;
+  if (rows.length > 0) {
+    const funnel = await reconcileCasesForRelease(
+      releaseId,
+      release.product.vendorId,
+      correlationId,
+    );
+    casesCreated = funnel.casesCreated;
+    planEligible = funnel.planEligible;
+  }
+
   logger.info("release matched", {
     releaseId,
     correlationId,
@@ -118,7 +143,118 @@ export async function processMatchRelease(job: Job): Promise<MatchReleaseResult>
     candidates: rows.length,
     exactMatches,
     rangeMatches,
+    casesCreated,
+    planEligible,
   });
 
-  return { releaseId, candidates: rows.length, exactMatches, rangeMatches };
+  return {
+    releaseId,
+    candidates: rows.length,
+    exactMatches,
+    rangeMatches,
+    casesCreated,
+    planEligible,
+  };
+}
+
+/**
+ * WP3 funnel: for every match of this release, build case-level evidence
+ * (classification, READY snapshot at the dependency commit, usage inventory),
+ * evaluate the tenant's enabled policies, and reconcile the RemediationCase.
+ * Matches that become plan-eligible promote to REMEDIATE.
+ */
+async function reconcileCasesForRelease(
+  releaseId: string,
+  vendorId: string,
+  correlationId: string,
+): Promise<{ casesCreated: number; planEligible: number }> {
+  const release = await prisma.releaseRecord.findUnique({
+    where: { id: releaseId },
+    include: {
+      product: { include: { vendor: true } },
+      classifications: true,
+    },
+  });
+  if (!release) return { casesCreated: 0, planEligible: 0 };
+
+  const vendorSlug = release.product.vendor.slug;
+  const classification = release.classifications[0];
+  const classificationFacts = (classification?.factsJson ?? null) as {
+    breaking?: boolean;
+  } | null;
+  const breaking = Boolean(classificationFacts?.breaking);
+
+  const matches = await prisma.releaseRepositoryMatch.findMany({
+    where: { releaseRecordId: releaseId },
+    include: { dependency: true, repository: true },
+  });
+
+  let casesCreated = 0;
+  let planEligible = 0;
+
+  for (const match of matches) {
+    const snapshot = await prisma.graphSnapshot.findFirst({
+      where: {
+        repositoryId: match.repositoryId,
+        commitSha: match.dependency.commitSha,
+        status: "READY",
+      },
+      select: { id: true },
+    });
+
+    const usages = await prisma.integrationUsage.findMany({
+      where: { repositoryId: match.repositoryId, vendorId },
+      select: { riskTags: true, ownerHint: true },
+    });
+    const riskTags = [...new Set(usages.flatMap((usage) => usage.riskTags))];
+    const ownerCount = new Set(usages.map((usage) => usage.ownerHint)).size;
+
+    const policies = (await prisma.policy.findMany({
+      where: { organizationId: match.organizationId, enabled: true },
+      select: { id: true, name: true, enabled: true, definitionJson: true },
+    })) as unknown as CasePolicyRule[];
+
+    const policyEvaluation = evaluateCasePolicies(policies, {
+      riskTags,
+      vendor: vendorSlug,
+      validationStatus: "none",
+    } satisfies CasePolicyFacts);
+
+    const result = await upsertRemediationCase(
+      {
+        organizationId: match.organizationId,
+        releaseId,
+        repositoryId: match.repositoryId,
+        dependencyId: match.dependencyId,
+        matchId: match.id,
+        snapshotId: snapshot?.id ?? null,
+        vendorSlug,
+        correlationId,
+      },
+      {
+        hasClassification: classification !== null,
+        breaking,
+        affectedUsageCount: usages.length,
+        ownerCount,
+        riskTags,
+        hasSnapshot: snapshot !== null,
+      },
+      classification?.requiresHumanReview ?? false,
+      policyEvaluation,
+      correlationId,
+    );
+
+    if (result.created) casesCreated += 1;
+    if (result.status === "POLICY_ELIGIBLE") {
+      planEligible += 1;
+      if (match.status !== "REMEDIATE") {
+        await prisma.releaseRepositoryMatch.update({
+          where: { id: match.id },
+          data: { status: "REMEDIATE" },
+        });
+      }
+    }
+  }
+
+  return { casesCreated, planEligible };
 }

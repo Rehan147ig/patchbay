@@ -80,7 +80,7 @@ describe("createNpmAdapter", () => {
     const result = await adapter.fetch({ etag: '"abc123"' });
     expect(result.evidence).toEqual([]);
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://registry.npmjs.org/openai",
+      new URL("https://registry.npmjs.org/openai"),
       expect.objectContaining({
         headers: expect.objectContaining({ "If-None-Match": '"abc123"' }),
       }),

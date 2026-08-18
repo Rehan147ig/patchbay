@@ -28,6 +28,7 @@ const RUN: AgentRunWithRelations = {
   releaseRecordId: "rel-1",
   repositoryId: "repo-1",
   releaseRepositoryMatchId: "match-1",
+  remediationCaseId: null,
   status: "QUEUED",
   repository: { metadata: {} },
   match: { dependency: { commitSha: "abc123", resolvedVersion: null, declaredRange: null } },

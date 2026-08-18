@@ -32,6 +32,10 @@ export {
   AgentRole,
   AgentStepKind,
   AgentStepStatus,
+  CaseStatus,
+  CASE_TERMINAL_STATUSES,
+  CaseReasonCode,
+  CaseTerminalOutcome,
   ReleaseSource,
   ReleaseAuthenticity,
   ReleaseStatus,
@@ -59,6 +63,8 @@ export { logger, getCorrelationId, runWithCorrelationId } from "./logger";
 export type { LogLevel, LogFields } from "./logger";
 export { compareVersions, parseVersion, satisfiesRange } from "./semver";
 export type { ParsedVersion } from "./semver";
+export { computeBlastRadius, isPlanEligibleLevel } from "./blast-radius";
+export type { BlastRadius, BlastRadiusInput, BlastSeverity } from "./blast-radius";
 export { evaluateReleaseMatch } from "./matching";
 export type { DependencyFacts, ReleaseMatchOutcome } from "./matching";
 export {

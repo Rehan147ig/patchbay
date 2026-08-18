@@ -1,13 +1,14 @@
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
-import { prisma } from "@patchbay/db";
+import { prisma, Prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import { ActorType, PlanStatus, ValidationStatus, logger } from "@patchbay/domain";
 import { resolveFixtureDir } from "@patchbay/repo-analysis";
 import {
   createSandboxRunner,
   isAllowedCommand,
+  type RunProvenance,
   type SandboxRunner,
 } from "@patchbay/sandbox-runner";
 import type { Job } from "bullmq";
@@ -136,6 +137,7 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
   // Create git provider based on repository type
   const repository = plan.impactAssessment.repository;
   const installationId = installationIdOf(repository.metadata);
+  const fixtureDir = fixtureOf(repository.metadata);
   const provider =
     repository.provider === "GITHUB" && installationId
       ? createGitProviderFromEnv({
@@ -147,9 +149,9 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
 
   // Checkout repository to a disposable workspace
   const checkoutResult = await provider.checkout({
-    repositoryDir: fixtureOf(repository.metadata)
-      ? resolveFixtureDir(fixtureOf(repository.metadata)!)
-      : "",
+    ...(fixtureDir ? { repositoryDir: resolveFixtureDir(fixtureDir) } : {}),
+    ...(installationId ? { installationId } : {}),
+    ...(headShaOf(repository.metadata) ? { sha: headShaOf(repository.metadata)! } : {}),
     baseBranch: repository.defaultBranch,
   });
   const workspace = checkoutResult.workspaceDir;
@@ -181,6 +183,7 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
       exitCode: number | null;
       durationMs: number;
       output: string;
+      provenance: RunProvenance | null;
     }> = [];
     for (const command of commands) {
       const result = await runner().run(command, workspace);
@@ -190,6 +193,7 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
         exitCode: result.exitCode,
         durationMs: result.durationMs,
         output: result.output,
+        provenance: result.provenance ?? null,
       });
       if (!result.ok) break;
     }
@@ -198,6 +202,7 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
     const exitCode =
       [...results].reverse().find((result) => result.exitCode !== null)?.exitCode ?? null;
     const stdout = results.map((result) => `$ ${result.command}\n${result.output}`).join("\n");
+    const provenance = results.map((result) => result.provenance).find(Boolean) ?? null;
 
     await prisma.$transaction([
       prisma.validationRun.update({
@@ -206,6 +211,17 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
           status: passed ? ValidationStatus.PASSED : ValidationStatus.FAILED,
           stdout,
           exitCode,
+          runtimeMetadata: provenance
+            ? ({
+                runtime: provenance.runtime,
+                mode: provenance.mode,
+                imageDigest: provenance.imageDigest,
+                networkPolicy: provenance.networkPolicy,
+                limits: provenance.limits,
+                workspace: provenance.workspace,
+                failureClass: provenance.failureClass,
+              } satisfies Prisma.InputJsonValue)
+            : Prisma.JsonNull,
           completedAt: new Date(),
         },
       }),
@@ -299,4 +315,10 @@ function installationIdOf(metadata: unknown): number | null {
   if (typeof metadata !== "object" || metadata === null) return null;
   const value = (metadata as { installationId?: unknown }).installationId;
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+function headShaOf(metadata: unknown): string | null {
+  if (typeof metadata !== "object" || metadata === null) return null;
+  const value = (metadata as { headSha?: unknown }).headSha;
+  return typeof value === "string" && value.length > 0 ? value : null;
 }

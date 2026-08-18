@@ -6,6 +6,8 @@ import type {
   WatchtowerAdapter,
   WatchtowerEvidence,
 } from "../watchtower";
+import { fetchWithTrust } from "../safe-fetch";
+import { GITHUB_TRUST_PROFILE } from "../trust";
 
 interface GitHubRelease {
   tag_name: string;
@@ -52,14 +54,14 @@ function evidenceFor(
 ): WatchtowerEvidence {
   const tag = release.tag_name;
   const version = stripV(tag);
-  const raw = JSON.stringify({
+  const rawPayload = JSON.stringify({
     tag,
     name: release.name,
     body: release.body,
     published_at: release.published_at,
     previous_tag: previousTag ?? null,
   });
-  const contentHash = createHash("sha256").update(raw).digest("hex");
+  const contentHash = createHash("sha256").update(rawPayload).digest("hex");
   return {
     externalId: `github:${repo.owner}/${repo.repo}@${tag}`,
     vendorSlug,
@@ -69,6 +71,7 @@ function evidenceFor(
     source: "GITHUB_RELEASE" as ReleaseSource,
     canonicalUrl: release.html_url,
     contentHash,
+    rawPayload,
     publishedAt: new Date(release.published_at),
     metadata: { tag, name: release.name, body: release.body },
   };
@@ -126,19 +129,17 @@ export function createGitHubReleasesAdapter(vendorSlug: string): WatchtowerAdapt
       }
       if (prev.etag) headers["If-None-Match"] = prev.etag;
 
-      const response = await fetch(
+      const response = await fetchWithTrust(
         `https://api.github.com/repos/${repo.owner}/${repo.repo}/releases?per_page=10`,
+        GITHUB_TRUST_PROFILE,
         { headers },
       );
       if (response.status === 304) {
         return { evidence: [], cursor: prev };
       }
-      if (!response.ok) {
-        throw new Error(`GitHub releases fetch failed: ${response.status}`);
-      }
 
       const etag = response.headers.get("etag");
-      const releases = (await response.json()) as GitHubRelease[];
+      const releases = JSON.parse(response.text) as GitHubRelease[];
       const candidates = releases.filter((r) => !r.draft && !r.prerelease);
       const seenLatest = prev.latestPublishedAt ? new Date(prev.latestPublishedAt).getTime() : 0;
 

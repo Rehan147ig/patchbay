@@ -6,6 +6,8 @@ import type {
   WatchtowerAdapter,
   WatchtowerEvidence,
 } from "../watchtower";
+import { fetchWithTrust } from "../safe-fetch";
+import { NPM_TRUST_PROFILE } from "../trust";
 
 const VENDOR_PACKAGES: Record<string, string> = {
   stripe: "stripe",
@@ -46,10 +48,16 @@ export function createNpmAdapter(vendorSlug: string): WatchtowerAdapter {
   function evidenceFor(
     version: string,
     time: string | undefined,
+    manifest: unknown,
     previousVersion?: string,
   ): WatchtowerEvidence {
-    const raw = JSON.stringify({ package: packageName, version, publishedAt: time });
-    const contentHash = createHash("sha256").update(raw).digest("hex");
+    const rawPayload = JSON.stringify({
+      package: packageName,
+      version,
+      publishedAt: time,
+      manifest,
+    });
+    const contentHash = createHash("sha256").update(rawPayload).digest("hex");
     return {
       externalId: `npm:${packageName}@${version}`,
       vendorSlug,
@@ -59,6 +67,7 @@ export function createNpmAdapter(vendorSlug: string): WatchtowerAdapter {
       source: "NPM" as ReleaseSource,
       canonicalUrl: packageUrl(version),
       contentHash,
+      rawPayload,
       publishedAt: new Date(time ?? Date.now()),
       metadata: { publishedAt: time },
     };
@@ -99,16 +108,13 @@ export function createNpmAdapter(vendorSlug: string): WatchtowerAdapter {
       const headers: Record<string, string> = { Accept: NPM_ACCEPT };
       if (prev.etag) headers["If-None-Match"] = prev.etag;
 
-      const response = await fetch(packumentUrl, { headers });
+      const response = await fetchWithTrust(packumentUrl, NPM_TRUST_PROFILE, { headers });
       if (response.status === 304) {
         return { evidence: [], cursor: prev };
       }
-      if (!response.ok) {
-        throw new Error(`npm registry fetch failed: ${response.status}`);
-      }
 
       const etag = response.headers.get("etag");
-      const data = (await response.json()) as {
+      const data = JSON.parse(response.text) as {
         "dist-tags"?: Record<string, string>;
         versions?: Record<string, unknown>;
         time?: Record<string, string>;
@@ -129,7 +135,9 @@ export function createNpmAdapter(vendorSlug: string): WatchtowerAdapter {
         const version = publishedVersions[i]!;
         if (known.has(version)) continue;
         const previousVersion = publishedVersions[i + 1];
-        evidence.push(evidenceFor(version, timeMap[version], previousVersion));
+        evidence.push(
+          evidenceFor(version, timeMap[version], data.versions?.[version], previousVersion),
+        );
       }
       // Cap at what an MVP poll should ever need; keep oldest-first (newest last).
       const capped = evidence.slice(0, 10);

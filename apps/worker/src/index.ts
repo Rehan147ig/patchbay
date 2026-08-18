@@ -14,6 +14,7 @@ import { Worker } from "bullmq";
 import { parseEnv } from "@patchbay/env";
 import { logger } from "@patchbay/domain";
 import { JobType, QUEUE_NAME, connection, queue } from "@patchbay/queue";
+import { createSandboxRunner, resolveSandboxMode } from "@patchbay/sandbox-runner";
 import { processAnalyzeChange } from "./jobs/analyze-change";
 import { processCreatePR } from "./jobs/create-pr";
 import { processPollNpmRegistry } from "./jobs/poll-npm-registry";
@@ -38,6 +39,21 @@ const env = parseEnv();
 
 async function main(): Promise<void> {
   logger.info("patchbay-worker starting", { queue: QUEUE_NAME, redis: connection.options.host });
+
+  // Production fail-closed: the worker must not validate customer code on the
+  // host process, and refuses to start when the hardened container runtime is
+  // unavailable. createSandboxRunner throws for any non-container runtime.
+  if (resolveSandboxMode() === "production") {
+    const sandbox = createSandboxRunner();
+    const available = await sandbox.isAvailable();
+    if (!available) {
+      throw new Error(
+        `refusing to start: production sandbox runtime ${sandbox.runtime} is unavailable ` +
+          "(start Docker and set SANDBOX_RUNTIME=container)",
+      );
+    }
+    logger.info("production sandbox runtime ready", { runtime: sandbox.runtime });
+  }
 
   const worker = new Worker(
     QUEUE_NAME,

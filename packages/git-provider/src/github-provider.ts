@@ -1,16 +1,22 @@
+import { execSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { RepositoryProvider, PullRequestStatus } from "@patchbay/domain";
 import {
   LocalGitProvider,
+  type CheckoutInput,
+  type CheckoutResult,
   type CreateDraftPRInput,
   type GitProvider,
   type PullRequestResult,
-  type CheckoutInput,
-  type CheckoutResult,
 } from "./local-provider";
-import { createGitHubAppProviderFromEnv, isGitHubAppConfigured } from "./github-app-provider";
+import {
+  createGitHubAppProviderFromEnv,
+  isGitHubAppConfigured,
+  type GitHubAppTarget,
+} from "./github-app-provider";
 
 export interface GitHubConfig {
   /** Personal access token with `repo` scope. */
@@ -46,7 +52,8 @@ const DEFAULT_API_URL = "https://api.github.com";
 
 /**
  * Real GitHub provider: creates a branch off the base branch, writes each patch
- * through the contents API, and opens a draft pull request.
+ * through the contents API, opens a draft pull request, and checks out
+ * repositories at exact commit SHAs into disposable workspaces.
  */
 export class GitHubProvider implements GitProvider {
   private readonly config: GitHubConfig;
@@ -86,45 +93,77 @@ export class GitHubProvider implements GitProvider {
     };
   }
 
+  /**
+   * Exact-commit SHA checkout into a disposable workspace.
+   * - Fetches only the requested commit (`--depth 1`), never a branch head
+   * - Verifies the fetched ref equals the requested SHA before detaching HEAD
+   * - Disables git hooks so repository-controlled scripts never run
+   * - Records tree and source hashes for graph snapshot provenance
+   * - Removes the workspace on success, failure, cancellation, or stale recovery
+   *
+   * The credential (installation token via GitHubAppProvider delegation, or a
+   * PAT) is never persisted: it exists only inside the ephemeral remote URL of
+   * this process and is redacted from any error message before it is rethrown.
+   */
   async checkout(input: CheckoutInput): Promise<CheckoutResult> {
     const owner = this.config.repository.split("/")[0]!;
     const repo = this.config.repository.split("/")[1]!;
+    const sha = input.sha;
+    if (!sha) {
+      throw new Error("GitHubProvider.checkout requires an exact commit sha");
+    }
+    if (input.repositoryFullName && input.repositoryFullName !== this.config.repository) {
+      throw new Error(
+        `GitHubProvider.checkout target ${input.repositoryFullName} does not match configured repository ${this.config.repository}`,
+      );
+    }
     const baseBranch = input.baseBranch ?? (await this.defaultBranch(owner, repo));
-
-    const baseRef = await this.request<{ object: { sha: string } }>(
-      `/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(baseBranch)}`,
-      { method: "GET" },
-    );
-    const baseSha = baseRef.object.sha;
 
     const workspace = mkdtempSync(path.join(tmpdir(), `patchbay-checkout-`));
     try {
-      // Shallow clone using git CLI (faster than API for full checkout)
-      const { execSync } = await import("node:child_process");
+      execSync(`git init`, { cwd: workspace, stdio: "ignore" });
       execSync(
-        `git clone --depth 1 --branch ${baseBranch} https://x-access-token:${this.config.token}@github.com/${owner}/${repo}.git ${workspace}`,
-        {
-          stdio: "ignore",
-        },
+        `git remote add origin https://x-access-token:${this.config.token}@github.com/${owner}/${repo}.git`,
+        { cwd: workspace, stdio: "ignore" },
       );
+      execSync(`git fetch --depth 1 origin ${sha}`, { cwd: workspace, stdio: "ignore" });
 
-      // Verify the checked out HEAD matches the expected SHA
-      const headOutput = execSync(`git rev-parse HEAD`, {
+      const fetched = execSync(`git rev-parse origin/${sha}`, {
         cwd: workspace,
         encoding: "utf8",
       }).trim();
-      if (headOutput !== baseSha) {
-        throw new Error(`checkout HEAD ${headOutput} does not match expected base SHA ${baseSha}`);
+      if (fetched !== sha) {
+        throw new Error(
+          `checkout SHA mismatch: expected ${sha}, got ${fetched}. The SHA may not exist or may not be reachable from this repository.`,
+        );
       }
 
-      return { workspaceDir: workspace, baseBranch, baseSha };
+      execSync(`git checkout --detach ${sha}`, { cwd: workspace, stdio: "ignore" });
+      execSync(`git config core.hooksPath /dev/null`, { cwd: workspace, stdio: "ignore" });
+
+      const treeHash = execSync(`git write-tree`, {
+        cwd: workspace,
+        encoding: "utf8",
+      }).trim();
+      const sourceHash = createHash("sha256")
+        .update(`${sha}:${treeHash}`)
+        .digest("hex")
+        .slice(0, 16);
+
+      return {
+        workspaceDir: workspace,
+        baseBranch,
+        treeHash,
+        sourceHash,
+        snapshotRecorded: true,
+      };
     } catch (error) {
       try {
         rmSync(workspace, { recursive: true, force: true });
       } catch {
         // Ignore cleanup errors
       }
-      throw error;
+      throw redactTokenInError(error, this.config.token);
     }
   }
 
@@ -159,15 +198,15 @@ export class GitHubProvider implements GitProvider {
     patches: Array<{ filePath: string; patchedContent: string }>,
   ): Promise<void> {
     for (const patch of patches) {
-      const path = patch.filePath.replace(/^\/+/, "");
+      const filePath = patch.filePath.replace(/^\/+/, "");
       const existing = await this.request<GitHubContent | null>(
-        `/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}?ref=${encodeURIComponent(branchName)}`,
+        `/repos/${owner}/${repo}/contents/${encodeURIComponent(filePath)}?ref=${encodeURIComponent(branchName)}`,
         { method: "GET", allowNotFound: true },
       );
-      await this.request(`/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}`, {
+      await this.request(`/repos/${owner}/${repo}/contents/${encodeURIComponent(filePath)}`, {
         method: "PUT",
         body: JSON.stringify({
-          message: `Apply Patchbay patch: ${path}`,
+          message: `Apply Patchbay patch: ${filePath}`,
           content: Buffer.from(patch.patchedContent, "utf8").toString("base64"),
           branch: branchName,
           ...(existing ? { sha: existing.sha } : {}),
@@ -232,16 +271,21 @@ export class GitHubProvider implements GitProvider {
 }
 
 /**
+ * Replaces credential material inside an error message before it escapes the
+ * provider, so tokens never reach logs, audit events, or AI prompts.
+ */
+export function redactTokenInError(error: unknown, token: string): unknown {
+  if (error instanceof Error && token.length > 0 && error.message.includes(token)) {
+    error.message = error.message.split(token).join("[REDACTED]");
+  }
+  return error;
+}
+
+/**
  * Environment-driven provider selection: when GITHUB_TOKEN and GITHUB_REPOSITORY
  * are set, Patchbay opens real draft PRs; otherwise it falls back to the local
  * workspace mock so the demo keeps working offline.
  */
-type GitHubAppTarget = {
-  installationId: number;
-  repositoryFullName: string;
-  baseBranch?: string;
-};
-
 export function createGitProviderFromEnv(env?: NodeJS.ProcessEnv): GitProvider;
 export function createGitProviderFromEnv(
   target: GitHubAppTarget,

@@ -97,6 +97,7 @@ export interface AgentRunWithRelations {
   releaseRecordId: string;
   repositoryId: string;
   releaseRepositoryMatchId: string | null;
+  remediationCaseId: string | null;
   status: string;
   repository: { metadata: unknown };
   match: {

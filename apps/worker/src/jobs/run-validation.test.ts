@@ -159,6 +159,15 @@ describe("processRunValidation", () => {
       timedOut: false,
       stdout: "Done in 0.12s",
       stderr: "",
+      provenance: {
+        runtime: "container",
+        mode: "test",
+        imageDigest: "sha256:abc123",
+        networkPolicy: "none",
+        limits: { cpus: "0.5", memory: "512m", pidsLimit: 128, timeoutMs: 120_000 },
+        workspace: { path: "/tmp/ws-1", disposable: true },
+        failureClass: "none",
+      },
     });
 
     const result = await processRunValidation(mockJob);
@@ -167,7 +176,19 @@ describe("processRunValidation", () => {
     expect(result.commandsRun).toBe(1);
     expect(prisma.validationRun.update).toHaveBeenCalledWith({
       where: { id: "val-1" },
-      data: expect.objectContaining({ status: "PASSED", exitCode: 0 }),
+      data: expect.objectContaining({
+        status: "PASSED",
+        exitCode: 0,
+        runtimeMetadata: {
+          runtime: "container",
+          mode: "test",
+          imageDigest: "sha256:abc123",
+          networkPolicy: "none",
+          limits: { cpus: "0.5", memory: "512m", pidsLimit: 128, timeoutMs: 120_000 },
+          workspace: { path: "/tmp/ws-1", disposable: true },
+          failureClass: "none",
+        },
+      }),
     });
     expect(prisma.remediationPlan.update).toHaveBeenCalledWith({
       where: { id: "plan-1" },

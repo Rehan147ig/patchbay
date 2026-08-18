@@ -83,7 +83,14 @@ describe("processMatchRelease", () => {
 
     const result = await processMatchRelease(job);
 
-    expect(result).toEqual({ releaseId: "r-1", candidates: 2, exactMatches: 1, rangeMatches: 1 });
+    expect(result).toEqual({
+      releaseId: "r-1",
+      candidates: 2,
+      exactMatches: 1,
+      rangeMatches: 1,
+      casesCreated: 0,
+      planEligible: 0,
+    });
     expect(prisma.releaseRepositoryMatch.createMany).toHaveBeenCalledWith(
       expect.objectContaining({
         skipDuplicates: true,
@@ -125,7 +132,14 @@ describe("processMatchRelease", () => {
       data: { releaseId: "r-2", correlationId: "c-2" },
     } as Job);
 
-    expect(result).toEqual({ releaseId: "r-2", candidates: 0, exactMatches: 0, rangeMatches: 0 });
+    expect(result).toEqual({
+      releaseId: "r-2",
+      candidates: 0,
+      exactMatches: 0,
+      rangeMatches: 0,
+      casesCreated: 0,
+      planEligible: 0,
+    });
     expect(prisma.releaseRepositoryMatch.createMany).not.toHaveBeenCalled();
   });
 });
