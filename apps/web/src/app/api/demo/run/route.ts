@@ -1,4 +1,4 @@
-import { prisma } from "@patchbay/db";
+import { prisma, type Prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import { Severity, VendorChangeSource, validationFailed } from "@patchbay/domain";
 import { enqueue, JobType } from "@patchbay/queue";
@@ -51,11 +51,50 @@ const openAiSdkV4Payload = {
 };
 
 /**
+ * Auth0 SDK authentication middleware signature change payload.
+ * Triggers REQUIRE_APPROVAL decision via auth risk policy; blocks PR creation until approved.
+ */
+const auth0ConfigPayload = {
+  sdk: "auth0",
+  version: "4.0.0",
+  migration: {
+    signatureChanges: [
+      {
+        from: "jwtCheck",
+        to: "auth0JwtBearer",
+        description: "Auth0 SDK update: authentication middleware signature changed.",
+        breaking: true,
+      },
+    ],
+  },
+  breaking: true,
+  demo: true,
+};
+
+/**
+ * Generic OpenAPI response field removed diff payload.
+ * Triggers plan-only remediation with no automated code patch.
+ */
+const openapiResponseFieldPayload = {
+  sourceType: "OPENAPI_DIFF",
+  vendor: "generic-openapi",
+  diffs: [
+    {
+      changeType: "RESPONSE_FIELD_REMOVED",
+      symbol: "response.data.id",
+      description: "Removed response property 'id' from OpenAPI specification.",
+    },
+  ],
+  breaking: true,
+  demo: true,
+};
+
+/**
  * POST /api/demo/run
  * Runs a demo scenario deterministically:
- * - "openai-migration": creates (idempotently) the OpenAI SDK v3 -> v4 change
- *   event and enqueues analyze-change.
- * Other scenarios arrive with their engine phases (Phase 6).
+ * - "openai-migration": creates OpenAI SDK v3 -> v4 change event, enqueues analyze-change.
+ * - "auth0-config": creates Auth0 middleware change event (policy-gated, requires approval).
+ * - "openapi-response-field": creates OpenAPI diff change event (plan-only, no patch).
  */
 export async function POST(request: NextRequest) {
   const correlationId = getCorrelationId(request);
@@ -64,31 +103,60 @@ export async function POST(request: NextRequest) {
     const user = await requireRole("MEMBER");
     const input = await parseBody(request, demoRunSchema);
 
-    if (input.scenario !== "openai-migration") {
-      throw validationFailed(
-        `Scenario "${input.scenario}" is not implemented yet (ships with a later phase)`,
-      );
+    let vendorSlug: string;
+    let demoEventId: string;
+    let externalReference: string;
+    let sourceType: VendorChangeSource;
+    let title: string;
+    let severity: Severity;
+    let rawPayload: Prisma.InputJsonValue;
+
+    if (input.scenario === "openai-migration") {
+      vendorSlug = "openai";
+      demoEventId = `c-openai-sdk-v4-${user.organizationId.slice(0, 8)}`;
+      externalReference = "openai-node-4.0.0";
+      sourceType = VendorChangeSource.SDK_RELEASE;
+      title = "OpenAI Node SDK v4: createChatCompletion removed";
+      severity = Severity.HIGH;
+      rawPayload = openAiSdkV4Payload;
+    } else if (input.scenario === "auth0-config") {
+      vendorSlug = "auth0";
+      demoEventId = `c-auth0-config-${user.organizationId.slice(0, 8)}`;
+      externalReference = "auth0-node-4.0.0";
+      sourceType = VendorChangeSource.SDK_RELEASE;
+      title = "Auth0 SDK: authentication middleware signature changed";
+      severity = Severity.HIGH;
+      rawPayload = auth0ConfigPayload;
+    } else if (input.scenario === "openapi-response-field") {
+      vendorSlug = "generic-openapi";
+      demoEventId = `c-openapi-field-${user.organizationId.slice(0, 8)}`;
+      externalReference = "openapi-diff-2026-07-18";
+      sourceType = VendorChangeSource.OPENAPI_DIFF;
+      title = "Generic OpenAPI: response field removed";
+      severity = Severity.MEDIUM;
+      rawPayload = openapiResponseFieldPayload;
+    } else {
+      throw validationFailed(`Scenario "${input.scenario}" is not recognized`);
     }
 
-    const vendor = await prisma.vendor.findUnique({ where: { slug: "openai" } });
-    if (!vendor) throw validationFailed('Vendor "openai" is not in the catalog');
+    const vendor = await prisma.vendor.findUnique({ where: { slug: vendorSlug } });
+    if (!vendor) throw validationFailed(`Vendor "${vendorSlug}" is not in the catalog`);
 
     // Per-org event identity so demo runs never share rows across tenants.
-    const demoEventId = `c-openai-sdk-v4-${user.organizationId.slice(0, 8)}`;
     const event = await prisma.vendorChangeEvent.upsert({
       where: { id: demoEventId },
-      update: { rawPayload: openAiSdkV4Payload },
+      update: { rawPayload },
       create: {
         id: demoEventId,
         vendorId: vendor.id,
         organizationId: user.organizationId,
-        externalReference: "openai-node-4.0.0",
-        sourceType: VendorChangeSource.SDK_RELEASE,
+        externalReference,
+        sourceType,
         detectedAt: new Date(),
-        title: "OpenAI Node SDK v4: createChatCompletion removed",
-        severity: Severity.HIGH,
+        title,
+        severity,
         status: "DETECTED",
-        rawPayload: openAiSdkV4Payload,
+        rawPayload,
       },
     });
 

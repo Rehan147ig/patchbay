@@ -6,13 +6,16 @@
 [![pnpm](https://img.shields.io/badge/pnpm-10.x-orange.svg)](https://pnpm.io/)
 [![Prisma](https://img.shields.io/badge/Prisma-6.x-green.svg)](https://www.prisma.io/)
 
-**Patchbay** is an enterprise-grade, policy-governed code remediation platform. When a third-party
-API or SDK releases a breaking change, deprecates a method, or updates a parameter, Patchbay
-detects the release, maps the exact impact across your repositories using a commit-versioned
-**Software Intelligence Graph**, drafts AST-aware code migration pull requests, validates changes
-in an isolated sandbox, enforces policy-based approval gates, opens governed draft PRs with full
-audit trails — and then **learns from the outcome**: merged/closed PRs, human feedback, and SLO
-metrics drive an automatic capability kill switch.
+**Patchbay** is a neutral, policy-governed API-change remediation platform. When a vendor releases a
+breaking SDK update, deprecates a method, or updates an API specification, Patchbay detects the release
+via its Release Watchtower, proves TypeScript AST usages across your repositories using a commit-versioned
+**Software Intelligence Graph**, and opens reviewable draft pull requests when a certified rule pack exists
+(OpenAI, Stripe, Twilio for Node/TS today; Auth0 and Generic OpenAPI for reviewable planning; 56-connector
+catalog for detection and impact assessment).
+
+Patchbay validates all code edits in an isolated sandbox runner, enforces policy-based approval gates
+(payments, auth, webhooks), opens governed draft PRs that are never auto-merged, and immutably audits
+every decision — with an outcome-learning capability kill switch driving reliability.
 
 > **For AI coding agents**: start at [`AGENTS.md`](AGENTS.md) — it is the canonical orientation
 > document (repo layout, non-negotiable rules, verification commands, architecture rules).

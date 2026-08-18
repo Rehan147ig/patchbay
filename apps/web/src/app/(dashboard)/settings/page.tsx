@@ -138,6 +138,9 @@ export default async function SettingsPage({
                 Filter
               </button>
             </form>
+            <p className="mb-2 text-xs text-slate-500">
+              Catalog membership ≠ auto-PR. DRAFT_PR requires a live certification kit.
+            </p>
             <ul className="divide-y divide-slate-100">
               {visibleVendors.map((vendor) => {
                 const capability = getCapability(vendor.slug);
@@ -315,6 +318,17 @@ export default async function SettingsPage({
         </CardHeader>
         <CardContent className="text-sm text-slate-600">
           <ul className="list-disc space-y-1 pl-4">
+            <li>
+              Validation runner runtime:{" "}
+              <span className="font-mono text-slate-800">
+                {process.env.SANDBOX_RUNTIME ?? "process"}
+              </span>{" "}
+              (
+              {process.env.SANDBOX_RUNTIME === "container"
+                ? "container isolation"
+                : "development/local only — not a multi-tenant sandbox"}
+              ).
+            </li>
             <li>
               Validation runs execute only allowlisted commands with timeouts and output caps.
             </li>

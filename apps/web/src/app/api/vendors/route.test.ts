@@ -91,6 +91,16 @@ describe("GET /api/vendors", () => {
       (vendor) => vendor.slug === "acme-not-in-catalog",
     );
     expect(acme?.capability).toBeNull();
+
+    const genericOpenapi = (body.data.vendors as Array<Record<string, unknown>>).find(
+      (vendor) => vendor.slug === "generic-openapi",
+    );
+    if (genericOpenapi) {
+      expect(genericOpenapi.capability).toMatchObject({
+        level: "ASSESS",
+        certified: false,
+      });
+    }
   });
 
   it("filters to vendors certified at or above the minLevel", async () => {

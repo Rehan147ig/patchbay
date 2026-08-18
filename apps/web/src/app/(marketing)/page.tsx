@@ -2,10 +2,53 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "API-change remediation that writes the fix",
+  title: "Patchbay — Governed API-Change Remediation",
   description:
-    "Patchbay detects breaking API and SDK changes, finds every affected call in your repositories, and drafts the migration code for review.",
+    "Patchbay detects breaking API and SDK changes, proves TypeScript usages across your repositories, and opens draft pull requests when certified rule packs exist.",
 };
+
+const CERTIFIED_MATRIX = [
+  {
+    vendor: "OpenAI Node SDK",
+    package: "openai",
+    level: "DRAFT_PR",
+    scope: "createChatCompletion → chat.completions.create, responses",
+    policyGate: "Auto Draft PR (when validation passes)",
+    status: "Certified",
+  },
+  {
+    vendor: "Stripe Node SDK",
+    package: "stripe",
+    level: "DRAFT_PR",
+    scope: "Method renames, parameter signature changes",
+    policyGate: "Requires Human Approval (PAYMENT risk)",
+    status: "Certified",
+  },
+  {
+    vendor: "Twilio Node SDK",
+    package: "twilio",
+    level: "DRAFT_PR",
+    scope: "messages.create deprecations & parameter migrations",
+    policyGate: "Auto Draft PR (when validation passes)",
+    status: "Certified",
+  },
+  {
+    vendor: "Auth0 SDK",
+    package: "auth0",
+    level: "PLAN",
+    scope: "Authentication middleware & JWT signature updates",
+    policyGate: "Mandatory Human Approval (AUTH risk)",
+    status: "Certified Plan-Only",
+  },
+  {
+    vendor: "Generic OpenAPI Diff",
+    package: "openapi-spec",
+    level: "PLAN",
+    scope: "Schema property & response changes from spec diffs",
+    policyGate: "Plan-Only Strategy (No automated code patch)",
+    status: "Observe & Plan",
+  },
+];
 
 const PRICING = [
   {
@@ -45,18 +88,18 @@ const PRICING = [
 const STEPS = [
   {
     number: "01",
-    title: "Watchtower detects",
-    body: "Patchbay tracks the npm releases and GitHub changelogs of the vendors you depend on, classifies breaking changes, and matches them to the exact lines in your codebase that call the affected APIs.",
+    title: "Watchtower detects & matches",
+    body: "Patchbay monitors npm releases, GitHub changelogs, and OpenAPI spec diffs for tracked vendors, classifying changes and matching them against exact AST callsites in your TypeScript repositories.",
   },
   {
     number: "02",
-    title: "Patchbay writes the fix",
-    body: "Deterministic migration rules turn the release diff into a code patch. Every patch is validated against your own allowlisted test commands before it is ever attached to a pull request.",
+    title: "Certified rule packs patch",
+    body: "For certified SDKs (OpenAI, Stripe, Twilio), deterministic migration rules apply bounded code patches. Every patch is validated against allowlisted test commands in an isolated sandbox runner before attachment.",
   },
   {
     number: "03",
-    title: "You approve",
-    body: "High-risk changes — payments, auth, webhooks, secrets — always require a human decision. Everything Patchbay does is a draft PR and a complete audit trail. It never auto-merges.",
+    title: "You review and approve",
+    body: "Patchbay opens draft pull requests only and never auto-merges. High-risk paths (payments, authentication, webhooks) require explicit human approval before PR creation.",
   },
 ];
 
@@ -66,16 +109,16 @@ const GOVERNANCE = [
     body: "Patchbay opens draft pull requests and stops there. Merging stays a human decision, every time.",
   },
   {
-    title: "Policy gates",
-    body: "Payment, authentication, and webhook changes require explicit approval. Plans can be blocked before they ever reach a PR.",
+    title: "Policy gates & approvals",
+    body: "Payment, authentication, and webhook changes require explicit approval. Policies can block PR creation before code is ever pushed.",
   },
   {
-    title: "Validated patches",
-    body: "Migration code runs against your allowlisted validation commands in a sandboxed runner before it ships as a suggestion.",
+    title: "Validated patches in sandbox",
+    body: "Migration code executes allowlisted validation commands in a sandboxed runner before any draft PR is created.",
   },
   {
     title: "Full audit trail",
-    body: "Every detection, classification, decision, and approval is recorded immutably — for your security review, not ours.",
+    body: "Every detection, classification, decision, and approval is recorded immutably with correlation IDs for auditability.",
   },
 ];
 
@@ -93,6 +136,9 @@ export default function LandingPage() {
           <nav aria-label="Marketing" className="flex items-center gap-4 text-sm">
             <a href="#how-it-works" className="text-slate-600 hover:text-slate-900">
               How it works
+            </a>
+            <a href="#support-matrix" className="text-slate-600 hover:text-slate-900">
+              Support Matrix
             </a>
             <a href="#pricing" className="text-slate-600 hover:text-slate-900">
               Pricing
@@ -120,12 +166,16 @@ export default function LandingPage() {
           </p>
           <h1 className="text-4xl font-bold tracking-tight text-slate-900 sm:text-5xl">
             Dependabot tells you a version changed.
-            <span className="block text-slate-700">Patchbay writes the code to fix it.</span>
+            <span className="block text-slate-700">Patchbay drafts the migration code.</span>
           </h1>
           <p className="mx-auto mt-5 max-w-2xl text-lg text-slate-600">
-            When a vendor breaks its API, Patchbay finds every affected call across your
-            repositories, drafts the migration code, and opens a reviewable pull request — gated by
-            your policies, never by guesswork.
+            A neutral GitHub App that detects SDK and API changes, proves TypeScript usages across
+            your repositories, and opens a reviewable draft pull request when a certified rule pack
+            exists.
+          </p>
+          <p className="mt-2 text-xs text-slate-500">
+            Vendors can also push change events directly with <code>pb_agent_*</code> keys to{" "}
+            <code>POST /api/vendors/:slug/events</code>.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <Link
@@ -172,13 +222,69 @@ export default function LandingPage() {
                 <span className="text-emerald-400">+ {'{ model: "gpt-4", messages }'};</span>
                 {"\n\n"}
                 <span className="text-slate-400">
-                  {"// 2 affected callsites in ai-assistant-service · awaiting approval"}
+                  {"// Certified rule pack · sandbox validation passed · draft PR"}
                 </span>
               </code>
             </pre>
           </div>
           <p className="mt-3 text-center text-xs text-slate-500">
-            Real output from the seeded demo — same fixture, same draft PR Patchbay would open.
+            Real output from the certified OpenAI migration rule pack against the legacy fixture.
+          </p>
+        </div>
+      </section>
+
+      <section id="support-matrix" className="border-t border-slate-100 bg-white">
+        <div className="mx-auto w-full max-w-6xl px-4 py-16">
+          <div className="mx-auto max-w-3xl text-center">
+            <h2 className="text-2xl font-semibold tracking-tight text-slate-900">
+              Capability & Support Matrix
+            </h2>
+            <p className="mt-2 text-sm text-slate-600">
+              Patchbay maintains a 56-connector catalog for dependency detection and impact
+              assessment. Automated draft PRs are strictly limited to certified rule packs.
+            </p>
+          </div>
+
+          <div className="mt-8 overflow-hidden rounded-xl border border-slate-200 shadow-sm">
+            <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+              <thead className="bg-slate-50 text-xs font-semibold text-slate-700">
+                <tr>
+                  <th className="px-4 py-3">Vendor / Integration</th>
+                  <th className="px-4 py-3">Certified Level</th>
+                  <th className="px-4 py-3">Scope & Capabilities</th>
+                  <th className="px-4 py-3">Policy Gate</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 bg-white">
+                {CERTIFIED_MATRIX.map((row) => (
+                  <tr key={row.vendor}>
+                    <td className="px-4 py-3 font-medium text-slate-900">
+                      {row.vendor}
+                      <span className="block font-mono text-xs font-normal text-slate-500">
+                        {row.package}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-semibold ${
+                          row.level === "DRAFT_PR"
+                            ? "bg-emerald-50 text-emerald-700"
+                            : "bg-blue-50 text-blue-700"
+                        }`}
+                      >
+                        {row.level}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-slate-600">{row.scope}</td>
+                    <td className="px-4 py-3 text-xs text-slate-600">{row.policyGate}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 text-center text-xs text-slate-500">
+            Catalog membership ≠ auto-PR. Automated code patches require a certified rule pack,
+            validation profile, and passing evaluation corpus metrics.
           </p>
         </div>
       </section>
@@ -217,8 +323,8 @@ export default function LandingPage() {
           Pricing
         </h2>
         <p className="mx-auto mt-2 max-w-xl text-center text-sm text-slate-600">
-          Every plan includes unlimited vendor tracking, patch generation, validation, and draft
-          pull requests. Plans differ only in how many repositories Patchbay may watch.
+          Every plan includes vendor tracking, AST impact analysis, validation, and draft pull
+          requests. Plans differ only in how many active repositories Patchbay watches.
         </p>
         <div className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {PRICING.map((plan) => (
@@ -274,8 +380,8 @@ export default function LandingPage() {
           ))}
         </div>
         <p className="mt-6 text-center text-xs text-slate-500">
-          Local MVP pricing is illustrative; checkout is wired to Stripe in the dashboard when
-          billing is configured.
+          Listed pricing is list pricing; payment checkout is enabled via Stripe in the dashboard
+          when billing environment variables are configured.
         </p>
       </section>
     </div>

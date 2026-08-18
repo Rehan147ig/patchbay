@@ -56,7 +56,7 @@ A rigorous architectural review reveals the following key gaps between the local
 
 ### 6. AI Strategy Safety
 
-- **Current State**: `packages/ai-provider` is intentionally stubbed.
+- **Current State**: `packages/ai-provider` defaults to a deterministic `mock` provider for offline testing and local development; Vercel AI SDK (`ai-sdk`) and OpenAI-compatible REST backends are implemented behind the `AiProvider` interface when configured with credentials.
 - **AI Policy**: AI output **must remain plan-only and advisory**. AI will never automatically apply un-verified code edits or execute commands until a human-reviewed rule promotion workflow exists.
 
 ---
@@ -99,7 +99,7 @@ flowchart TD
 
 ### Phase 3: Multi-Tenant Database Foundation
 
-- [ ] Database Migration: Add explicit `organizationId` column to `RemediationPlan`, `ValidationRun`, `PullRequest`, `PatchArtifact`, and `Approval`.
+- [x] Database Migration: Add explicit `organizationId` column to `RemediationPlan`, `ValidationRun`, `PullRequest`, `PatchArtifact`, `Approval`, and operational tables.
 - [ ] Implement transaction-scoped PostgreSQL Row-Level Security (RLS):
   ```sql
   ALTER TABLE "RemediationPlan" ENABLE ROW LEVEL SECURITY;

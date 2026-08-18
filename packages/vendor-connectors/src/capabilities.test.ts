@@ -109,11 +109,18 @@ describe("requireCertified (WP9 certification gate)", () => {
   });
 
   it("fails for uncertified connectors at kit-required levels", () => {
-    for (const slug of ["anthropic", "axios", "express"]) {
+    for (const slug of ["anthropic", "axios", "express", "generic-openapi"]) {
       const check = requireCertified(slug, "PLAN");
       expect(check.ok, slug).toBe(false);
       expect(check.reasons.join("; "), slug).toMatch(/ASSESS is below the required PLAN/);
     }
+  });
+
+  it("verifies generic-openapi is ASSESS and not certified for DRAFT_PR or VALIDATE", () => {
+    expect(getCapability("generic-openapi")?.level).toBe("ASSESS");
+    expect(requireCertified("generic-openapi", "DRAFT_PR").ok).toBe(false);
+    expect(requireCertified("generic-openapi", "VALIDATE").ok).toBe(false);
+    expect(requireCertified("generic-openapi", "PLAN").ok).toBe(false);
   });
 
   it("fails for connectors with no capability entry", () => {

@@ -24,20 +24,24 @@ All data shown is seeded demo data and labeled as such.
 
 ## Scenario B - Auth0 configuration change (policy gate)
 
-1. `/demo` -> choose **"Auth0 configuration change"**.
-2. Expected: impact detected on `auth-gateway`; plan exists (may be AI-drafted/mark plan-only);
-   policy decision = REQUIRE_APPROVAL; PR creation endpoint returns 403-style blocked decision;
-   audit event records the block.
-3. Admin approves on `/remediations/[id]`; only then may the flow proceed to a draft PR (approval
-   recorded, audited).
+1. Go to `/demo`, choose **"Auth0 configuration change"**, run it.
+2. Expected sequence:
+   - `VendorChangeEvent` created (`Auth0 SDK: authentication middleware signature changed`, severity HIGH).
+   - Impact assessed on `auth-gateway` (`src/middleware/authn.ts` calling `auth0.verifyJwt`).
+   - Connector emits `AUTH_CHANGE` with `AUTH` risk tag.
+   - Policy engine evaluates `p-auth-approval` -> `REQUIRE_APPROVAL`.
+   - PR creation endpoint returns blocked decision; audit log records `POLICY_BLOCKED`.
+3. An admin can review and approve on `/remediations/[id]` to unblock draft PR generation.
 
 ## Scenario C - Generic OpenAPI response field removed (plan-only)
 
-1. `/demo` -> choose **"Generic OpenAPI change"**, paste the bundled old/new documents (or use
-   the fixture pair shipped in `fixtures/openapi/`).
-2. Expected: diff detects the removed response property; breaking `NormalizedChange` created;
-   impact assessed on `generic-openapi-client`; policy = plan-only; no patch generated; audit
-   trail written.
+1. Go to `/demo`, choose **"Generic OpenAPI response field removed"**, run it.
+2. Expected sequence:
+   - `VendorChangeEvent` created (`Generic OpenAPI: response field removed`, sourceType: OPENAPI_DIFF).
+   - `NormalizedChange` created for `RESPONSE_FIELD_REMOVED`.
+   - Remediation plan generated without automated code patch (plan-only).
+   - Policy evaluates `p-generic-plan-only` -> `ALLOW_PLAN_ONLY`.
+   - No `PatchArtifact` is created; audit trail records plan completion.
 
 ## Reset
 
