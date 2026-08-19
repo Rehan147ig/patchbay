@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { prisma } from "@patchbay/db";
+import { prisma, createNotification, NotificationType } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import { ActorType, ScanStatus, logger } from "@patchbay/domain";
 import { analyzeRepository } from "@patchbay/repo-analysis";
@@ -212,6 +212,13 @@ export async function processScanRepository(job: Job): Promise<ScanRepositoryRes
         source: source.kind,
       },
     });
+    await createNotification({
+      organizationId,
+      type: NotificationType.SCAN_COMPLETED,
+      title: `Scan completed: ${repository.name}`,
+      body: `${usages.length} usages indexed across ${analysis.filesScanned} files`,
+      correlationId,
+    });
     logger.info("scan completed", {
       repositoryId,
       scanId,
@@ -254,6 +261,13 @@ export async function processScanRepository(job: Job): Promise<ScanRepositoryRes
       correlationId,
       ...entity,
       metadata: { error: String(error) },
+    });
+    await createNotification({
+      organizationId,
+      type: NotificationType.SCAN_FAILED,
+      title: `Scan failed: ${repository.name}`,
+      body: String(error).slice(0, 200),
+      correlationId,
     });
     logger.error("scan failed", { repositoryId, scanId, correlationId, error: String(error) });
     throw error;

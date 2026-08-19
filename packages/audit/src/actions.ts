@@ -83,5 +83,7 @@ export const AuditAction = {
   DATA_EXPORTED: "data.exported",
   DATA_DELETED: "data.deleted",
   AGENT_RUN_PURGED: "agent.run_purged",
+  NOTIFICATION_CREATED: "notification.created",
+  NOTIFICATION_MARKED_READ: "notification.marked_read",
 } as const;
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];

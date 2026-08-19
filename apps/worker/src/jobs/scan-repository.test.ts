@@ -13,6 +13,15 @@ vi.mock("@patchbay/db", () => ({
     graphIndexJob: { create: vi.fn() },
     $transaction: vi.fn(),
   },
+  createNotification: vi.fn(),
+  NotificationType: {
+    SCAN_COMPLETED: "scan.completed",
+    SCAN_FAILED: "scan.failed",
+    CASE_CREATED: "case.created",
+    PLAN_CREATED: "plan.created",
+    PR_CREATED: "pull_request.created",
+    CAPABILITY_GATE_SUSPENDED: "capability_gate.suspended",
+  },
 }));
 
 vi.mock("@patchbay/repo-analysis", () => ({
@@ -61,6 +70,7 @@ vi.mock("@patchbay/domain", async () => {
 import { analyzeRepository, resolveFixtureDir } from "@patchbay/repo-analysis";
 import { createGitHubAppProviderFromStore } from "@patchbay/git-provider";
 import { enqueue } from "@patchbay/queue";
+import { createNotification } from "@patchbay/db";
 
 const job = (data: unknown) => ({ data }) as Job;
 
@@ -96,6 +106,7 @@ function baseMocks(metadata: Record<string, unknown>, provider: string | null = 
     id: "repo-1",
     organizationId: "org-1",
     provider,
+    name: "acme/app",
     fullName: "acme/app",
     defaultBranch: "main",
     metadata,
@@ -171,6 +182,14 @@ describe("processScanRepository", () => {
       correlationId: "c-1",
       mode: "BASELINE",
     });
+    expect(createNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: "org-1",
+        type: "scan.completed",
+        title: "Scan completed: acme/app",
+        correlationId: "c-1",
+      }),
+    );
     expect(result).toMatchObject({
       scanId: "scan-1",
       repositoryId: "repo-1",
@@ -250,5 +269,13 @@ describe("processScanRepository", () => {
     );
     expect(prisma.integrationUsage.createMany).not.toHaveBeenCalled();
     expect(enqueue).not.toHaveBeenCalled();
+    expect(createNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: "org-1",
+        type: "scan.failed",
+        title: "Scan failed: acme/app",
+        correlationId: "c-1",
+      }),
+    );
   });
 });

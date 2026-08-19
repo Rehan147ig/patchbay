@@ -9,12 +9,21 @@ vi.mock("@patchbay/db", () => ({
   prisma: {
     pullRequest: { findMany: vi.fn() },
     agentRun: { findMany: vi.fn() },
-    capabilityGate: { upsert: vi.fn() },
+    capabilityGate: { upsert: vi.fn(), findUnique: vi.fn() },
     auditEvent: { create: vi.fn() },
+  },
+  createNotification: vi.fn(),
+  NotificationType: {
+    SCAN_COMPLETED: "scan.completed",
+    SCAN_FAILED: "scan.failed",
+    CASE_CREATED: "case.created",
+    PLAN_CREATED: "plan.created",
+    PR_CREATED: "pull_request.created",
+    CAPABILITY_GATE_SUSPENDED: "capability_gate.suspended",
   },
 }));
 
-import { prisma } from "@patchbay/db";
+import { prisma, createNotification } from "@patchbay/db";
 
 function jobWith(data: unknown): Job {
   return { data, name: "evaluate-capability-health" } as Job;
@@ -28,6 +37,10 @@ describe("processEvaluateCapabilityHealth", () => {
     vi.mocked(prisma.capabilityGate.upsert).mockResolvedValue({
       id: "gate-1",
       status: "ACTIVE",
+    } as never);
+    vi.mocked(prisma.capabilityGate.findUnique).mockResolvedValue({
+      status: "ACTIVE",
+      reason: null,
     } as never);
     vi.mocked(prisma.auditEvent.create).mockResolvedValue({} as never);
   });
@@ -92,6 +105,45 @@ describe("processEvaluateCapabilityHealth", () => {
         }),
       }),
     );
+  });
+
+  it("notifies on the transition into SUSPENDED only", async () => {
+    vi.mocked(prisma.capabilityGate.findUnique)
+      .mockResolvedValueOnce({ status: "ACTIVE", reason: null } as never)
+      .mockResolvedValueOnce({
+        status: "SUSPENDED",
+        reason: "merge rate 0% below threshold",
+      } as never);
+    await processEvaluateCapabilityHealth(
+      jobWith({
+        organizationId: "org-acme",
+        vendorSlug: "stripe",
+        correlationId: "corr-1",
+      }),
+    );
+    expect(createNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: "org-acme",
+        type: "capability_gate.suspended",
+        title: "Capability suspended: stripe DRAFT_PR",
+        correlationId: "corr-1",
+      }),
+    );
+  });
+
+  it("does not notify when the gate is already suspended", async () => {
+    vi.mocked(prisma.capabilityGate.findUnique).mockResolvedValue({
+      status: "SUSPENDED",
+      reason: "merge rate 0% below threshold",
+    } as never);
+    await processEvaluateCapabilityHealth(
+      jobWith({
+        organizationId: "org-acme",
+        vendorSlug: "stripe",
+        correlationId: "corr-1",
+      }),
+    );
+    expect(createNotification).not.toHaveBeenCalled();
   });
 
   it("exposes tunable SLO defaults", () => {

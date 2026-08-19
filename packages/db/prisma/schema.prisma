@@ -320,6 +320,7 @@ model Organization {
   remediationCaseEvents  RemediationCaseEvent[]
   prOutcomes             PrOutcome[]
   capabilityGates        CapabilityGate[]
+  notifications          Notification[]
   subscription           Subscription?
 }
 
@@ -1381,4 +1382,26 @@ model CapabilityGate {
 
   @@unique([organizationId, vendorSlug, level])
   @@index([organizationId, status])
+}
+
+/**
+ * In-app notification for the signed-in organization (bell + /notifications).
+ * Written by the worker jobs and web routes at the points where state
+ * already mutates (scan, case/plan, draft PR, capability suspension).
+ */
+model Notification {
+  id             String   @id @default(uuid())
+  organizationId String
+  type           String
+  title          String
+  body           String?
+  isRead         Boolean  @default(false)
+  readAt         DateTime?
+  correlationId  String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt(sort: Desc)])
+  @@index([organizationId, isRead])
 }

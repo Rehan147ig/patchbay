@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { prisma } from "@patchbay/db";
+import { prisma, createNotification, NotificationType } from "@patchbay/db";
 import { enforceCapabilityHealth, type CapabilityHealthVerdict } from "@patchbay/operations";
-import { logger } from "@patchbay/domain";
+import { CapabilityGateStatus, logger } from "@patchbay/domain";
 import type { Job } from "bullmq";
 
 /**
@@ -39,6 +39,17 @@ export async function processEvaluateCapabilityHealth(job: Job): Promise<Capabil
   }
   const { organizationId, vendorSlug, correlationId } = parsed.data;
 
+  const gateBefore = await prisma.capabilityGate.findUnique({
+    where: {
+      organizationId_vendorSlug_level: {
+        organizationId,
+        vendorSlug,
+        level: "DRAFT_PR",
+      },
+    },
+    select: { status: true, reason: true },
+  });
+
   const verdict = await enforceCapabilityHealth(prisma, {
     organizationId,
     vendorSlug,
@@ -46,6 +57,31 @@ export async function processEvaluateCapabilityHealth(job: Job): Promise<Capabil
     ...CAPABILITY_HEALTH_DEFAULTS,
     correlationId,
   });
+
+  const gateAfter = await prisma.capabilityGate.findUnique({
+    where: {
+      organizationId_vendorSlug_level: {
+        organizationId,
+        vendorSlug,
+        level: "DRAFT_PR",
+      },
+    },
+    select: { status: true, reason: true },
+  });
+  // Notify only on the transition into SUSPENDED so repeated unhealthy
+  // evaluations do not spam the bell.
+  if (
+    gateAfter?.status === CapabilityGateStatus.SUSPENDED &&
+    gateBefore?.status !== CapabilityGateStatus.SUSPENDED
+  ) {
+    await createNotification({
+      organizationId,
+      type: NotificationType.CAPABILITY_GATE_SUSPENDED,
+      title: `Capability suspended: ${vendorSlug} DRAFT_PR`,
+      body: gateAfter.reason ?? "Auto-suspended after failing SLO thresholds",
+      correlationId,
+    });
+  }
 
   logger.info("capability health evaluated", {
     correlationId,

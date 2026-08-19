@@ -42,6 +42,7 @@ export const ORG_SCOPED_MODELS = [
   "PrOutcome",
   "CapabilityGate",
   "Subscription",
+  "Notification",
 ] as const;
 
 export type OrgScopedModel = (typeof ORG_SCOPED_MODELS)[number];

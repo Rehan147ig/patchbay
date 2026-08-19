@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { processCreatePR, type CreatePRJobData } from "./create-pr";
-import { prisma } from "@patchbay/db";
+import { prisma, createNotification, agentVerdictFromRun } from "@patchbay/db";
 import { createGitProviderFromEnv } from "@patchbay/git-provider";
 import { resolveFixtureDir } from "@patchbay/repo-analysis";
 import type { Job } from "bullmq";
@@ -14,10 +14,35 @@ vi.mock("@patchbay/db", () => ({
     pullRequest: {
       create: vi.fn(),
     },
+    agentRun: {
+      findFirst: vi.fn(),
+    },
+    remediationCase: {
+      update: vi.fn(),
+    },
+    remediationCaseEvent: {
+      create: vi.fn(),
+    },
+    $transaction: vi.fn(),
     auditEvent: {
       create: vi.fn(),
     },
   },
+  createNotification: vi.fn(),
+  NotificationType: {
+    SCAN_COMPLETED: "scan.completed",
+    SCAN_FAILED: "scan.failed",
+    CASE_CREATED: "case.created",
+    PLAN_CREATED: "plan.created",
+    PR_CREATED: "pull_request.created",
+    CAPABILITY_GATE_SUSPENDED: "capability_gate.suspended",
+  },
+  agentBodySection: vi.fn((verdict: { reviewSummary?: string }) => {
+    const lines = ["", "## Agent review"];
+    lines.push(`- Agent summary for ${verdict.reviewSummary ?? "the run"}`);
+    return lines.join("\n");
+  }),
+  agentVerdictFromRun: vi.fn(),
 }));
 
 const providerMock = vi.hoisted(() => ({
@@ -243,6 +268,117 @@ describe("processCreatePR", () => {
     // No installation target is passed, so createGitProviderFromEnv selects
     // PAT or LocalGitProvider, never the GitHub App.
     expect(createGitProviderFromEnv).toHaveBeenCalledWith();
+    expect(createNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: "org-1",
+        type: "pull_request.created",
+        correlationId: "corr-1",
+      }),
+    );
+  });
+
+  it("includes the agent review section when a SUCCEEDED run exists", async () => {
+    vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValueOnce({
+      id: "plan-1",
+      remediationCaseId: "case-1",
+      confidence: 90,
+      patches: [{ filePath: "src/app.ts", patchedContent: "code" }],
+      validations: [{ status: "PASSED" }],
+      approvals: [],
+      pullRequests: [],
+      impactAssessment: {
+        score: 50,
+        rationale: "test",
+        affectedUsages: [],
+        repository: {
+          id: "repo-1",
+          name: "app",
+          metadata: { fixture: "openai" },
+          organizationId: "org-1",
+        },
+        changeEvent: { title: "Test Change", organizationId: "org-1" },
+      },
+    } as never);
+    vi.mocked(prisma.agentRun.findFirst).mockResolvedValueOnce({
+      outputJson: { plan: {}, review: {} },
+    } as never);
+    vi.mocked(agentVerdictFromRun).mockReturnValueOnce({
+      editCount: 5,
+      approved: true,
+      confidence: 87,
+      reviewSummary: "Safe migration",
+    });
+    vi.mocked(resolveFixtureDir).mockReturnValue(process.cwd());
+    providerMock.createDraftPullRequest.mockResolvedValueOnce({
+      provider: "LOCAL",
+      branchName: "patchbay/remediation-plan-1",
+      url: "file:///tmp/pr",
+      title: "[Patchbay] Test Change",
+      body: "body",
+      status: "DRAFT",
+    });
+    vi.mocked(prisma.pullRequest.create).mockResolvedValueOnce({
+      id: "pr-1",
+      url: "file:///tmp/pr",
+      branchName: "patchbay/remediation-plan-1",
+    } as never);
+
+    await processCreatePR(mockJob);
+
+    expect(prisma.agentRun.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { organizationId: "org-1", remediationCaseId: "case-1", status: "SUCCEEDED" },
+        orderBy: { createdAt: "desc" },
+      }),
+    );
+    const body = providerMock.createDraftPullRequest.mock.calls[0]?.[0].body as string;
+    expect(body).toContain("## Agent review");
+    expect(body).toContain("Safe migration");
+  });
+
+  it("omits the agent review section when no SUCCEEDED run exists", async () => {
+    vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValueOnce({
+      id: "plan-1",
+      remediationCaseId: "case-1",
+      confidence: 90,
+      patches: [{ filePath: "src/app.ts", patchedContent: "code" }],
+      validations: [{ status: "PASSED" }],
+      approvals: [],
+      pullRequests: [],
+      impactAssessment: {
+        score: 50,
+        rationale: "test",
+        affectedUsages: [],
+        repository: {
+          id: "repo-1",
+          name: "app",
+          metadata: { fixture: "openai" },
+          organizationId: "org-1",
+        },
+        changeEvent: { title: "Test Change", organizationId: "org-1" },
+      },
+    } as never);
+    vi.mocked(prisma.agentRun.findFirst).mockResolvedValueOnce(null as never);
+    vi.mocked(resolveFixtureDir).mockReturnValue(process.cwd());
+    providerMock.createDraftPullRequest.mockResolvedValueOnce({
+      provider: "LOCAL",
+      branchName: "patchbay/remediation-plan-1",
+      url: "file:///tmp/pr",
+      title: "[Patchbay] Test Change",
+      body: "body",
+      status: "DRAFT",
+    });
+    vi.mocked(prisma.pullRequest.create).mockResolvedValueOnce({
+      id: "pr-1",
+      url: "file:///tmp/pr",
+      branchName: "patchbay/remediation-plan-1",
+    } as never);
+
+    await processCreatePR(mockJob);
+
+    expect(agentVerdictFromRun).not.toHaveBeenCalled();
+    const body = providerMock.createDraftPullRequest.mock.calls[0]?.[0].body as string;
+    expect(body).not.toContain("Agent review");
   });
 
   it("audits PR_FAILED without leaking credential material from provider errors", async () => {

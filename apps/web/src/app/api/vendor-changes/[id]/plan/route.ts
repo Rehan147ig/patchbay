@@ -1,4 +1,4 @@
-import { prisma } from "@patchbay/db";
+import { prisma, createNotification, NotificationType } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import {
   ActorType,
@@ -162,6 +162,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           requiresHumanReview: result.requiresHumanReview,
           aiNote,
         },
+      });
+      await createNotification({
+        organizationId: user.organizationId,
+        type: NotificationType.PLAN_CREATED,
+        title: `Plan ready: ${assessment.repository.name}`,
+        body: `${safePatches.length} patches for ${event.vendor.slug} (confidence ${result.confidence})`,
+        correlationId,
       });
     }
 

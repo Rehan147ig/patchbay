@@ -10,7 +10,7 @@
  * retries idempotent, terminal cases are never re-opened, and every state
  * change appends a RemediationCaseEvent row plus an audit event.
  */
-import { prisma, Prisma } from "@patchbay/db";
+import { prisma, Prisma, createNotification, NotificationType } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import { ActorType, CASE_TERMINAL_STATUSES, CaseStatus, logger } from "@patchbay/domain";
 import { getCapability } from "@patchbay/vendor-connectors";
@@ -215,6 +215,15 @@ export async function upsertRemediationCase(
         planEligible: decision.planEligible,
         scopeKey,
       },
+    });
+  }
+  if (created) {
+    await createNotification({
+      organizationId: context.organizationId,
+      type: NotificationType.CASE_CREATED,
+      title: `New remediation case: ${context.vendorSlug}`,
+      body: `Status ${saved.status} (${saved.reasonCode}) — plan eligible: ${decision.planEligible}`,
+      correlationId,
     });
   }
 

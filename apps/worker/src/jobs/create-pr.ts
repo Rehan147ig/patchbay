@@ -1,5 +1,12 @@
 import { z } from "zod";
-import { prisma } from "@patchbay/db";
+import {
+  prisma,
+  createNotification,
+  NotificationType,
+  agentBodySection,
+  agentVerdictFromRun,
+  type AgentVerdictSummary,
+} from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import {
   ActorType,
@@ -151,7 +158,18 @@ async function createDraftPR(
   const fixtureDir = fixtureName ? resolveFixtureDir(fixtureName) : "";
   const branchName = `patchbay/remediation-${plan.id.slice(0, 8)}`;
   const title = `[Patchbay] ${plan.impactAssessment.changeEvent.title}`;
-  const body = `Automated remediation plan for ${repository.name}.\n\nImpact score: ${plan.impactAssessment.score}\nConfidence: ${plan.confidence}\nRationale: ${plan.impactAssessment.rationale}`;
+  const agentVerdict = plan.remediationCaseId
+    ? await loadSucceededAgentVerdict(organizationId, plan.remediationCaseId)
+    : null;
+  const body = buildPrBody(
+    {
+      repositoryName: repository.name,
+      score: plan.impactAssessment.score,
+      confidence: plan.confidence,
+      rationale: plan.impactAssessment.rationale,
+    },
+    agentVerdict,
+  );
 
   const provider =
     repository.provider === "GITHUB" && installationId
@@ -231,6 +249,13 @@ async function createDraftPR(
       url: prResult.url,
     },
   });
+  await createNotification({
+    organizationId,
+    type: NotificationType.PR_CREATED,
+    title: `Draft PR created: ${repository.name}`,
+    body: `Branch ${prResult.branchName} — ${prResult.provider}`,
+    correlationId,
+  });
 
   logger.info("pull request created", {
     remediationPlanId: plan.id,
@@ -255,4 +280,30 @@ function installationIdOf(metadata: unknown): number | null {
   if (typeof metadata !== "object" || metadata === null) return null;
   const value = (metadata as { installationId?: unknown }).installationId;
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+function buildPrBody(
+  plan: { repositoryName: string; score: number; confidence: number; rationale: string },
+  verdict: AgentVerdictSummary | null,
+): string {
+  const base = `Automated remediation plan for ${plan.repositoryName}.\n\nImpact score: ${plan.score}\nConfidence: ${plan.confidence}\nRationale: ${plan.rationale}`;
+  return verdict ? `${base}\n${agentBodySection(verdict)}` : base;
+}
+
+/**
+ * The agent trail for a case is approval evidence, not a credential holder.
+ * If the case has a SUCCEEDED AgentRun we reflect its planner/reviewer
+ * verdict in the PR body; otherwise the body is built without the section.
+ */
+async function loadSucceededAgentVerdict(
+  organizationId: string,
+  remediationCaseId: string,
+): Promise<AgentVerdictSummary | null> {
+  const run = await prisma.agentRun.findFirst({
+    where: { organizationId, remediationCaseId, status: "SUCCEEDED" },
+    select: { outputJson: true },
+    orderBy: { createdAt: "desc" },
+  });
+  if (!run) return null;
+  return agentVerdictFromRun(run.outputJson);
 }
