@@ -1,0 +1,12 @@
+{
+  "name": "@acme/payments",
+  "version": "1.0.0",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/index.ts": "./src/index.ts"
+  },
+  "dependencies": {
+    "stripe": "^16.12.0"
+  }
+}

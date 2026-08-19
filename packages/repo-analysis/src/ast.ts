@@ -12,13 +12,18 @@ const MAX_EXCERPT_LENGTH = 200;
 
 /**
  * Walks a dotted expression chain to its left-most identifier, e.g.
- * `process.env.OPENAI_API_KEY` -> `process`, `auth0.verifyJwt` -> `auth0`.
+ * `process.env.OPENAI_API_KEY` -> `process`, `auth0.verifyJwt` -> `auth0`,
+ * `this.stripe.charges.create` -> `stripe` (instance-field chains root at the
+ * field name; bare `this` without a property yields null).
  */
 export function rootIdentifier(expression: ts.Expression): ts.Identifier | null {
   let current: ts.Expression = expression;
   for (;;) {
     if (ts.isIdentifier(current)) return current;
     if (ts.isPropertyAccessExpression(current)) {
+      if (current.expression.kind === ts.SyntaxKind.ThisKeyword) {
+        return ts.isIdentifier(current.name) ? current.name : null;
+      }
       current = current.expression;
       continue;
     }
@@ -236,8 +241,10 @@ interface FullBinding extends Binding {
 /**
  * Collects local bindings that reference tracked packages:
  * 1. Direct imports/requires of tracked packages.
- * 2. Relative imports resolved through the provided module resolver.
- * 3. Local aliases: `const stripe = new Stripe(...)`, `const client = twilio(...)`.
+ * 2. Imports resolved through the module resolver (relative modules and
+ *    workspace packages); unproven imports record nothing.
+ * 3. Local aliases: `const stripe = new Stripe(...)`, `const client = twilio(...)`,
+ *    and identifier chains `const a = openai; const b = a;`.
  */
 export function collectBindings(
   sourceFile: ts.SourceFile,
@@ -276,10 +283,6 @@ export function collectBindings(
     return root && bindings.has(root.text) ? bindings.get(root.text)!.packageName : null;
   }
 
-  function isRelativeSpecifier(specifier: string): boolean {
-    return specifier.startsWith("./") || specifier.startsWith("../");
-  }
-
   function importNames(node: ts.ImportDeclaration): Array<{ name: string; localName: string }> {
     const clause = node.importClause;
     if (!clause) return [];
@@ -314,7 +317,7 @@ export function collectBindings(
         return;
       }
 
-      if (isRelativeSpecifier(specifier) && resolveRelative) {
+      if (resolveRelative) {
         const resolved = resolveRelative(filePath, specifier);
         if (resolved) {
           const clause = node.importClause;
@@ -355,7 +358,25 @@ export function collectBindings(
           const argument = initializer.arguments[0];
           if (argument && ts.isStringLiteral(argument)) {
             const packageName = packageOf(argument.text);
-            if (packageName) addBinding(declaration.name.text, packageName, declaration);
+            if (packageName) {
+              addBinding(declaration.name.text, packageName, declaration);
+            } else if (resolveRelative) {
+              const resolved = resolveRelative(filePath, argument.text);
+              if (resolved?.defaultPackage) {
+                addBinding(declaration.name.text, resolved.defaultPackage, declaration);
+              }
+            }
+          } else if (
+            argument &&
+            ts.isConditionalExpression(argument) &&
+            ts.isStringLiteral(argument.whenTrue) &&
+            ts.isStringLiteral(argument.whenFalse)
+          ) {
+            const branches = [argument.whenTrue.text, argument.whenFalse.text];
+            const tracked = branches.map((text) => packageOf(text));
+            if (tracked[0] && tracked[1] && tracked[0] === tracked[1]) {
+              addBinding(declaration.name.text, tracked[0], declaration);
+            }
           }
         }
       }
@@ -368,8 +389,35 @@ export function collectBindings(
     if (ts.isVariableStatement(node)) {
       for (const declaration of node.declarationList.declarations) {
         if (!ts.isIdentifier(declaration.name)) continue;
-        const packageName = constructedFrom(declaration.initializer);
+        const initializer = declaration.initializer;
+        if (!initializer) continue;
+        let packageName = constructedFrom(initializer);
+        if (!packageName && ts.isIdentifier(initializer)) {
+          packageName = bindings.get(initializer.text)?.packageName ?? null;
+        }
         if (packageName) addAlias(declaration.name.text, packageName);
+      }
+    }
+    if (ts.isClassDeclaration(node) || ts.isClassExpression(node)) {
+      for (const member of node.members) {
+        if (!ts.isPropertyDeclaration(member) || !ts.isIdentifier(member.name)) continue;
+        const packageName = constructedFrom(member.initializer);
+        if (packageName) addAlias(member.name.text, packageName);
+      }
+    }
+    if (ts.isExpressionStatement(node) && ts.isBinaryExpression(node.expression)) {
+      const { left, right, operatorToken } = node.expression;
+      if (
+        operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        ts.isPropertyAccessExpression(left) &&
+        left.expression.kind === ts.SyntaxKind.ThisKeyword &&
+        ts.isIdentifier(left.name)
+      ) {
+        let packageName = constructedFrom(right);
+        if (!packageName && ts.isIdentifier(right)) {
+          packageName = bindings.get(right.text)?.packageName ?? null;
+        }
+        if (packageName) addAlias(left.name.text, packageName);
       }
     }
     ts.forEachChild(node, visitAliases);

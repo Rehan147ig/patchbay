@@ -1,0 +1,9 @@
+{
+  "name": "@acme/barrel-repo",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "openai": "^3.3.0",
+    "stripe": "^16.12.0"
+  }
+}

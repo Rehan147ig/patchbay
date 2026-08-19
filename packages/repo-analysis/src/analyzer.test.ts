@@ -13,6 +13,26 @@ const TESTDATA = path.resolve(
   "../testdata/sample-repo",
 );
 
+const BARREL_REPO = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../testdata/barrel-repo",
+);
+
+const WORKSPACE_REPO = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../testdata/workspace-repo",
+);
+
+const PAYMENTS_WORKSPACE = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../testdata/payments-workspace",
+);
+
+const INSTANCE_FIELD_REPO = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../testdata/instance-field-repo",
+);
+
 function fixtureDir(name: string): string {
   return path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
@@ -214,6 +234,167 @@ describe("analyzeRepository - auth0 fixture", () => {
   });
 });
 
+describe("analyzeRepository - barrel-repo fixture", () => {
+  it("indexes usages through barrel re-exports and factory exports", async () => {
+    const analysis = await analyzeRepository({ rootDir: BARREL_REPO, trackPackages: TRACKED });
+
+    const barrelOpenai = find(
+      analysis.usages,
+      "src/app.ts",
+      "METHOD_CALL",
+      "openai.createChatCompletion",
+    );
+    expect(barrelOpenai).toBeDefined();
+    expect(barrelOpenai?.line).toBe(4);
+
+    const factoryConsumer = find(
+      analysis.usages,
+      "src/app.ts",
+      "METHOD_CALL",
+      "s.customers.create",
+    );
+    expect(factoryConsumer).toBeDefined();
+    expect(factoryConsumer?.line).toBe(7);
+
+    expect(analysis.errors).toEqual([]);
+  });
+
+  it("indexes identifier assignment chains within one file", async () => {
+    const analysis = await analyzeRepository({ rootDir: BARREL_REPO, trackPackages: TRACKED });
+
+    const chained = find(analysis.usages, "src/chain.ts", "METHOD_CALL", "b.createChatCompletion");
+    expect(chained).toBeDefined();
+  });
+
+  it("records nothing when an export cannot be proven and never crashes", async () => {
+    const analysis = await analyzeRepository({ rootDir: BARREL_REPO, trackPackages: TRACKED });
+
+    const unrelated = analysis.usages.filter((u) => u.filePath === "src/unrelated-user.ts");
+    expect(unrelated).toEqual([]);
+    expect(analysis.untrackedUsages).toBe(0);
+    expect(analysis.errors).toEqual([]);
+  });
+
+  it("fails closed: never resolves imports outside the scanned root", async () => {
+    const analysis = await analyzeRepository({ rootDir: BARREL_REPO, trackPackages: TRACKED });
+
+    const crossRepo = analysis.usages.filter((u) => u.filePath === "src/cross-repo.ts");
+    expect(crossRepo).toEqual([]);
+  });
+});
+
+describe("analyzeRepository - workspace-repo fixture", () => {
+  it("resolves package-name imports through pnpm-workspace.yaml entries", async () => {
+    const analysis = await analyzeRepository({ rootDir: WORKSPACE_REPO, trackPackages: TRACKED });
+
+    const consumer = find(
+      analysis.usages,
+      "apps/consumer/src/app.ts",
+      "METHOD_CALL",
+      "stripe.customers.create",
+    );
+    expect(consumer).toBeDefined();
+    expect(consumer?.riskTags).toEqual([]);
+
+    const unmatched = analysis.usages.filter((u) => u.filePath === "apps/consumer/src/other.ts");
+    expect(unmatched).toEqual([]);
+    expect(analysis.manifests.map((m) => m.name)).toContain("@acme/shared");
+    expect(analysis.errors).toEqual([]);
+  });
+});
+
+describe("analyzeRepository - payments-workspace fixture", () => {
+  it("indexes stripe usage in apps/api/src/charge.ts via workspace package", async () => {
+    const analysis = await analyzeRepository({
+      rootDir: PAYMENTS_WORKSPACE,
+      trackPackages: ["stripe"],
+    });
+
+    const charge = find(
+      analysis.usages,
+      "apps/api/src/charge.ts",
+      "METHOD_CALL",
+      "stripe.charges.create",
+    );
+    expect(charge).toBeDefined();
+    expect(charge?.riskTags).toEqual(["PAYMENT"]);
+  });
+
+  it("resolves exports-field subpaths and skips unresolvable packages", async () => {
+    const analysis = await analyzeRepository({
+      rootDir: PAYMENTS_WORKSPACE,
+      trackPackages: ["stripe"],
+    });
+
+    const refund = find(
+      analysis.usages,
+      "apps/api/src/refund.ts",
+      "METHOD_CALL",
+      "stripe.refunds.create",
+    );
+    expect(refund).toBeDefined();
+
+    const unknown = analysis.usages.filter((u) => u.filePath === "apps/api/src/unknown.ts");
+    expect(unknown).toEqual([]);
+    expect(analysis.errors).toEqual([]);
+  });
+});
+
+describe("analyzeRepository - instance-field-repo fixture", () => {
+  it("indexes this.field chains on tracked instance fields", async () => {
+    const analysis = await analyzeRepository({
+      rootDir: INSTANCE_FIELD_REPO,
+      trackPackages: TRACKED,
+    });
+
+    const call = find(
+      analysis.usages,
+      "src/payments-service.ts",
+      "METHOD_CALL",
+      "this.stripe.charges.create",
+    );
+    expect(call).toBeDefined();
+    expect(call?.riskTags).toEqual(["PAYMENT"]);
+
+    const customer = find(
+      analysis.usages,
+      "src/payments-service.ts",
+      "METHOD_CALL",
+      "this.stripe.customers.create",
+    );
+    expect(customer).toBeDefined();
+    expect(customer?.riskTags).toEqual([]);
+  });
+
+  it("indexes this.client = stripe constructor assignment aliases", async () => {
+    const analysis = await analyzeRepository({
+      rootDir: INSTANCE_FIELD_REPO,
+      trackPackages: TRACKED,
+    });
+
+    const call = find(
+      analysis.usages,
+      "src/customer-service.ts",
+      "METHOD_CALL",
+      "this.client.customers.create",
+    );
+    expect(call).toBeDefined();
+  });
+
+  it("records nothing for unprovable instance fields and never crashes", async () => {
+    const analysis = await analyzeRepository({
+      rootDir: INSTANCE_FIELD_REPO,
+      trackPackages: TRACKED,
+    });
+
+    const unproven = analysis.usages.filter(
+      (u) => u.filePath === "src/unproven.ts" && u.usageType === "METHOD_CALL",
+    );
+    expect(unproven).toEqual([]);
+    expect(analysis.errors).toEqual([]);
+  });
+});
+
 describe("analyzeRepository - exclusions and attribution", () => {
   it("never scans node_modules or dist, and attributes env refs via prefixes", async () => {
     const analysis = await analyzeRepository({ rootDir: TESTDATA, trackPackages: TRACKED });
@@ -276,5 +457,79 @@ describe("analyzeSource - unit level", () => {
     const result = analyzeSource(source, "src/x.ts", new Set(TRACKED), PREFIXES);
     expect(result.usages).toEqual([]);
     expect(result.untrackedUsages).toBe(2);
+  });
+
+  it("keeps require('openai') bound", () => {
+    const source = `const openai = require('openai');\nopenai.createChatCompletion({});\n`;
+    const result = analyzeSource(source, "src/x.ts", new Set(TRACKED), PREFIXES);
+    expect(result.usages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ usageType: "IMPORT", symbol: "openai" }),
+        expect.objectContaining({
+          usageType: "METHOD_CALL",
+          symbol: "openai.createChatCompletion",
+        }),
+      ]),
+    );
+  });
+
+  it("binds require() when a ternary's branches are the same tracked package", () => {
+    const source = `const stripe = require(cond ? "stripe" : "stripe");\nstripe.customers.create({});\n`;
+    const result = analyzeSource(source, "src/x.ts", new Set(TRACKED), PREFIXES);
+    expect(result.usages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ usageType: "IMPORT", symbol: "stripe" }),
+        expect.objectContaining({ usageType: "METHOD_CALL", symbol: "stripe.customers.create" }),
+      ]),
+    );
+  });
+
+  it("fails closed: require(variable) indexes zero usages", () => {
+    const source = `const name = "stripe";\nconst pkg = require(name);\npkg.customers.create({});\n`;
+    const result = analyzeSource(source, "src/x.ts", new Set(TRACKED), PREFIXES);
+    expect(result.usages).toEqual([]);
+  });
+
+  it("fails closed: require() ternary with a non-literal branch", () => {
+    const source = `const pkg = require(cond ? "stripe" : other);\npkg.customers.create({});\n`;
+    const result = analyzeSource(source, "src/x.ts", new Set(TRACKED), PREFIXES);
+    expect(result.usages).toEqual([]);
+  });
+
+  it("fails closed: require() ternary with two different tracked packages", () => {
+    const source = `const pkg = require(cond ? "stripe" : "openai");\npkg.customers.create({});\n`;
+    const result = analyzeSource(source, "src/x.ts", new Set(TRACKED), PREFIXES);
+    expect(result.usages).toEqual([]);
+  });
+
+  it("fails closed: Nest @Injectable() decorator metadata is not indexed", () => {
+    const source = [
+      'import Stripe from "stripe";',
+      "@Injectable()",
+      "export class PaymentsService {",
+      '  private readonly stripe = new Stripe("sk-test");',
+      "  run(): void {",
+      "    this.stripe.customers.create({});",
+      "  }",
+      "}",
+    ].join("\n");
+    const result = analyzeSource(source, "src/x.ts", new Set(TRACKED), PREFIXES);
+    expect(
+      result.usages.some(
+        (u) => u.symbol.includes("Injectable") || u.symbol.includes("Injectable()"),
+      ),
+    ).toBe(false);
+    expect(
+      result.usages.some(
+        (u) => u.usageType === "METHOD_CALL" && u.symbol === "this.stripe.customers.create",
+      ),
+    ).toBe(true);
+  });
+
+  it("fails closed: export default withAuth(Page) HOC is not unwrapped", () => {
+    const source = `const client = new OpenAI(\"k\");\nexport default withAuth(() => client);\n`;
+    const result = analyzeSource(source, "src/x.ts", new Set(TRACKED), PREFIXES);
+    expect(result.usages.some((u) => u.symbol.includes("withAuth"))).toBe(false);
+    expect(result.usages.map((u) => u.usageType).filter((t) => t !== "INITIALIZATION")).toEqual([]);
   });
 });

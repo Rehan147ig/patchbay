@@ -1,6 +1,6 @@
 import path from "node:path";
 import ts from "typescript";
-import type { ModuleExports, RelativeModuleResolver } from "./types";
+import type { ModuleExports, RelativeModuleResolver, WorkspacePackage } from "./types";
 import { rootIdentifier } from "./ast";
 
 /**
@@ -47,14 +47,14 @@ function functionReturnPackages(
 ): Map<string, string> {
   const out = new Map<string, string>();
 
-  function returnsPackage(expr: ts.Expression | undefined): boolean {
-    if (!expr) return false;
+  function returnPackage(expr: ts.Expression | undefined): string | null {
+    if (!expr) return null;
     if (ts.isNewExpression(expr) || ts.isCallExpression(expr)) {
       const root = rootIdentifier(expr.expression);
-      return root !== null && bindings.has(root.text);
+      return root ? (bindings.get(root.text) ?? null) : null;
     }
-    if (ts.isIdentifier(expr)) return bindings.has(expr.text);
-    return false;
+    if (ts.isIdentifier(expr)) return bindings.get(expr.text) ?? null;
+    return null;
   }
 
   function returnExpressions(fn: ts.FunctionLikeDeclaration): ts.Expression[] {
@@ -86,8 +86,10 @@ function functionReturnPackages(
     if (!fn || !name) continue;
 
     const returns = returnExpressions(fn);
-    if (returns.length > 0 && returns.every(returnsPackage)) {
-      out.set(name.text, bindings.get(rootIdentifier(returns[0]!)!.text)!);
+    const proven = returns.length > 0 && returns.every((expr) => returnPackage(expr) !== null);
+    if (proven) {
+      const pkg = returnPackage(returns[0]);
+      if (pkg) out.set(name.text, pkg);
     }
   }
 
@@ -97,14 +99,18 @@ function functionReturnPackages(
 /**
  * Collects the tracked exports of a single source file. Requires the file's
  * local bindings (direct package imports + local aliases) to already exist.
+ * Barrel re-exports (`export { openai } from "./openai-client"`, `export *`)
+ * are resolved through `resolveModule` (may be null in single-file contexts).
  */
 export function collectModuleExports(
   sourceFile: ts.SourceFile,
   bindings: Map<string, string>,
+  resolveModule: RelativeModuleResolver | null = null,
 ): ModuleExports {
   const named = new Map<string, string>();
   let defaultPackage: string | null = null;
   const functionPackages = functionReturnPackages(sourceFile, bindings);
+  const filePath = sourceFile.fileName;
 
   function packageOfExpression(expr: ts.Expression | undefined): string | null {
     if (!expr) return null;
@@ -116,6 +122,15 @@ export function collectModuleExports(
       return bindings.get(expr.text) ?? functionPackages.get(expr.text) ?? null;
     }
     return null;
+  }
+
+  /** Exported package for a name re-exported from another module. */
+  function reexportPackage(exportedName: string, specifier: ts.Expression): string | null {
+    if (!resolveModule || !ts.isStringLiteral(specifier)) return null;
+    const target = resolveModule(filePath, specifier.text);
+    if (!target) return null;
+    if (exportedName === "default") return target.defaultPackage;
+    return target.named.get(exportedName) ?? null;
   }
 
   for (const statement of sourceFile.statements) {
@@ -132,16 +147,33 @@ export function collectModuleExports(
       if (pkg) named.set(statement.name.text, pkg);
     }
 
-    if (
-      ts.isExportDeclaration(statement) &&
-      statement.exportClause &&
-      ts.isNamedExports(statement.exportClause)
-    ) {
-      for (const element of statement.exportClause.elements) {
-        const local = element.propertyName ?? element.name;
-        if (!ts.isIdentifier(local)) continue;
-        const pkg = bindings.get(local.text) ?? functionPackages.get(local.text) ?? null;
-        if (pkg) named.set(element.name.text, pkg);
+    if (ts.isExportDeclaration(statement)) {
+      const fromTarget = statement.moduleSpecifier;
+      if (statement.exportClause && ts.isNamedExports(statement.exportClause) && fromTarget) {
+        for (const element of statement.exportClause.elements) {
+          const exportedName = (element.propertyName ?? element.name).text;
+          const pkg = reexportPackage(exportedName, fromTarget);
+          if (pkg) named.set(element.name.text, pkg);
+        }
+      } else if (statement.exportClause && ts.isNamedExports(statement.exportClause)) {
+        for (const element of statement.exportClause.elements) {
+          const local = element.propertyName ?? element.name;
+          if (!ts.isIdentifier(local)) continue;
+          const pkg = bindings.get(local.text) ?? functionPackages.get(local.text) ?? null;
+          if (pkg) named.set(element.name.text, pkg);
+        }
+      } else if (statement.exportClause && ts.isNamespaceExport(statement.exportClause)) {
+        // `export * as lib from "./lib"` — not provable as a single package; skip.
+        continue;
+      } else if (fromTarget && ts.isStringLiteral(fromTarget)) {
+        // `export * from "./x"`: fold in every provable target export.
+        const target = resolveModule ? resolveModule(filePath, fromTarget.text) : null;
+        if (target) {
+          for (const [name, pkg] of target.named) {
+            if (!named.has(name)) named.set(name, pkg);
+          }
+          if (!defaultPackage && target.defaultPackage) defaultPackage = target.defaultPackage;
+        }
       }
     }
 
@@ -159,14 +191,51 @@ function hasExportModifier(node: ts.Node): boolean {
   return (ts.getModifiers(node) ?? []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
 }
 
-/** Injectable resolver used by `analyzeSource` for relative imports. */
+/**
+ * Injectable resolver used by `analyzeSource` for relative imports and
+ * workspace-package imports (`@acme/shared`, `@acme/payments/foo`).
+ * `workspacePackages` maps package names to their resolved entry files.
+ */
 export function makeRelativeResolver(
   exportsByFile: ReadonlyMap<string, ModuleExports>,
   files: Set<string>,
+  workspacePackages: ReadonlyMap<string, WorkspacePackage> = new Map(),
 ): RelativeModuleResolver {
   return (fromFile, specifier) => {
-    if (!isRelativeSpecifier(specifier)) return null;
-    const target = resolveRelativeTarget(fromFile, specifier, files);
-    return target ? (exportsByFile.get(target) ?? null) : null;
+    if (isRelativeSpecifier(specifier)) {
+      const target = resolveRelativeTarget(fromFile, specifier, files);
+      return target ? (exportsByFile.get(target) ?? null) : null;
+    }
+    const pkg = workspacePackageFor(specifier, workspacePackages);
+    if (!pkg) return null;
+    const file = workspaceTargetFile(specifier, pkg);
+    return file ? (exportsByFile.get(file) ?? null) : null;
   };
+}
+
+/** Matches `@acme/payments`, `@acme/payments/foo` and `payments/foo` to a package. */
+function workspacePackageFor(
+  specifier: string,
+  workspacePackages: ReadonlyMap<string, WorkspacePackage>,
+): WorkspacePackage | null {
+  if (workspacePackages.has(specifier)) return workspacePackages.get(specifier) ?? null;
+  const segments = specifier.split("/");
+  const name = specifier.startsWith("@")
+    ? `${segments[0]}/${segments[1] ?? ""}`
+    : (segments[0] ?? "");
+  return workspacePackages.get(name) ?? null;
+}
+
+/**
+ * Entry file for a workspace specifier: an `exports`-field subpath mapping
+ * when one matches, otherwise the package's `.` entry.
+ */
+function workspaceTargetFile(specifier: string, pkg: WorkspacePackage): string | null {
+  const segments = specifier.split("/");
+  const prefix = specifier.startsWith("@")
+    ? `${segments[0]}/${segments[1] ?? ""}`
+    : (segments[0] ?? "");
+  const subpath = specifier.slice(prefix.length);
+  if (!subpath) return pkg.entry;
+  return pkg.subpaths.get(`.${subpath}`) ?? pkg.entry;
 }

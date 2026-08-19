@@ -14,6 +14,7 @@ import type {
   PackageManifest,
   PythonManifest,
   RepositoryAnalysis,
+  WorkspacePackage,
 } from "./types";
 
 const IGNORED_DIRS = new Set([
@@ -54,6 +55,8 @@ export async function analyzeRepository(
       const manifest = JSON.parse(raw) as {
         name?: string;
         version?: string;
+        main?: string;
+        exports?: unknown;
         dependencies?: Record<string, string>;
         devDependencies?: Record<string, string>;
       };
@@ -61,6 +64,8 @@ export async function analyzeRepository(
         path: rel,
         name: manifest.name ?? null,
         version: manifest.version ?? null,
+        main: manifest.main,
+        exports: manifest.exports,
         dependencies: manifest.dependencies ?? {},
         devDependencies: manifest.devDependencies ?? {},
       });
@@ -98,7 +103,8 @@ export async function analyzeRepository(
   }
   pythonManifests.sort((a, b) => a.path.localeCompare(b.path));
 
-  const usages = await analyzeUsages(sourcesByFile, trackSet, envPrefixes);
+  const workspaceEntryFiles = await resolveWorkspacePackages(rootDir, files.tsFiles, manifests);
+  const usages = await analyzeUsages(sourcesByFile, trackSet, envPrefixes, workspaceEntryFiles);
   errors.push(...usages.errors);
 
   const pythonUsages: AnalyzedUsage[] = [];
@@ -152,13 +158,14 @@ async function analyzeUsages(
   sourcesByFile: Map<string, string>,
   trackSet: Set<string>,
   envPrefixes: Record<string, string>,
+  workspacePackages: ReadonlyMap<string, WorkspacePackage> = new Map(),
 ): Promise<{ usages: AnalyzedUsage[]; untrackedUsages: number; errors: AnalysisError[] }> {
   const files = new Set(sourcesByFile.keys());
   let bindingsByFile = new Map<string, Map<string, string>>();
   let exportsByFile = new Map<string, ModuleExports>();
 
   for (let pass = 0; pass < 3; pass += 1) {
-    const resolver = makeRelativeResolver(exportsByFile, files);
+    const resolver = makeRelativeResolver(exportsByFile, files, workspacePackages);
     const nextBindings = new Map<string, Map<string, string>>();
     for (const [rel, source] of sourcesByFile) {
       const sourceFile = ts.createSourceFile(
@@ -185,12 +192,15 @@ async function analyzeUsages(
         true,
         ts.ScriptKind.TS,
       );
-      nextExports.set(rel, collectModuleExports(sourceFile, bindingsByFile.get(rel) ?? new Map()));
+      nextExports.set(
+        rel,
+        collectModuleExports(sourceFile, bindingsByFile.get(rel) ?? new Map(), resolver),
+      );
     }
     exportsByFile = nextExports;
   }
 
-  const resolver = makeRelativeResolver(exportsByFile, files);
+  const resolver = makeRelativeResolver(exportsByFile, files, workspacePackages);
   const usages: AnalyzedUsage[] = [];
   const errors: AnalysisError[] = [];
   let untrackedUsages = 0;
@@ -217,6 +227,145 @@ interface CollectedFiles {
   pythonManifestFiles: string[];
   /** Every file fed into the snapshot hash (all scanned sources + manifests). */
   allFiles: string[];
+}
+
+/**
+ * Maps workspace package names to their entry modules so package-name imports
+ * (`import { stripe } from "@acme/payments"`, `@acme/payments/src/index.ts`)
+ * resolve deterministically:
+ * - workspace globs come from `pnpm-workspace.yaml` `packages:` or the root
+ *   package.json `workspaces` field (pnpm-workspace.yaml wins),
+ * - each package.json's directory must match a glob and its `name` becomes the
+ *   specifier,
+ * - the entry is the `exports` field's `"."` (string, or `import`/`require`
+ *   strings) plus simple `./...` subpath keys; without `exports`, `main`
+ *   mapped to TS/JS variants, then `src/index.*`, then `index.*`.
+ * Unresolvable packages are skipped (the resolver returns null, never crashes).
+ */
+async function resolveWorkspacePackages(
+  rootDir: string,
+  tsFiles: string[],
+  manifests: PackageManifest[],
+): Promise<Map<string, WorkspacePackage>> {
+  const patterns = await readWorkspaceGlobs(rootDir);
+  if (patterns.length === 0) return new Map();
+  const fileSet = new Set(tsFiles);
+  const out = new Map<string, WorkspacePackage>();
+  for (const manifest of manifests) {
+    if (!manifest.name) continue;
+    const dir = path.posix.dirname(manifest.path);
+    if (dir === ".") continue;
+    if (!patterns.some((pattern) => workspaceGlobMatches(pattern, dir))) continue;
+    const workspace = workspaceEntryFor(dir, manifest.main, manifest.exports, fileSet);
+    if (workspace) out.set(manifest.name, workspace);
+  }
+  return out;
+}
+
+async function readWorkspaceGlobs(rootDir: string): Promise<string[]> {
+  const fromYaml = await readWorkspaceYamlGlobs(rootDir);
+  if (fromYaml.length > 0) return fromYaml;
+  try {
+    const raw = await fs.readFile(path.join(rootDir, "package.json"), "utf8");
+    const pkg = JSON.parse(raw) as { workspaces?: unknown };
+    const workspaces = pkg.workspaces;
+    if (Array.isArray(workspaces)) {
+      return workspaces.filter((entry): entry is string => typeof entry === "string");
+    }
+    if (workspaces && typeof workspaces === "object") {
+      const list = (workspaces as { packages?: unknown }).packages;
+      if (Array.isArray(list)) {
+        return list.filter((entry): entry is string => typeof entry === "string");
+      }
+    }
+  } catch {
+    // no workspaces field; fall through
+  }
+  return [];
+}
+
+async function readWorkspaceYamlGlobs(rootDir: string): Promise<string[]> {
+  let raw: string;
+  try {
+    raw = await fs.readFile(path.join(rootDir, "pnpm-workspace.yaml"), "utf8");
+  } catch {
+    return [];
+  }
+  const globs: string[] = [];
+  let inPackages = false;
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim();
+    if (!inPackages) {
+      if (trimmed === "packages:") inPackages = true;
+      continue;
+    }
+    if (trimmed.startsWith("- ")) {
+      const value = trimmed
+        .slice(2)
+        .trim()
+        .replace(/^["']|["']$/g, "");
+      if (value) globs.push(value);
+      continue;
+    }
+    if (trimmed !== "" && !trimmed.startsWith("#")) break;
+  }
+  return globs;
+}
+
+function workspaceGlobMatches(pattern: string, dir: string): boolean {
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  const source = escaped.replace(/\*\*/g, "\0").replace(/\*/g, "[^/]+").replace(/\0/g, ".*");
+  return new RegExp(`^${source}$`).test(dir);
+}
+
+function workspaceEntryFor(
+  dir: string,
+  main: string | undefined,
+  exportsField: unknown,
+  files: Set<string>,
+): WorkspacePackage | null {
+  const subpaths = new Map<string, string>();
+  let dotEntry: string | null = null;
+  if (typeof exportsField === "string") {
+    dotEntry = resolveWorkspaceFile(dir, exportsField, files);
+  } else if (exportsField && typeof exportsField === "object" && !Array.isArray(exportsField)) {
+    for (const [key, value] of Object.entries(exportsField)) {
+      const spec = exportsValueFile(value);
+      if (!spec) continue;
+      if (key === ".") {
+        if (!dotEntry) dotEntry = resolveWorkspaceFile(dir, spec, files);
+      } else if (key.startsWith("./")) {
+        const resolved = resolveWorkspaceFile(dir, spec, files);
+        if (resolved) subpaths.set(key, resolved);
+      }
+    }
+  }
+  const entry =
+    dotEntry ??
+    (main ? resolveWorkspaceFile(dir, main, files) : null) ??
+    resolveWorkspaceFile(dir, "src/index", files) ??
+    resolveWorkspaceFile(dir, "index", files);
+  if (!entry) return null;
+  return { entry, subpaths };
+}
+
+/** `exports` value: a string, or `{ import|require|default: string }`. */
+function exportsValueFile(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object") {
+    const object = value as Record<string, unknown>;
+    for (const key of ["import", "require", "default"]) {
+      if (typeof object[key] === "string") return object[key];
+    }
+  }
+  return null;
+}
+
+/** Resolves a package-relative specifier against the scanned file set. */
+function resolveWorkspaceFile(dir: string, specifier: string, files: Set<string>): string | null {
+  const base = path.posix.normalize(`${dir}/${specifier.replace(/^\.\//, "")}`);
+  const candidates = [base, `${base}.ts`, `${base}.tsx`, `${base}.js`, `${base}.jsx`];
+  return candidates.find((candidate) => files.has(candidate)) ?? null;
 }
 
 async function collectFiles(rootDir: string): Promise<CollectedFiles> {

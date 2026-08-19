@@ -19,8 +19,22 @@ export interface PackageManifest {
   path: string;
   name: string | null;
   version: string | null;
+  /** package.json `main` field (used for workspace-package entry resolution). */
+  main?: string;
+  /** package.json `exports` field (workspace-package entry resolution). */
+  exports?: unknown;
   dependencies: Record<string, string>;
   devDependencies: Record<string, string>;
+}
+
+/**
+ * A resolvable workspace package: `entry` is the repo-relative module used for
+ * the package specifier itself (and unknown subpaths); `subpaths` maps
+ * `exports`-field keys like `./src/index.ts` to repo-relative files.
+ */
+export interface WorkspacePackage {
+  entry: string;
+  subpaths: Map<string, string>;
 }
 
 export interface PythonManifest {
@@ -76,8 +90,10 @@ export interface ModuleExports {
 }
 
 /**
- * Resolves a relative import (`./x`, `../lib/y`) to the importing module's
- * exports, or `null` when the target is unknown/untracked. Kept injectable so
- * `analyzeSource` stays single-file and deterministic.
+ * Resolves a module specifier from the importing module's context to that
+ * module's exports, or `null` when the target is unknown/untracked. Handles
+ * relative imports (`./x`, `../lib/y`) and workspace-package names
+ * (`@acme/shared`). Kept injectable so `analyzeSource` stays single-file and
+ * deterministic.
  */
 export type RelativeModuleResolver = (fromFile: string, specifier: string) => ModuleExports | null;
