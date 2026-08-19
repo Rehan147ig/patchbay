@@ -151,6 +151,14 @@ BullMQ worker (scan, analyze, plan, PR creation). Sign in with
    out default-branch HEAD through the installation token, replaces the usage
    inventory, and builds the graph snapshot.
 
+Agent runs (analyst → planner → reviewer) only ever read release facts and
+usage graphs from Patchbay's own database and the local fixture checkout —
+they never hold GitHub tokens or credentials. Git access lives exclusively in
+the git-provider layer: the GitHub App's installation access token is minted
+server-side by the App itself (App JWT + installation token, scoped to the
+installed repositories) and is used only to open draft PRs and check out
+code; agents propose, the App opens the draft, and a human merges.
+
 ## 6. Get a draft PR (certified Node/TS kits only)
 
 Patches are produced only for DRAFT_PR-certified Node/TypeScript
