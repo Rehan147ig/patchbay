@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GitHubProvider, createGitProviderFromEnv } from "./github-provider";
+import { GitHubAppProvider } from "./github-app-provider";
 import { LocalGitProvider } from "./index";
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -151,6 +152,43 @@ describe("GitHubProvider", () => {
       "owner/name form",
     );
   });
+
+  it("resolves the HEAD sha of the default branch", async () => {
+    const fetchImpl = (async (url: string) => {
+      if (url.endsWith("/repos/acme/app")) {
+        return jsonResponse(200, { default_branch: "main" });
+      }
+      if (url.includes("/git/ref/heads/main")) {
+        return jsonResponse(200, { object: { sha: "head-sha-1" } });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    }) as typeof fetch;
+
+    const provider = new GitHubProvider({
+      token: "ghp_test",
+      repository: "acme/app",
+      fetchImpl,
+    });
+
+    await expect(provider.resolveHeadSha()).resolves.toBe("head-sha-1");
+  });
+
+  it("resolves the HEAD sha of a specific branch", async () => {
+    const fetchImpl = (async (url: string) => {
+      if (url.includes("/git/ref/heads/release-2")) {
+        return jsonResponse(200, { object: { sha: "release-sha" } });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    }) as typeof fetch;
+
+    const provider = new GitHubProvider({
+      token: "ghp_test",
+      repository: "acme/app",
+      fetchImpl,
+    });
+
+    await expect(provider.resolveHeadSha("release-2")).resolves.toBe("release-sha");
+  });
 });
 
 describe("createGitProviderFromEnv", () => {
@@ -160,6 +198,36 @@ describe("createGitProviderFromEnv", () => {
       GITHUB_REPOSITORY: "acme/app",
     } as NodeJS.ProcessEnv);
     expect(provider).toBeInstanceOf(GitHubProvider);
+  });
+
+  it("returns the GitHub App provider when a target is given and the App is configured", () => {
+    const provider = createGitProviderFromEnv(
+      { installationId: 42, repositoryFullName: "acme/app", baseBranch: "main" },
+      {
+        GITHUB_APP_ID: "12345",
+        GITHUB_APP_PRIVATE_KEY: Buffer.from("dummy-private-key-pem", "utf8").toString("base64"),
+      } as NodeJS.ProcessEnv,
+    );
+    expect(provider).toBeInstanceOf(GitHubAppProvider);
+  });
+
+  it("falls back to PAT when a target is given but the App is unconfigured", () => {
+    const provider = createGitProviderFromEnv(
+      { installationId: 42, repositoryFullName: "acme/app" },
+      {
+        GITHUB_TOKEN: "ghp_x",
+        GITHUB_REPOSITORY: "acme/app",
+      } as NodeJS.ProcessEnv,
+    );
+    expect(provider).toBeInstanceOf(GitHubProvider);
+  });
+
+  it("falls back to the local provider when a target is given but no credentials exist", () => {
+    const provider = createGitProviderFromEnv(
+      { installationId: 42, repositoryFullName: "acme/app" },
+      {} as NodeJS.ProcessEnv,
+    );
+    expect(provider).toBeInstanceOf(LocalGitProvider);
   });
 
   it("falls back to the local provider without credentials", () => {

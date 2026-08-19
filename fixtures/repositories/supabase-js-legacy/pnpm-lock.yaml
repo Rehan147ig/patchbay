@@ -1,0 +1,5 @@
+lockfileVersion: "9.0"
+
+packages:
+  "@supabase/supabase-js@1.35.7":
+    resolution: { integrity: sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa= }

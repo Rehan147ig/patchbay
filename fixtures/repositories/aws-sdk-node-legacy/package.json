@@ -1,0 +1,9 @@
+{
+  "name": "@acme/aws-workers-service",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "dependencies": {
+    "aws-sdk": "^2.1691.0"
+  }
+}

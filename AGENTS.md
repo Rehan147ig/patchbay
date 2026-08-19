@@ -22,8 +22,8 @@ It is NOT a generic chatbot, changelog summarizer, or OpenAPI diff dashboard.
 - `packages/operations` - WP10 DB-free logic: SLO rollups (`computeOrganizationMetrics`), capability health/auto-suspend, retention purge; uses structural `PrismaLike` types (no `@patchbay/db` dependency)
 - `packages/billing` - subscription plans/caps, SDK-free Stripe REST client, webhook signature verification
 - `packages/ui` - accessible UI primitives
-- `packages/vendor-connectors` - Stripe/OpenAI/Twilio/Auth0/Generic OpenAPI adapters, connector certification registry
-- `packages/repo-analysis` - TypeScript AST indexing (TS compiler API), Python L1 (web-tree-sitter WASM), graph extractor, integration usage inventory, impact scoring
+- `packages/vendor-connectors` - Stripe/OpenAI/Twilio/Anthropic/AWS SDK/Supabase/Auth0/Generic OpenAPI adapters, connector certification registry
+- `packages/repo-analysis` - TypeScript AST indexing (TS compiler API), Python L1 (web-tree-sitter WASM), graph extractor, integration usage inventory, impact scoring. Python support is detect+assess (L1/L2) only; certified remediations remain Node/TS.
 - `packages/remediation-engine` - migration rules, patch generation, remediation plans
 - `packages/policy-engine` - JSON policy definitions, confidence gates, risk classification
 - `packages/git-provider` - GitProvider interface, LocalGitProvider, GitHubProvider (PAT), GitHubAppProvider (App JWT + installation tokens)
@@ -72,6 +72,7 @@ pnpm lint                    # eslint, zero warnings allowed
 pnpm format:check            # prettier check
 pnpm typecheck               # tsc --noEmit across all packages
 pnpm test                    # vitest run
+pnpm test:corpus             # eval-corpus certification gate (also covered by pnpm test)
 pnpm e2e                     # Playwright (needs port 3000 free + worker running)
 ```
 
@@ -86,6 +87,11 @@ temp config: `pnpm vitest run --config vitest.wp10.config.ts` (aliases `@` → `
 
 ## Architecture rules
 
+- **Certification requires the eval corpus green** (`pnpm test:corpus`): a connector promoted to
+  DRAFT_PR must prove its patch kit on the H8 corpus — every patchable corpus entry must produce
+  `buildPatchSuggestions` and the patches must apply to the fixtures. Connectors below DRAFT_PR
+  (e.g. auth0 at PLAN) must produce zero patch suggestions; if the kit exists but was never
+  certified, the gate fails loudly. Never promote ASSESS → DRAFT_PR without the corpus green.
 - `packages/domain`, `packages/audit`, `packages/policy-engine`, `packages/remediation-engine`,
   `packages/operations` must stay DB-free and runnable in plain unit tests (no database, no
   network). `packages/operations` accepts structural `PrismaLike` clients for testability.

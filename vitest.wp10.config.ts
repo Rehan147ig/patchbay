@@ -7,6 +7,7 @@ export default defineConfig({
       "apps/web/src/app/api/pull-requests/**/*.test.ts",
       "apps/web/src/app/api/cases/**/*.test.ts",
       "apps/web/src/app/api/remediations/**/*.test.ts",
+      "apps/web/src/app/api/repositories/**/*.test.ts",
     ],
     environment: "node",
   },

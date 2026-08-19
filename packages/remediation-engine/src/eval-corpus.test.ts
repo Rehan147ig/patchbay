@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { EVAL_CORPUS, formatEvalCorpusReport, runEvalCase, runEvalCorpus } from "./eval-corpus";
+import { getConnector } from "@patchbay/vendor-connectors";
+import {
+  checkCertifiedPatchCoverage,
+  EVAL_CORPUS,
+  formatEvalCorpusReport,
+  runEvalCase,
+  runEvalCorpus,
+  type EvalCorpusEntry,
+} from "./eval-corpus";
 
 /**
  * H8 full-loop evaluation gates (roadmap launch metrics): replay the complete
@@ -74,7 +82,9 @@ describe("H8 full-loop evaluation corpus (launch-metric gates)", () => {
 describe("H8 per-entry cases", () => {
   it("an unmixed set of vendors exercises connectors end to end", async () => {
     const vendors = new Set(EVAL_CORPUS.map((entry) => entry.vendor));
-    expect(vendors).toEqual(new Set(["openai", "stripe", "twilio", "auth0"]));
+    expect(vendors).toEqual(
+      new Set(["openai", "stripe", "twilio", "auth0", "anthropic", "aws-sdk", "supabase"]),
+    );
   });
 
   it("a subsequent major release never alerts on a repo pinned to an older range", async () => {
@@ -112,4 +122,70 @@ describe("H8 case-level assertions", () => {
       expect(replay.metrics.mismatches).toEqual([]);
     });
   }
+});
+
+describe("certified DRAFT_PR patch coverage gate (CI)", () => {
+  it("every DRAFT_PR-certified connector yields suggestions for corpus payloads and patches apply to fixtures", async () => {
+    const checks = await checkCertifiedPatchCoverage();
+    const draftPr = checks.filter((check) => check.certifiedDraftPr);
+    expect(draftPr.map((check) => check.connector)).toEqual(
+      expect.arrayContaining(["openai", "stripe", "twilio", "anthropic", "aws-sdk", "supabase"]),
+    );
+    expect(draftPr.length).toBeGreaterThan(0);
+    for (const check of draftPr) {
+      expect(check.patchableEntries).toBeGreaterThan(0);
+      expect(check.violations, `${check.connector}: ${check.violations.join("; ")}`).toEqual([]);
+    }
+  });
+
+  it("auth0 stays PLAN-only: empty patch suggestions are asserted explicitly so it cannot be promoted to DRAFT_PR without a kit", async () => {
+    const checks = await checkCertifiedPatchCoverage();
+    const auth0 = checks.find((check) => check.connector === "auth0");
+    expect(auth0).toBeDefined();
+    expect(auth0!.certifiedDraftPr).toBe(false);
+    expect(auth0!.level).toBe("PLAN");
+    expect(auth0!.patchableEntries).toBe(0);
+    expect(auth0!.violations).toEqual([]);
+
+    const connector = getConnector("auth0");
+    for (const entry of EVAL_CORPUS.filter((entry) => entry.vendor === "auth0")) {
+      const drafts = connector!.normalizeChange({
+        rawPayload: entry.payload,
+        sourceType: "SDK_RELEASE",
+      });
+      expect(connector!.buildPatchSuggestions(drafts), entry.id).toEqual([]);
+    }
+  });
+
+  it("fails loudly when a certified connector's patch no longer applies (mutation guard)", async () => {
+    const original = EVAL_CORPUS.find((entry) => entry.id === "openai-3.3.0")!;
+    const brokenRename: EvalCorpusEntry = {
+      ...original,
+      payload: {
+        sdk: "openai",
+        fromVersion: "3.x",
+        toVersion: "4.x",
+        migration: {
+          methodRenames: [{ from: "openai.doesNotExist", to: "openai.chat.completions.create" }],
+          responseChanges: [
+            { symbol: "completion.data", description: "v4 returns the body directly." },
+          ],
+        },
+      },
+    };
+    const checks = await checkCertifiedPatchCoverage([brokenRename]);
+    const openai = checks.find((check) => check.connector === "openai")!;
+    expect(openai.certifiedDraftPr).toBe(true);
+    expect(openai.violations).toHaveLength(1);
+    expect(openai.violations[0]).toContain("does not apply to the fixture");
+
+    const noSuggestions: EvalCorpusEntry = {
+      ...original,
+      payload: { sdk: "openai", fromVersion: "3.x", toVersion: "4.x" },
+    };
+    const checks2 = await checkCertifiedPatchCoverage([noSuggestions]);
+    const openai2 = checks2.find((check) => check.connector === "openai")!;
+    expect(openai2.violations).toHaveLength(1);
+    expect(openai2.violations[0]).toContain("returned nothing");
+  });
 });

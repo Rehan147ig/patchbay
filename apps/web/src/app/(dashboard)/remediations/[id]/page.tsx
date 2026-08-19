@@ -36,6 +36,8 @@ export default async function RemediationDetailPage({
 }) {
   const user = await requireRole("VIEWER");
   const { id } = await params;
+  const validationMode =
+    process.env.SANDBOX_VALIDATION_MODE === "github-checks-only" ? "github-checks-only" : "other";
 
   const plan = await prisma.remediationPlan.findFirst({
     where: { id, impactAssessment: { repository: { organizationId: user.organizationId } } },
@@ -315,7 +317,11 @@ export default async function RemediationDetailPage({
       <Card>
         <CardHeader>
           <CardTitle>Validation runs</CardTitle>
-          <CardDescription>Allowlisted commands executed in the sandbox.</CardDescription>
+          <CardDescription>
+            {validationMode === "github-checks-only"
+              ? "Validation is skipped on Patchbay — customer CI (GitHub checks) is the validation sandbox."
+              : "Allowlisted commands executed in the sandbox."}
+          </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           {plan.validations.length === 0 ? (

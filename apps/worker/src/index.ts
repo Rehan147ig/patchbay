@@ -15,7 +15,11 @@ import { prisma } from "@patchbay/db";
 import { parseEnv } from "@patchbay/env";
 import { logger } from "@patchbay/domain";
 import { JobType, QUEUE_NAME, connection, queue } from "@patchbay/queue";
-import { createSandboxRunner, resolveSandboxMode } from "@patchbay/sandbox-runner";
+import {
+  createSandboxRunner,
+  resolveSandboxMode,
+  resolveSandboxValidationMode,
+} from "@patchbay/sandbox-runner";
 import { processAnalyzeChange } from "./jobs/analyze-change";
 import { processCreatePR } from "./jobs/create-pr";
 import { processPollNpmRegistry } from "./jobs/poll-npm-registry";
@@ -50,16 +54,24 @@ async function main(): Promise<void> {
   // Production fail-closed: the worker must not validate customer code on the
   // host process, and refuses to start when the hardened container runtime is
   // unavailable. createSandboxRunner throws for any non-container runtime.
+  // The only exception is SANDBOX_VALIDATION_MODE=github-checks-only, where
+  // customer code never executes on this host and customer CI is the sandbox.
   if (resolveSandboxMode() === "production") {
-    const sandbox = createSandboxRunner();
-    const available = await sandbox.isAvailable();
-    if (!available) {
-      throw new Error(
-        `refusing to start: production sandbox runtime ${sandbox.runtime} is unavailable ` +
-          "(start Docker and set SANDBOX_RUNTIME=container)",
+    if (resolveSandboxValidationMode() === "github-checks-only") {
+      logger.info(
+        "production validation mode is github-checks-only; customer CI is the validation sandbox",
       );
+    } else {
+      const sandbox = createSandboxRunner();
+      const available = await sandbox.isAvailable();
+      if (!available) {
+        throw new Error(
+          `refusing to start: production sandbox runtime ${sandbox.runtime} is unavailable ` +
+            "(start Docker and set SANDBOX_RUNTIME=container)",
+        );
+      }
+      logger.info("production sandbox runtime ready", { runtime: sandbox.runtime });
     }
-    logger.info("production sandbox runtime ready", { runtime: sandbox.runtime });
   }
 
   const worker = new Worker(

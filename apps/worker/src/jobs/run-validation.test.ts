@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { processRunValidation, type RunValidationJobData } from "./run-validation";
 import { prisma } from "@patchbay/db";
-import { isAllowedCommand } from "@patchbay/sandbox-runner";
+import { isAllowedCommand, resolveSandboxValidationMode } from "@patchbay/sandbox-runner";
 import { resolveFixtureDir } from "@patchbay/repo-analysis";
 import type { Job } from "bullmq";
 
@@ -37,6 +37,7 @@ afterAll(() => {
 
 vi.mock("@patchbay/sandbox-runner", () => ({
   isAllowedCommand: vi.fn(),
+  resolveSandboxValidationMode: vi.fn(() => "hosted-docker"),
   createSandboxRunner: vi.fn(() => ({
     runtime: "process",
     isAvailable: async () => true,
@@ -194,5 +195,44 @@ describe("processRunValidation", () => {
       where: { id: "plan-1" },
       data: { status: "VALIDATED" },
     });
+  });
+
+  it("records SKIPPED and never spawns a runner in github-checks-only mode", async () => {
+    vi.mocked(resolveSandboxValidationMode).mockReturnValue("github-checks-only");
+    vi.mocked(prisma.validationRun.findUnique).mockResolvedValueOnce({
+      id: "val-1",
+      commands: ["pnpm install --frozen-lockfile"],
+    } as never);
+    vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValueOnce({
+      id: "plan-1",
+      impactAssessment: {
+        changeEventId: "change-1",
+        repository: {
+          id: "repo-1",
+          metadata: { fixture: "openai-node-legacy" },
+          organizationId: "org-1",
+        },
+      },
+      patches: [],
+    } as never);
+    vi.mocked(prisma.vendorChangeEvent.findUnique).mockResolvedValueOnce({
+      id: "change-1",
+      organizationId: "org-1",
+    } as never);
+    vi.mocked(isAllowedCommand).mockReturnValue(true);
+
+    const result = await processRunValidation(mockJob);
+
+    expect(result.status).toBe("SKIPPED");
+    expect(result.commandsRun).toBe(0);
+    expect(prisma.validationRun.update).toHaveBeenCalledWith({
+      where: { id: "val-1" },
+      data: expect.objectContaining({
+        status: "SKIPPED",
+        stdout: expect.stringContaining("github-checks-only"),
+      }),
+    });
+    expect(prisma.remediationPlan.update).not.toHaveBeenCalled();
+    expect(mockRun).not.toHaveBeenCalled();
   });
 });

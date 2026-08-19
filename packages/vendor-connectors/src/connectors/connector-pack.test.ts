@@ -51,7 +51,8 @@ describe("connector pack", () => {
 
     const patches = awsSdkConnector.buildPatchSuggestions(normalizations);
     expect(patches.find((p) => p.symbol === "AWS.S3")?.replacement).toBe("S3Client");
-    expect(patches.find((p) => p.symbol === "S3.promise")?.replacement).toBe("await");
+    expect(patches.find((p) => p.symbol === "AWS.SQS")?.replacement).toBe("SQSClient");
+    expect(patches.find((p) => p.symbol === "AWS.DynamoDB")?.replacement).toBe("DynamoDBClient");
   });
 
   it("express: catches app.del removal and req.param removal", () => {
@@ -137,7 +138,7 @@ describe("connector pack", () => {
     );
   });
 
-  it("supabase: splits auth signIn into signInWithPassword", () => {
+  it("supabase: renames auth.user to auth.getUser", () => {
     const payload = { sdk: "@supabase/supabase-js", fromVersion: "1", toVersion: "2" };
     expect(supabaseConnector.supports(payload)).toBe(true);
 
@@ -146,8 +147,8 @@ describe("connector pack", () => {
       sourceType: "SDK_RELEASE",
     });
     const patches = supabaseConnector.buildPatchSuggestions(normalizations);
-    expect(patches.find((p) => p.symbol === "supabase.auth.signIn")?.replacement).toBe(
-      "supabase.auth.signInWithPassword",
+    expect(patches.find((p) => p.symbol === "supabase.auth.user")?.replacement).toBe(
+      "supabase.auth.getUser",
     );
   });
 });

@@ -104,7 +104,7 @@ const H8_CORPUS: EvalCorpusRef = {
   },
 };
 
-/** Certified L3 connectors (openai/stripe/twilio) and their full kit. */
+/** Certified L3 connectors and their full kit. */
 function certified(slug: string, pkg: string, level: CapabilityLevel): ConnectorCapability {
   return {
     vendorSlug: slug,
@@ -129,6 +129,9 @@ export const CAPABILITY_REGISTRY: readonly ConnectorCapability[] = [
   certified("openai", "openai", "DRAFT_PR"),
   certified("stripe", "stripe", "DRAFT_PR"),
   certified("twilio", "twilio", "DRAFT_PR"),
+  certified("anthropic", "@anthropic-ai/sdk", "DRAFT_PR"),
+  certified("aws-sdk", "aws-sdk", "DRAFT_PR"),
+  certified("supabase", "@supabase/supabase-js", "DRAFT_PR"),
   {
     ...baseline("auth0", "auth0"),
     level: "PLAN",
@@ -139,7 +142,6 @@ export const CAPABILITY_REGISTRY: readonly ConnectorCapability[] = [
   },
   { ...baseline("generic-openapi", "openapi-spec"), ecosystem: "openapi", language: "openapi" },
   // AI / LLM
-  baseline("anthropic", "anthropic"),
   baseline("google-gemini", "@google/generative-ai"),
   baseline("mistral", "@mistralai/mistralai"),
   baseline("deepseek", "deepseek"),
@@ -153,9 +155,7 @@ export const CAPABILITY_REGISTRY: readonly ConnectorCapability[] = [
   baseline("firebase", "firebase"),
   baseline("mongoose", "mongoose"),
   baseline("passport", "passport"),
-  baseline("supabase", "@supabase/supabase-js"),
   // Cloud & infra
-  baseline("aws-sdk", "aws-sdk"),
   baseline("google-cloud", "@google-cloud/storage"),
   baseline("azure-sdk", "@azure/identity"),
   baseline("vercel", "vercel"),

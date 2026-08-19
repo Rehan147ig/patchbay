@@ -137,6 +137,72 @@ describe("extractGraph - openai fixture", () => {
   });
 });
 
+describe("extractGraph - openai-python-legacy fixture", () => {
+  it("emits usage-driven nodes and edges for python call sites", async () => {
+    const graph = await extractGraph({
+      rootDir: fixtureDir("openai-python-legacy"),
+      trackPackages: TRACKED,
+    });
+
+    const client = nodeByKey(graph.nodeFacts, "client:openai:OpenAI");
+    expect(client?.kind).toBe(GraphNodeKind.API_CLIENT);
+    expect(client?.filePath).toBe("src/chat.py");
+    expect(
+      edgesOf(
+        graph.edgeFacts,
+        "module:src/chat.py",
+        GraphEdgeKind.CREATES_CLIENT,
+        "client:openai:OpenAI",
+      ),
+    ).toHaveLength(1);
+
+    const api = nodeByKey(graph.nodeFacts, "api:openai:client.chat.completions.create");
+    expect(api?.kind).toBe(GraphNodeKind.API_OPERATION);
+    expect(api?.filePath).toBe("src/chat.py");
+
+    const invokes = edgesOf(
+      graph.edgeFacts,
+      "module:src/chat.py",
+      GraphEdgeKind.INVOKES_API,
+      "api:openai:client.chat.completions.create",
+    );
+    expect(invokes).toHaveLength(1);
+    expect(invokes[0]?.provenance).toBe(GraphProvenance.EXTRACTED);
+    expect(invokes[0]?.confidence).toBe(100);
+    expect(invokes[0]?.evidence[0]?.sourceHash).toMatch(/^[0-9a-f]{64}$/);
+
+    const uses = edgesOf(
+      graph.edgeFacts,
+      "module:src/chat.py",
+      GraphEdgeKind.USES_PACKAGE,
+      "dep:openai",
+    );
+    expect(uses.length).toBeGreaterThan(0);
+    expect(uses.every((e) => e.provenance === GraphProvenance.EXTRACTED)).toBe(true);
+    expect(uses[0]?.evidence[0]?.sourceHash).toMatch(/^[0-9a-f]{64}$/);
+
+    expect(nodeByKey(graph.nodeFacts, "module:src/chat.py")?.kind).toBe(GraphNodeKind.MODULE);
+  });
+
+  it("keeps python containment structural but extracts no python imports", async () => {
+    const graph = await extractGraph({
+      rootDir: fixtureDir("openai-python-legacy"),
+      trackPackages: TRACKED,
+    });
+
+    const file = nodeByKey(graph.nodeFacts, "file:src/chat.py");
+    expect(file?.kind).toBe(GraphNodeKind.FILE);
+    expect(
+      edgesOf(graph.edgeFacts, "repo:root", GraphEdgeKind.CONTAINS, "file:src/chat.py"),
+    ).toHaveLength(1);
+
+    const moduleImports = graph.edgeFacts.filter(
+      (e) => e.fromKey === "module:src/chat.py" && e.kind === GraphEdgeKind.IMPORTS,
+    );
+    expect(moduleImports).toHaveLength(0);
+  });
+});
+
 describe("extractGraph - synthetic repo", () => {
   async function writeRepo(files: Record<string, string>): Promise<string> {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "patchbay-graph-"));

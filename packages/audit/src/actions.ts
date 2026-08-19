@@ -24,6 +24,7 @@ export const AuditAction = {
   PLAN_VALIDATION_STARTED: "plan.validation_started",
   PLAN_VALIDATION_PASSED: "plan.validation_passed",
   PLAN_VALIDATION_FAILED: "plan.validation_failed",
+  PLAN_VALIDATION_SKIPPED: "plan.validation_skipped",
   POLICY_DECISION: "policy.decision",
   POLICY_BLOCKED: "policy.blocked",
   APPROVAL_RECORDED: "approval.recorded",

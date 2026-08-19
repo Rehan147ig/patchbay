@@ -24,6 +24,7 @@ import { ScanRepositoryButton } from "@/components/scan-repository-button";
 import {
   formatDate,
   formatDateOnly,
+  GRAPH_INDEX_STATUS_TONE,
   RISK_TAG_LABEL,
   RISK_TAG_TONE,
   SCAN_STATUS_TONE,
@@ -46,6 +47,7 @@ export default async function RepositoryDetailPage({
     where: { id, organizationId: user.organizationId },
     include: {
       scans: { orderBy: { createdAt: "desc" }, take: 5 },
+      graphIndexJobs: { orderBy: { startedAt: "desc" }, take: 5 },
       usages: {
         orderBy: [{ filePath: "asc" }, { symbol: "asc" }],
         include: { vendor: true },
@@ -157,6 +159,56 @@ export default async function RepositoryDetailPage({
 
       <Card>
         <CardHeader>
+          <CardTitle>Graph index</CardTitle>
+          <CardDescription>
+            Deterministic graph snapshots (TypeScript and Python files) built after scans.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          {repository.graphIndexJobs.length === 0 ? (
+            <p className="px-4 py-3 text-sm text-slate-500">
+              No graph snapshots yet — they are built automatically after each scan.
+            </p>
+          ) : (
+            <Table className="rounded-none border-0 shadow-none">
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>Status</TableHeaderCell>
+                  <TableHeaderCell>Mode</TableHeaderCell>
+                  <TableHeaderCell>Completed</TableHeaderCell>
+                  <TableHeaderCell>Nodes</TableHeaderCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {repository.graphIndexJobs.map((job) => {
+                  const timings =
+                    job.timingsJson && typeof job.timingsJson === "object" ? job.timingsJson : null;
+                  return (
+                    <TableRow key={job.id}>
+                      <TableCell>
+                        <StatusPill
+                          label={job.status}
+                          tone={GRAPH_INDEX_STATUS_TONE[job.status] ?? "neutral"}
+                        />
+                      </TableCell>
+                      <TableCell className="text-xs">{job.mode}</TableCell>
+                      <TableCell className="text-xs text-slate-500">
+                        {formatDate(job.completedAt)}
+                      </TableCell>
+                      <TableCell className="tabular-nums">
+                        {timings && "nodeCount" in timings ? String(timings.nodeCount) : "—"}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Usage inventory</CardTitle>
           <CardDescription>Indexed integration usages from the latest scan.</CardDescription>
         </CardHeader>
@@ -164,8 +216,8 @@ export default async function RepositoryDetailPage({
           {repository.usages.length === 0 ? (
             <div className="px-4 py-3">
               <EmptyState
-                title="No usages indexed"
-                description="Run a scan to build the usage inventory."
+                title="No certified SDK call sites found"
+                description="Run a scan to index TypeScript and Python call sites. Repositories without vendor SDK usage stay empty."
               />
             </div>
           ) : (
@@ -173,6 +225,7 @@ export default async function RepositoryDetailPage({
               <TableHead>
                 <TableRow>
                   <TableHeaderCell>File</TableHeaderCell>
+                  <TableHeaderCell>Package</TableHeaderCell>
                   <TableHeaderCell>Symbol</TableHeaderCell>
                   <TableHeaderCell>Type</TableHeaderCell>
                   <TableHeaderCell>Owner</TableHeaderCell>
@@ -191,6 +244,7 @@ export default async function RepositoryDetailPage({
                         <span className="text-slate-400">:{String(usage.astLocation.line)}</span>
                       ) : null}
                     </TableCell>
+                    <TableCell className="font-mono text-xs">{usage.vendor.slug}</TableCell>
                     <TableCell className="font-mono text-xs">{usage.symbol}</TableCell>
                     <TableCell className="text-xs">{usageTypeLabel(usage.usageType)}</TableCell>
                     <TableCell className="text-xs">{usage.ownerHint}</TableCell>

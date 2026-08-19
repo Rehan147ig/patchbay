@@ -28,7 +28,12 @@ import {
   resolveFixtureDir,
   type RepositoryAnalysis,
 } from "@patchbay/repo-analysis";
-import { getConnector } from "@patchbay/vendor-connectors";
+import {
+  CAPABILITY_LEVEL_INDEX,
+  getCapability,
+  getConnector,
+  type CapabilityLevel,
+} from "@patchbay/vendor-connectors";
 import { generatePlan, reparseCheck } from "./engine";
 import type { PlanDraft } from "./types";
 
@@ -92,7 +97,15 @@ export interface EvalMetrics {
   mismatches: EvalMismatch[];
 }
 
-const TRACKED = ["stripe", "openai", "twilio", "auth0"];
+const TRACKED = [
+  "stripe",
+  "openai",
+  "twilio",
+  "auth0",
+  "@anthropic-ai/sdk",
+  "aws-sdk",
+  "@supabase/supabase-js",
+];
 
 export const EVAL_CORPUS: EvalCorpusEntry[] = [
   {
@@ -206,6 +219,84 @@ export const EVAL_CORPUS: EvalCorpusEntry[] = [
     releaseVersion: "3.1.0",
     previousVersion: "3.0.0",
     payload: { fromVersion: "3.0.x", toVersion: "3.1.x" },
+    expectedMatched: false,
+    expectedFiles: [],
+    facts: { breaking: false, requiresHumanReview: false, riskTags: [] },
+    expectedDecision: PolicyDecision.ALLOW_PLAN_ONLY,
+  },
+  {
+    id: "anthropic-0.20.0",
+    vendor: "anthropic",
+    fixture: "anthropic-node-legacy",
+    packageName: "@anthropic-ai/sdk",
+    releaseVersion: "0.20.0",
+    previousVersion: "0.19.0",
+    payload: { sdk: "anthropic" },
+    expectedMatched: true,
+    expectedFiles: ["src/chat/complete.ts"],
+    facts: { breaking: true, requiresHumanReview: true, riskTags: [] },
+    expectedDecision: PolicyDecision.REQUIRE_APPROVAL,
+  },
+  {
+    id: "anthropic-1.0.0",
+    vendor: "anthropic",
+    fixture: "anthropic-node-legacy",
+    packageName: "@anthropic-ai/sdk",
+    releaseVersion: "1.0.0",
+    previousVersion: "0.20.0",
+    payload: { fromVersion: "0.x", toVersion: "1.x" },
+    expectedMatched: false,
+    expectedFiles: [],
+    facts: { breaking: false, requiresHumanReview: false, riskTags: [] },
+    expectedDecision: PolicyDecision.ALLOW_PLAN_ONLY,
+  },
+  {
+    id: "aws-sdk-2.1691.0",
+    vendor: "aws-sdk",
+    fixture: "aws-sdk-node-legacy",
+    packageName: "aws-sdk",
+    releaseVersion: "2.1691.0",
+    previousVersion: "2.1690.0",
+    payload: { sdk: "aws-sdk" },
+    expectedMatched: true,
+    expectedFiles: ["src/aws-clients.ts"],
+    facts: { breaking: true, requiresHumanReview: true, riskTags: ["INFRASTRUCTURE"] },
+    expectedDecision: PolicyDecision.REQUIRE_APPROVAL,
+  },
+  {
+    id: "aws-sdk-3.0.0",
+    vendor: "aws-sdk",
+    fixture: "aws-sdk-node-legacy",
+    packageName: "aws-sdk",
+    releaseVersion: "3.0.0",
+    previousVersion: "2.1691.0",
+    payload: { fromVersion: "2.x", toVersion: "3.x" },
+    expectedMatched: false,
+    expectedFiles: [],
+    facts: { breaking: false, requiresHumanReview: false, riskTags: [] },
+    expectedDecision: PolicyDecision.ALLOW_PLAN_ONLY,
+  },
+  {
+    id: "supabase-1.35.7",
+    vendor: "supabase",
+    fixture: "supabase-js-legacy",
+    packageName: "@supabase/supabase-js",
+    releaseVersion: "1.35.7",
+    previousVersion: "1.35.6",
+    payload: { sdk: "supabase" },
+    expectedMatched: true,
+    expectedFiles: ["src/auth/session.ts"],
+    facts: { breaking: true, requiresHumanReview: true, riskTags: ["AUTH"] },
+    expectedDecision: PolicyDecision.REQUIRE_APPROVAL,
+  },
+  {
+    id: "supabase-2.0.0",
+    vendor: "supabase",
+    fixture: "supabase-js-legacy",
+    packageName: "@supabase/supabase-js",
+    releaseVersion: "2.0.0",
+    previousVersion: "1.35.7",
+    payload: { fromVersion: "1.x", toVersion: "2.x" },
     expectedMatched: false,
     expectedFiles: [],
     facts: { breaking: false, requiresHumanReview: false, riskTags: [] },
@@ -393,7 +484,7 @@ export async function runEvalCorpus(entries: EvalCorpusEntry[] = EVAL_CORPUS): P
   };
 }
 
-/** Human-readable metrics table for reports and test diagnostics. */
+/** Human-readable metrics table for tests and diagnostics. */
 export function formatEvalCorpusReport(metrics: EvalMetrics): string {
   const pct = (value: number): string => `${(value * 100).toFixed(1)}%`;
   const rows = [
@@ -407,4 +498,109 @@ export function formatEvalCorpusReport(metrics: EvalMetrics): string {
     `mismatches                      ${metrics.mismatches.length}`,
   ];
   return `H8 full-loop evaluation corpus\n${rows.join("\n")}`;
+}
+
+export interface CertifiedPatchCoverageCheck {
+  connector: string;
+  /** Certified capability level from the registry (null when absent). */
+  level: CapabilityLevel | null;
+  /** True when the registry certifies this connector for DRAFT_PR or higher. */
+  certifiedDraftPr: boolean;
+  corpusEntries: number;
+  /** Corpus entries that label expected patch files for this connector. */
+  patchableEntries: number;
+  /** Human-readable failures; empty means the gate is green. */
+  violations: string[];
+}
+
+/**
+ * Certification coverage gate (CI).
+ *
+ * A connector certified for DRAFT_PR must have a live patch kit proven by the
+ * corpus: every patchable entry must yield buildPatchSuggestions AND the
+ * suggestions must apply to the real fixture (replayed end to end). A
+ * connector below DRAFT_PR (e.g. auth0 at PLAN) must produce no patch
+ * suggestions at all — if one appears, the kit exists but was never certified,
+ * which fails loudly instead of silently shipping patches.
+ *
+ * Deriving the requirement from the capability registry means promoting a
+ * connector to DRAFT_PR without a working kit makes this gate fail — the
+ * corpus is a hard prerequisite for certification.
+ */
+export async function checkCertifiedPatchCoverage(
+  entries: EvalCorpusEntry[] = EVAL_CORPUS,
+): Promise<CertifiedPatchCoverageCheck[]> {
+  const byVendor = new Map<string, EvalCorpusEntry[]>();
+  for (const entry of entries) {
+    const list = byVendor.get(entry.vendor) ?? [];
+    list.push(entry);
+    byVendor.set(entry.vendor, list);
+  }
+
+  const checks: CertifiedPatchCoverageCheck[] = [];
+  for (const [vendor, vendorEntries] of byVendor) {
+    const connector = getConnector(vendor);
+    const capability = getCapability(vendor);
+    const level = capability?.level ?? null;
+    const certifiedDraftPr =
+      level !== null && CAPABILITY_LEVEL_INDEX[level] >= CAPABILITY_LEVEL_INDEX.DRAFT_PR;
+    const patchableEntries = vendorEntries.filter((entry) => entry.expectedFiles.length > 0);
+    const violations: string[] = [];
+
+    if (!connector) {
+      violations.push(`no connector is registered for vendor "${vendor}"`);
+    } else {
+      const suggestionCountFor = (entry: EvalCorpusEntry): number =>
+        connector.buildPatchSuggestions(
+          connector.normalizeChange({
+            rawPayload: entry.payload,
+            sourceType: "SDK_RELEASE",
+          }),
+        ).length;
+
+      if (certifiedDraftPr) {
+        if (patchableEntries.length === 0) {
+          violations.push(
+            `corpus has no patchable entry for "${vendor}" — nothing proves its patch kit`,
+          );
+        }
+        for (const entry of patchableEntries) {
+          if (suggestionCountFor(entry) === 0) {
+            violations.push(
+              `${entry.id}: certified DRAFT_PR but buildPatchSuggestions returned nothing for its payload`,
+            );
+            continue;
+          }
+          const replay = await runEvalCase(entry);
+          const missing = entry.expectedFiles.filter((file) => !replay.patchFiles.includes(file));
+          if (missing.length > 0) {
+            violations.push(
+              `${entry.id}: patch kit does not apply to the fixture (expected ${entry.expectedFiles.join(",")}, got ${replay.patchFiles.join(",") || "(none)"})`,
+            );
+          }
+        }
+      } else {
+        // Below DRAFT_PR: suggestions must stay empty by design. This is what
+        // makes an accidental promotion fail — a connector with a patch kit
+        // but no certification cannot silently start producing patches.
+        for (const entry of vendorEntries) {
+          if (suggestionCountFor(entry) > 0) {
+            violations.push(
+              `${entry.id}: produces patch suggestions but "${vendor}" is not certified DRAFT_PR`,
+            );
+          }
+        }
+      }
+    }
+
+    checks.push({
+      connector: vendor,
+      level,
+      certifiedDraftPr,
+      corpusEntries: vendorEntries.length,
+      patchableEntries: patchableEntries.length,
+      violations,
+    });
+  }
+  return checks;
 }

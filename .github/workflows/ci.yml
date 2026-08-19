@@ -44,6 +44,8 @@ jobs:
       - run: pnpm format:check
       - run: pnpm lint
       - run: pnpm typecheck
+      - name: Eval corpus gate (certification prerequisite)
+        run: pnpm test:corpus
       - run: pnpm test
       - name: Apply migrations
         run: pnpm db:migrate

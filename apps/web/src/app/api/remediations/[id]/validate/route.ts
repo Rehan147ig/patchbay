@@ -12,11 +12,19 @@ import { assertCapabilityGateOpen } from "@/lib/capability-gates";
 /** Deterministic validation command set (ADR-0004 allowlist). */
 const VALIDATION_COMMANDS = ["pnpm install --frozen-lockfile"];
 
+const SKIPPED_MESSAGE =
+  "Validation skipped: SANDBOX_VALIDATION_MODE=github-checks-only — Patchbay does not " +
+  "execute customer code on this host; customer CI (GitHub checks) is the validation sandbox.";
+
 /**
  * POST /api/remediations/[id]/validate
  * Creates a QUEUED ValidationRun and enqueues the run-validation job. The
  * worker applies the plan's patches to a disposable copy of the fixture
  * workspace and executes the allowlisted commands.
+ *
+ * With SANDBOX_VALIDATION_MODE=github-checks-only the run is created as
+ * SKIPPED (never PASSED), nothing is enqueued, and customer CI is the
+ * validation sandbox.
  */
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const correlationId = getCorrelationId(request);
@@ -57,6 +65,41 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     );
     if (plan.patches.length === 0) {
       throw validationFailed("This plan has no patches to validate");
+    }
+
+    // github-checks-only: record the run as SKIPPED without enqueuing anything —
+    // customer code never executes on this host. SKIPPED is not PASSED, so the
+    // draft-PR policy gate still applies as-is.
+    if (process.env.SANDBOX_VALIDATION_MODE === "github-checks-only") {
+      const skippedRun = await prisma.validationRun.create({
+        data: {
+          organizationId: user.organizationId,
+          remediationPlanId: plan.id,
+          status: ValidationStatus.SKIPPED,
+          commands: VALIDATION_COMMANDS as never,
+          stdout: SKIPPED_MESSAGE,
+          completedAt: new Date(),
+        },
+      });
+      await writeAuditEvent({
+        organizationId: user.organizationId,
+        actorType: ActorType.USER,
+        actorId: user.id,
+        action: AuditAction.PLAN_VALIDATION_SKIPPED,
+        entityType: "remediationPlan",
+        entityId: plan.id,
+        correlationId,
+        after: { validationRunId: skippedRun.id, reason: "customer CI is the validation sandbox" },
+      });
+      return jsonOk(
+        {
+          validationRunId: skippedRun.id,
+          remediationPlanId: plan.id,
+          status: "SKIPPED",
+        },
+        correlationId,
+        202,
+      );
     }
 
     const validationRun = await prisma.validationRun.create({

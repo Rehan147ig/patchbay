@@ -22,6 +22,12 @@ import { sanitizeText } from "@patchbay/audit";
  *   validation execution; a production worker refuses to start when the
  *   container runtime is unavailable.
  *
+ * Validation modes (SANDBOX_VALIDATION_MODE, default "hosted-docker"):
+ * - "hosted-docker": commands execute in the container sandbox.
+ * - "github-checks-only": no customer code ever executes on this host; runs
+ *   are recorded as SKIPPED and customer CI is the validation sandbox.
+ * - "process": local development only, never production.
+ *
  * Backends:
  * - "process": spawns on the local host. NOT a hardened multi-tenant sandbox:
  *   an allowlisted script name can run whatever the target package.json
@@ -85,6 +91,25 @@ export function resolveSandboxMode(): SandboxMode {
   if (process.env.NODE_ENV === "production") return "production";
   if (process.env.NODE_ENV === "test") return "test";
   return "development";
+}
+
+/**
+ * How validation commands are executed for this deployment:
+ * - "hosted-docker" (default): commands run in the container sandbox
+ *   (SANDBOX_RUNTIME=container); production stays fail-closed.
+ * - "github-checks-only": Patchbay NEVER executes customer code on this host.
+ *   ValidationRuns are recorded as SKIPPED and the customer's CI (GitHub
+ *   checks) is the validation sandbox.
+ * - "process": local/dev only — not a multi-tenant sandbox.
+ */
+export type SandboxValidationMode = "hosted-docker" | "github-checks-only" | "process";
+
+export function resolveSandboxValidationMode(): SandboxValidationMode {
+  const explicit = process.env.SANDBOX_VALIDATION_MODE;
+  if (explicit === "hosted-docker" || explicit === "github-checks-only" || explicit === "process") {
+    return explicit;
+  }
+  return "hosted-docker";
 }
 
 export type SandboxRuntime = "process" | "microvm" | "container";

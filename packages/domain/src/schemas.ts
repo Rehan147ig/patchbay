@@ -121,7 +121,15 @@ export const approvalSchema = z.object({
 export type ApprovalRequest = z.infer<typeof approvalSchema>;
 
 export const demoRunSchema = z.object({
-  scenario: z.enum(["openai-migration", "auth0-config", "openapi-response-field"]),
+  scenario: z.enum([
+    "openai-migration",
+    "auth0-config",
+    "openapi-response-field",
+    "stripe-metadata",
+    "anthropic-completions",
+    "aws-sdk-v2-clients",
+    "supabase-auth-user",
+  ]),
 });
 export type DemoRunRequest = z.infer<typeof demoRunSchema>;
 

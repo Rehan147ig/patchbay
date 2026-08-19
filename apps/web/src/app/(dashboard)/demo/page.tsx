@@ -16,6 +16,34 @@ const SCENARIOS = [
     available: true,
   },
   {
+    id: "stripe-metadata",
+    title: "Stripe customers.create metadata",
+    description:
+      "Runs the Stripe customers.create metadata change: event created, normalized (metadata parameter required, PAYMENT risk tag), impact assessed against billing-service, rule-based patch applied. PAYMENT changes require human approval — after an admin records approval and validation passes, a mock draft PR is created (stripe is certified for DRAFT_PR, unlike Auth0).",
+    available: true,
+  },
+  {
+    id: "anthropic-completions",
+    title: "Anthropic Completions → Messages",
+    description:
+      "Runs the Anthropic Completions API change: anthropic.completions.create is renamed to anthropic.messages.create on claude-assistant-service. Certified DRAFT_PR (corpus-verified line rename).",
+    available: true,
+  },
+  {
+    id: "aws-sdk-v2-clients",
+    title: "AWS SDK v2 constructors → v3 clients",
+    description:
+      "Runs the AWS SDK v2→v3 constructor rename: new AWS.S3() / SQS / DynamoDB become S3Client / SQSClient / DynamoDBClient on aws-workers-service. INFRASTRUCTURE requires approval. This kit does not rewrite SendCommand or .promise().",
+    available: true,
+  },
+  {
+    id: "supabase-auth-user",
+    title: "Supabase auth.user → getUser",
+    description:
+      "Runs the Supabase JS v2 auth helper change: supabase.auth.user() is renamed to supabase.auth.getUser() on supabase-backend-service. AUTH requires approval; certified DRAFT_PR.",
+    available: true,
+  },
+  {
     id: "auth0-config",
     title: "Auth0 configuration change",
     description:

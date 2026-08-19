@@ -91,9 +91,9 @@ describe("GET /api/vendors", () => {
       (vendor) => vendor.slug === "anthropic",
     );
     expect(anthropic?.capability).toMatchObject({
-      level: "ASSESS",
-      certified: false,
-      corpusStatus: null,
+      level: "DRAFT_PR",
+      certified: true,
+      corpusStatus: "ACTIVE",
     });
 
     const acme = (body.data.vendors as Array<Record<string, unknown>>).find(
@@ -119,7 +119,8 @@ describe("GET /api/vendors", () => {
     const body = (await response.json()) as { data: { vendors: Array<{ slug: string }> } };
     const slugs = body.data.vendors.map((vendor) => vendor.slug);
     expect(slugs).toContain("openai");
-    expect(slugs).not.toContain("anthropic");
+    expect(slugs).toContain("anthropic");
+    expect(slugs).not.toContain("generic-openapi");
     expect(slugs).not.toContain("acme-not-in-catalog");
   });
 

@@ -10,7 +10,7 @@
 breaking SDK update, deprecates a method, or updates an API specification, Patchbay detects the release
 via its Release Watchtower, proves TypeScript AST usages across your repositories using a commit-versioned
 **Software Intelligence Graph**, and opens reviewable draft pull requests when a certified rule pack exists
-(OpenAI, Stripe, Twilio for Node/TS today; Auth0 and Generic OpenAPI for reviewable planning; 56-connector
+(OpenAI, Stripe, Twilio, Anthropic, AWS SDK, and Supabase for Node/TS today; Auth0 and Generic OpenAPI for reviewable planning; 56-connector
 catalog for detection and impact assessment).
 
 Patchbay validates all code edits in an isolated sandbox runner, enforces policy-based approval gates
@@ -173,6 +173,7 @@ flowchart TB
   - Pre-built connectors across 10 categories (AI/LLM, Cloud/Infra, Payments, Auth, Messaging, DB/Data, Web Frameworks, Search/Observability, CRM, Generic OpenAPI).
   - Declarative `defineConnector()` SDK — a new vendor connector in ~40 lines of TypeScript.
   - Connector **certification registry** (`getCapability`, `requireCertified`) gating PLAN/VALIDATE/DRAFT_PR capability levels (WP9).
+  - The H8 eval corpus (`pnpm test:corpus`) is the certification prerequisite: certified DRAFT_PR connectors must produce patch suggestions for corpus payloads and the patches must apply to the fixture repositories — breaking a rename in the corpus fails CI, and a connector below DRAFT_PR (auth0) is asserted to produce no patches so it cannot be promoted accidentally. Current DRAFT_PR kits: openai, stripe, twilio, anthropic, aws-sdk, supabase.
 
 - **AI Harness (`packages/ai-harness`, `packages/ai-provider`)**:
   - Provider registry (`mock` default, `openai`, custom) behind `AiProvider`.
@@ -282,8 +283,11 @@ The repository enforces clean quality gates across all 18 workspace projects (2 
 # Typecheck all 18 projects (zero errors)
 pnpm typecheck
 
-# Run full Vitest suite (925 passing tests across 86 test files)
+# Run full Vitest suite (980 passing tests across 92 test files; +17 via the [id] route-test config)
 pnpm test
+
+# Eval corpus certification gate (DRAFT_PR prerequisite; also run by pnpm test)
+pnpm test:corpus
 
 # ESLint, zero warnings
 pnpm lint

@@ -42,13 +42,24 @@ describe("connector capability registry", () => {
     }
   });
 
-  it("openai/stripe/twilio are certified DRAFT_PR; auth0 is PLAN; the rest are ASSESS", () => {
+  it("openai/stripe/twilio/anthropic/aws-sdk/supabase are certified DRAFT_PR; auth0 is PLAN; the rest are ASSESS", () => {
     const levelOf = (slug: string): string => getCapability(slug)?.level ?? "none";
     expect(levelOf("openai")).toBe("DRAFT_PR");
     expect(levelOf("stripe")).toBe("DRAFT_PR");
     expect(levelOf("twilio")).toBe("DRAFT_PR");
+    expect(levelOf("anthropic")).toBe("DRAFT_PR");
+    expect(levelOf("aws-sdk")).toBe("DRAFT_PR");
+    expect(levelOf("supabase")).toBe("DRAFT_PR");
     expect(levelOf("auth0")).toBe("PLAN");
-    const certified = new Set(["openai", "stripe", "twilio", "auth0"]);
+    const certified = new Set([
+      "openai",
+      "stripe",
+      "twilio",
+      "anthropic",
+      "aws-sdk",
+      "supabase",
+      "auth0",
+    ]);
     for (const slug of listConnectorSlugs()) {
       if (!certified.has(slug)) {
         expect(levelOf(slug), slug).toBe("ASSESS");
@@ -73,22 +84,28 @@ describe("connector capability registry", () => {
     expect(capabilityAtLeast("auth0", "PLAN")).toBe(true);
     expect(capabilityAtLeast("auth0", "VALIDATE")).toBe(false);
     expect(capabilityAtLeast("anthropic", "ASSESS")).toBe(true);
-    expect(capabilityAtLeast("anthropic", "PLAN")).toBe(false);
+    expect(capabilityAtLeast("anthropic", "DRAFT_PR")).toBe(true);
     expect(capabilityAtLeast("not-a-vendor", "DETECT")).toBe(false);
   });
 
   it("filters by level return only connectors reaching that level", () => {
     const draftPr = listCapabilitiesByLevel("DRAFT_PR");
     expect(draftPr.map((entry: ConnectorCapability) => entry.vendorSlug).sort()).toEqual([
+      "anthropic",
+      "aws-sdk",
       "openai",
       "stripe",
+      "supabase",
       "twilio",
     ]);
     const plan = listCapabilitiesByLevel("PLAN");
     expect(plan.map((entry: ConnectorCapability) => entry.vendorSlug).sort()).toEqual([
+      "anthropic",
       "auth0",
+      "aws-sdk",
       "openai",
       "stripe",
+      "supabase",
       "twilio",
     ]);
   });
@@ -109,7 +126,7 @@ describe("requireCertified (WP9 certification gate)", () => {
   });
 
   it("fails for uncertified connectors at kit-required levels", () => {
-    for (const slug of ["anthropic", "axios", "express", "generic-openapi"]) {
+    for (const slug of ["axios", "express", "generic-openapi"]) {
       const check = requireCertified(slug, "PLAN");
       expect(check.ok, slug).toBe(false);
       expect(check.reasons.join("; "), slug).toMatch(/ASSESS is below the required PLAN/);

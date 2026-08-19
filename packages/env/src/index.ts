@@ -67,6 +67,12 @@ export const envSchema = z
     // Sandbox runner.
     SANDBOX_TIMEOUT_MS: z.coerce.number().int().min(1).max(300_000).default(120_000),
     SANDBOX_MAX_OUTPUT_CHARS: z.coerce.number().int().min(1).max(1_000_000).default(20_000),
+    // How validation commands run: "hosted-docker" (container sandbox, default),
+    // "github-checks-only" (never execute customer code; runs are SKIPPED and
+    // customer CI is the sandbox), or "process" (local/dev only).
+    SANDBOX_VALIDATION_MODE: z
+      .enum(["hosted-docker", "github-checks-only", "process"])
+      .default("hosted-docker"),
 
     // Release Watchtower polling. Schedulers are registered at worker boot
     // only when enabled; intervals in milliseconds.

@@ -153,6 +153,25 @@ export class GitHubAppProvider implements GitProvider {
   }
 
   /**
+   * Resolves the HEAD commit SHA of a branch through an installation token.
+   * Mirrors GitHubProvider.resolveHeadSha with a fresh-token retry on 401.
+   */
+  async resolveHeadSha(baseBranch?: string): Promise<string> {
+    const token = await this.createInstallationToken();
+    try {
+      const delegate = new GitHubProvider(this.delegateConfig(token));
+      return await delegate.resolveHeadSha(baseBranch);
+    } catch (error) {
+      if (isUnauthorized(error) && this.tokenCache.delete(this.config.installationId)) {
+        const freshToken = await this.createInstallationToken();
+        const delegate = new GitHubProvider(this.delegateConfig(freshToken));
+        return delegate.resolveHeadSha(baseBranch);
+      }
+      throw error;
+    }
+  }
+
+  /**
    * Fetches repository metadata through an installation token. Used by the
    * "connect repository" endpoint to register real GitHub repos.
    */

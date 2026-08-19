@@ -199,8 +199,13 @@ export function parsePythonManifest(relPath: string, source: string): Omit<Pytho
 
 /**
  * Extracts L1 usages from a single Python source file. Imports of tracked
- * packages are recorded as IMPORT usages; attribute/call chains rooted at an
- * imported module name are recorded as METHOD_CALL usages.
+ * packages are recorded as IMPORT usages; bare calls on a tracked import
+ * (e.g. `OpenAI(...)`, `StripeClient(...)`) are recorded as INITIALIZATION
+ * (client construction); attribute chains rooted at a tracked module or
+ * client variable (e.g. `client.chat.completions.create(...)`) are recorded
+ * as METHOD_CALL usages. Variables assigned from a tracked constructor
+ * (`client = OpenAI(...)`) are tracked so later calls through them resolve
+ * to the same package.
  */
 export async function extractPythonUsages(
   source: string,
@@ -243,6 +248,23 @@ export async function extractPythonUsages(
     return asIndex === -1 ? firstSegment(node) : text.slice(asIndex + 4).trim();
   };
 
+  /** Resolves a call node to the tracked package of its root identifier. */
+  const packageOfCall = (callNode: TsNode): string | null => {
+    const fn = callNode.childForFieldName("function");
+    if (fn === null) return null;
+    if (fn.type === "identifier") return aliases.get(fn.text) ?? null;
+    if (fn.type === "attribute") {
+      let cursor: TsNode = fn;
+      while (cursor.type === "attribute") {
+        const obj = cursor.childForFieldName("object");
+        if (obj === null) break;
+        cursor = obj;
+      }
+      return cursor.type === "identifier" ? (aliases.get(cursor.text) ?? null) : null;
+    }
+    return null;
+  };
+
   function walk(node: TsNode): void {
     if (node.type === "import_statement") {
       let moduleNode: TsNode | null = null;
@@ -283,9 +305,19 @@ export async function extractPythonUsages(
         }
         addUsage(pkg, UsageType.IMPORT, moduleNode.text, node);
       }
+    } else if (node.type === "assignment") {
+      const left = node.childForFieldName("left");
+      const right = node.childForFieldName("right");
+      if (left !== null && left.type === "identifier" && right !== null && right.type === "call") {
+        const pkg = packageOfCall(right);
+        if (pkg !== null) aliases.set(left.text, pkg);
+      }
     } else if (node.type === "call") {
       const fn = node.childForFieldName("function");
-      if (fn !== null && (fn.type === "attribute" || fn.type === "identifier")) {
+      if (fn !== null && fn.type === "identifier") {
+        const pkg = aliases.get(fn.text);
+        if (pkg) addUsage(pkg, UsageType.INITIALIZATION, fn.text, node);
+      } else if (fn !== null && fn.type === "attribute") {
         let cursor: TsNode = fn;
         while (cursor.type === "attribute") {
           const obj = cursor.childForFieldName("object");
@@ -294,13 +326,7 @@ export async function extractPythonUsages(
         }
         if (cursor.type === "identifier") {
           const pkg = aliases.get(cursor.text);
-          if (pkg)
-            addUsage(
-              pkg,
-              UsageType.METHOD_CALL,
-              fn.type === "identifier" ? node.text : fn.text,
-              node,
-            );
+          if (pkg) addUsage(pkg, UsageType.METHOD_CALL, fn.text, node);
         }
       }
     }

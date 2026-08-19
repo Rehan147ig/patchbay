@@ -8,6 +8,7 @@ import { resolveFixtureDir } from "@patchbay/repo-analysis";
 import {
   createSandboxRunner,
   isAllowedCommand,
+  resolveSandboxValidationMode,
   type RunProvenance,
   type SandboxRunner,
 } from "@patchbay/sandbox-runner";
@@ -26,6 +27,10 @@ import { createGitProviderFromEnv } from "@patchbay/git-provider";
  * 3. runs the plan's allowlisted commands sequentially via sandbox-runner
  * 4. persists PASSED/FAILED + bounded output, advances the plan status, and
  *    writes plan.validation_started / plan.validation_passed / failed audits
+ *
+ * With SANDBOX_VALIDATION_MODE=github-checks-only the run is recorded as
+ * SKIPPED instead and no command ever executes on this host — the customer's
+ * CI (GitHub checks) is the validation sandbox.
  */
 export const RunValidationJobDataSchema = z.object({
   validationRunId: z.string().min(1),
@@ -57,10 +62,14 @@ function runner(): SandboxRunner {
 
 export interface RunValidationResult {
   validationRunId: string;
-  status: "PASSED" | "FAILED";
+  status: "PASSED" | "FAILED" | "SKIPPED";
   commandsRun: number;
   durationMs: number;
 }
+
+const SKIPPED_MESSAGE =
+  "Validation skipped: SANDBOX_VALIDATION_MODE=github-checks-only — Patchbay does not " +
+  "execute customer code on this host; customer CI (GitHub checks) is the validation sandbox.";
 
 export async function processRunValidation(job: Job): Promise<RunValidationResult> {
   const parsed = RunValidationJobDataSchema.safeParse(job.data);
@@ -112,6 +121,35 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
   const entity = { entityType: "remediationPlan", entityId: remediationPlanId };
   const startedAt = new Date();
   const startedClock = Date.now();
+
+  // github-checks-only: never execute customer code on this host. The run is
+  // recorded as SKIPPED (never PASSED) and the plan status is left untouched so
+  // draft-PR policy still applies as-is (SKIPPED is not a passing validation).
+  if (resolveSandboxValidationMode() === "github-checks-only") {
+    await prisma.validationRun.update({
+      where: { id: validationRunId },
+      data: {
+        status: ValidationStatus.SKIPPED,
+        stdout: SKIPPED_MESSAGE,
+        completedAt: new Date(),
+      },
+    });
+    await writeAuditEvent({
+      organizationId,
+      actorType: ActorType.SYSTEM,
+      actorId: null,
+      action: AuditAction.PLAN_VALIDATION_SKIPPED,
+      correlationId,
+      ...entity,
+      after: { validationRunId, reason: "customer CI is the validation sandbox" },
+    });
+    logger.info("validation skipped (github-checks-only)", {
+      validationRunId,
+      remediationPlanId,
+      correlationId,
+    });
+    return { validationRunId, status: "SKIPPED", commandsRun: 0, durationMs: 0 };
+  }
 
   await prisma.$transaction([
     prisma.validationRun.update({

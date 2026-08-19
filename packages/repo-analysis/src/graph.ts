@@ -87,10 +87,18 @@ export async function extractGraph(options: ExtractGraphOptions): Promise<GraphE
   const relevantTsFiles = changedFiles
     ? walked.tsFiles.filter((f) => changedFiles.has(f.rel))
     : walked.tsFiles;
+  const relevantPyFiles = changedFiles
+    ? walked.pyFiles.filter((f) => changedFiles.has(f.rel))
+    : walked.pyFiles;
 
   const nodes = new Map<string, GraphNodeFact>();
   const edges = new Map<string, GraphEdgeFact>();
   const errors: AnalysisError[] = [...analysis.errors];
+
+  /** Content hash of a usage's source file (TS or Python). */
+  function sourceHashOf(filePath: string): string {
+    return walked.tsHashes.get(filePath) ?? walked.pyHashes.get(filePath) ?? "";
+  }
 
   function addNode(node: GraphNodeFact): void {
     const existing = nodes.get(node.key);
@@ -434,6 +442,56 @@ export async function extractGraph(options: ExtractGraphOptions): Promise<GraphE
     }
   }
 
+  // Python structural pass: containment facts only. Usage-driven nodes and
+  // edges for Python call sites come from `analysis.usages` below; no second
+  // Python extractor is introduced here.
+  for (const file of relevantPyFiles) {
+    const fileNodeKey = `file:${file.rel}`;
+    const moduleNodeKey = `module:${file.rel}`;
+    addNode({
+      key: fileNodeKey,
+      kind: GraphNodeKind.FILE,
+      displayName: file.rel,
+      filePath: file.rel,
+      startLine: 1,
+      endLine: file.lineCount,
+      properties: {},
+      contentHash: file.sourceHash,
+      evidence: [evidence(file.rel, 1, file.lineCount, file.sourceHash)],
+    });
+    addNode({
+      key: moduleNodeKey,
+      kind: GraphNodeKind.MODULE,
+      displayName: file.rel,
+      filePath: file.rel,
+      startLine: 1,
+      endLine: file.lineCount,
+      properties: {},
+      contentHash: file.sourceHash,
+      evidence: [evidence(file.rel, 1, file.lineCount, file.sourceHash)],
+    });
+    addEdge({
+      key: edgeKey("repo:root", GraphEdgeKind.CONTAINS, fileNodeKey),
+      kind: GraphEdgeKind.CONTAINS,
+      fromKey: "repo:root",
+      toKey: fileNodeKey,
+      provenance: GraphProvenance.EXTRACTED,
+      confidence: 100,
+      properties: {},
+      evidence: [evidence(file.rel, 1, file.lineCount, file.sourceHash)],
+    });
+    addEdge({
+      key: edgeKey(fileNodeKey, GraphEdgeKind.CONTAINS, moduleNodeKey),
+      kind: GraphEdgeKind.CONTAINS,
+      fromKey: fileNodeKey,
+      toKey: moduleNodeKey,
+      provenance: GraphProvenance.EXTRACTED,
+      confidence: 100,
+      properties: {},
+      evidence: [evidence(file.rel, 1, file.lineCount, file.sourceHash)],
+    });
+  }
+
   // Dependency usage layer drawn from the tracked-usage analysis.
   for (const usage of analysis.usages) {
     if (changedFiles && !changedFiles.has(usage.filePath)) continue;
@@ -442,7 +500,7 @@ export async function extractGraph(options: ExtractGraphOptions): Promise<GraphE
     ensureDependencyNode(
       usage.packageName,
       depKey,
-      evidence(usage.filePath, usage.line, null, walked.tsHashes.get(usage.filePath) ?? ""),
+      evidence(usage.filePath, usage.line, null, sourceHashOf(usage.filePath)),
     );
 
     if (usage.usageType === UsageType.INITIALIZATION) {
@@ -458,9 +516,7 @@ export async function extractGraph(options: ExtractGraphOptions): Promise<GraphE
         contentHash: factHash(clientNodeKey, GraphNodeKind.API_CLIENT, {
           packageName: usage.packageName,
         }),
-        evidence: [
-          evidence(usage.filePath, usage.line, null, walked.tsHashes.get(usage.filePath) ?? ""),
-        ],
+        evidence: [evidence(usage.filePath, usage.line, null, sourceHashOf(usage.filePath))],
       });
       addEdge({
         key: edgeKey(moduleKey, GraphEdgeKind.CREATES_CLIENT, clientNodeKey),
@@ -470,9 +526,7 @@ export async function extractGraph(options: ExtractGraphOptions): Promise<GraphE
         provenance: GraphProvenance.EXTRACTED,
         confidence: 90,
         properties: { symbol: usage.symbol },
-        evidence: [
-          evidence(usage.filePath, usage.line, null, walked.tsHashes.get(usage.filePath) ?? ""),
-        ],
+        evidence: [evidence(usage.filePath, usage.line, null, sourceHashOf(usage.filePath))],
       });
       addEdge({
         key: edgeKey(clientNodeKey, GraphEdgeKind.RESOLVES_TO, depKey),
@@ -482,9 +536,7 @@ export async function extractGraph(options: ExtractGraphOptions): Promise<GraphE
         provenance: GraphProvenance.RESOLVED,
         confidence: 95,
         properties: {},
-        evidence: [
-          evidence(usage.filePath, usage.line, null, walked.tsHashes.get(usage.filePath) ?? ""),
-        ],
+        evidence: [evidence(usage.filePath, usage.line, null, sourceHashOf(usage.filePath))],
       });
     }
 
@@ -502,9 +554,7 @@ export async function extractGraph(options: ExtractGraphOptions): Promise<GraphE
           packageName: usage.packageName,
           symbol: usage.symbol,
         }),
-        evidence: [
-          evidence(usage.filePath, usage.line, null, walked.tsHashes.get(usage.filePath) ?? ""),
-        ],
+        evidence: [evidence(usage.filePath, usage.line, null, sourceHashOf(usage.filePath))],
       });
       addEdge({
         key: edgeKey(moduleKey, GraphEdgeKind.INVOKES_API, apiOpKey),
@@ -514,9 +564,7 @@ export async function extractGraph(options: ExtractGraphOptions): Promise<GraphE
         provenance: GraphProvenance.EXTRACTED,
         confidence: 100,
         properties: { symbol: usage.symbol },
-        evidence: [
-          evidence(usage.filePath, usage.line, null, walked.tsHashes.get(usage.filePath) ?? ""),
-        ],
+        evidence: [evidence(usage.filePath, usage.line, null, sourceHashOf(usage.filePath))],
       });
     }
 
@@ -528,9 +576,7 @@ export async function extractGraph(options: ExtractGraphOptions): Promise<GraphE
       provenance: GraphProvenance.EXTRACTED,
       confidence: 100,
       properties: { via: usage.usageType },
-      evidence: [
-        evidence(usage.filePath, usage.line, null, walked.tsHashes.get(usage.filePath) ?? ""),
-      ],
+      evidence: [evidence(usage.filePath, usage.line, null, sourceHashOf(usage.filePath))],
     });
   }
 
@@ -679,6 +725,8 @@ interface WalkedFile {
 interface WalkResult {
   tsFiles: WalkedFile[];
   tsHashes: Map<string, string>;
+  pyFiles: WalkedFile[];
+  pyHashes: Map<string, string>;
   jsonHashes: Map<string, string>;
   treeHash: string;
   lockfilePath: string | null;
@@ -699,6 +747,8 @@ const IGNORED_DIRS = new Set([
 async function collectSources(rootDir: string): Promise<WalkResult> {
   const tsFiles: WalkedFile[] = [];
   const tsHashes = new Map<string, string>();
+  const pyFiles: WalkedFile[] = [];
+  const pyHashes = new Map<string, string>();
   const jsonHashes = new Map<string, string>();
   const treeParts: string[] = [];
   let lockfilePath: string | null = null;
@@ -728,6 +778,15 @@ async function collectSources(rootDir: string): Promise<WalkResult> {
         });
         tsHashes.set(rel, hash);
       }
+      if (/\.py$/.test(entry.name)) {
+        pyFiles.push({
+          rel,
+          content,
+          sourceHash: hash,
+          lineCount: content.split("\n").length,
+        });
+        pyHashes.set(rel, hash);
+      }
       if (/\.json$/.test(entry.name)) jsonHashes.set(rel, hash);
       if (LOCKFILES.includes(entry.name) && !lockfilePath) {
         lockfilePath = rel;
@@ -739,5 +798,5 @@ async function collectSources(rootDir: string): Promise<WalkResult> {
   await walk(rootDir);
   treeParts.sort();
   const treeHash = createHash("sha256").update(treeParts.join("")).digest("hex");
-  return { tsFiles, tsHashes, jsonHashes, treeHash, lockfilePath, lockfileHash };
+  return { tsFiles, tsHashes, pyFiles, pyHashes, jsonHashes, treeHash, lockfilePath, lockfileHash };
 }

@@ -71,7 +71,7 @@ describe("POST /api/cases/[id]/draft-pr (WP9 certification gate)", () => {
   });
 
   it("blocks a case whose connector is not certified for DRAFT_PR", async () => {
-    vi.mocked(prisma.remediationCase.findFirst).mockResolvedValue(caseFor("anthropic") as never);
+    vi.mocked(prisma.remediationCase.findFirst).mockResolvedValue(caseFor("auth0") as never);
     const response = await POST(requestWithCsrf({}), { params: Promise.resolve({ id: "c-1" }) });
     expect(response.status).toBe(422);
     const body = (await response.json()) as { error: { message: string } };

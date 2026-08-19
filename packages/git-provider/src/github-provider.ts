@@ -172,6 +172,22 @@ export class GitHubProvider implements GitProvider {
     return data.default_branch;
   }
 
+  /**
+   * Resolves the HEAD commit SHA of a branch (default branch when none is
+   * given). Used by scan/graph-index jobs to pin a checkout to an exact
+   * commit before analyzing a connected repository.
+   */
+  async resolveHeadSha(baseBranch?: string): Promise<string> {
+    const owner = this.config.repository.split("/")[0]!;
+    const repo = this.config.repository.split("/")[1]!;
+    const base = baseBranch ?? (await this.defaultBranch(owner, repo));
+    const ref = await this.request<GitHubRef>(
+      `/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(base)}`,
+      { method: "GET" },
+    );
+    return ref.object.sha;
+  }
+
   private async createBranch(
     owner: string,
     repo: string,

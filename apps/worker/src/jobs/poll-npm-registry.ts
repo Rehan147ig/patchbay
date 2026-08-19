@@ -10,6 +10,9 @@ const VENDOR_NPM_PACKAGES: Record<string, string> = {
   openai: "openai",
   twilio: "twilio",
   auth0: "auth0",
+  anthropic: "@anthropic-ai/sdk",
+  "aws-sdk": "aws-sdk",
+  supabase: "@supabase/supabase-js",
 };
 
 export const PollNpmRegistryJobDataSchema = z.object({
@@ -32,9 +35,10 @@ export async function processPollNpmRegistry(job: Job): Promise<void> {
   const vendor = await prisma.vendor.findUnique({ where: { slug: vendorSlug } });
   if (!vendor) return;
 
-  const response = await fetch(`https://registry.npmjs.org/${packageName}/latest`, {
-    headers: { Accept: "application/json" },
-  });
+  const response = await fetch(
+    `https://registry.npmjs.org/${encodeURIComponent(packageName)}/latest`,
+    { headers: { Accept: "application/json" } },
+  );
   if (!response.ok) {
     logger.warn("npm registry fetch failed", { vendorSlug, status: response.status });
     return;

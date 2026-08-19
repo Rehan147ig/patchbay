@@ -66,6 +66,12 @@ export const SCAN_STATUS_TONE: Record<ScanStatus, StatusPillProps["tone"]> = {
   FAILED: "red",
 };
 
+export const GRAPH_INDEX_STATUS_TONE: Record<string, StatusPillProps["tone"]> = {
+  INDEXING: "blue",
+  READY: "green",
+  FAILED: "red",
+};
+
 export const IMPACT_STATUS_TONE: Record<ImpactStatus, StatusPillProps["tone"]> = {
   NOT_AFFECTED: "green",
   POSSIBLY_AFFECTED: "amber",

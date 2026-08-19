@@ -14,6 +14,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       where: { id, organizationId: user.organizationId },
       include: {
         scans: { orderBy: { createdAt: "desc" }, take: 5 },
+        graphIndexJobs: { orderBy: { startedAt: "desc" }, take: 5 },
         usages: {
           orderBy: [{ filePath: "asc" }, { createdAt: "asc" }],
           include: { vendor: true },

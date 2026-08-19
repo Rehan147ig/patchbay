@@ -3,6 +3,11 @@ import Link from "next/link";
 import { prisma } from "@patchbay/db";
 import {
   Badge,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
   EmptyState,
   StatusPill,
   Table,
@@ -14,6 +19,10 @@ import {
 } from "@patchbay/ui";
 import { requireUser } from "@/lib/auth";
 import { formatDate, SCAN_STATUS_TONE } from "@/lib/format";
+import {
+  ConnectRepositoryForm,
+  type ConnectInstallation,
+} from "@/components/connect-repository-form";
 
 export const metadata: Metadata = {
   title: "Repositories",
@@ -22,14 +31,23 @@ export const metadata: Metadata = {
 export default async function RepositoriesPage() {
   const user = await requireUser();
 
-  const repositories = await prisma.repository.findMany({
-    where: { organizationId: user.organizationId },
-    orderBy: { createdAt: "asc" },
-    include: {
-      scans: { orderBy: { createdAt: "desc" }, take: 1 },
-      _count: { select: { usages: true } },
-    },
-  });
+  const [repositories, installations] = await Promise.all([
+    prisma.repository.findMany({
+      where: { organizationId: user.organizationId },
+      orderBy: { createdAt: "asc" },
+      include: {
+        scans: { orderBy: { createdAt: "desc" }, take: 1 },
+        _count: { select: { usages: true } },
+      },
+    }),
+    prisma.gitHubInstallation.findMany({
+      where: { organizationId: user.organizationId },
+      orderBy: { installedAt: "desc" },
+      select: { installationId: true, accountLogin: true, accountType: true },
+    }),
+  ]);
+
+  const canConnect = user.role === "ADMIN" || user.role === "MEMBER";
 
   return (
     <div className="space-y-4">
@@ -43,7 +61,7 @@ export default async function RepositoriesPage() {
       {repositories.length === 0 ? (
         <EmptyState
           title="No repositories connected"
-          description="Register a repository to begin monitoring."
+          description="Connect a GitHub repository (or run the guided demo) to start monitoring usages."
         />
       ) : (
         <Table>
@@ -95,6 +113,35 @@ export default async function RepositoriesPage() {
           </TableBody>
         </Table>
       )}
+
+      {canConnect ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Connect a GitHub repository</CardTitle>
+            <CardDescription>
+              Register a repository from a GitHub App installation, then scan it to index TypeScript
+              and Python call sites.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {installations.length === 0 ? (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm text-slate-500">
+                  No GitHub App installations for this workspace yet.
+                </p>
+                <Link
+                  href="/settings/github"
+                  className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+                >
+                  Install the GitHub App
+                </Link>
+              </div>
+            ) : (
+              <ConnectRepositoryForm installations={installations as ConnectInstallation[]} />
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }

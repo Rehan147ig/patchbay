@@ -11,6 +11,7 @@ import {
   MicroVmSandboxRunner,
   ProcessSandboxRunner,
   resolveSandboxMode,
+  resolveSandboxValidationMode,
   runValidation,
   SandboxError,
   SandboxPolicyError,
@@ -117,6 +118,24 @@ describe("runtime modes", () => {
     vi.stubEnv("SANDBOX_MODE", "development");
     expect(createSandboxRunner("process")).toBeInstanceOf(ProcessSandboxRunner);
   });
+
+  it("defaults validation mode to hosted-docker and reads SANDBOX_VALIDATION_MODE", () => {
+    expect(resolveSandboxValidationMode()).toBe("hosted-docker");
+    vi.stubEnv("SANDBOX_VALIDATION_MODE", "github-checks-only");
+    expect(resolveSandboxValidationMode()).toBe("github-checks-only");
+    vi.stubEnv("SANDBOX_VALIDATION_MODE", "process");
+    expect(resolveSandboxValidationMode()).toBe("process");
+    vi.stubEnv("SANDBOX_VALIDATION_MODE", "garbage");
+    expect(resolveSandboxValidationMode()).toBe("hosted-docker");
+  });
+
+  it("production stays fail-closed with the default hosted-docker validation mode", () => {
+    vi.stubEnv("SANDBOX_MODE", "production");
+    vi.stubEnv("SANDBOX_VALIDATION_MODE", "hosted-docker");
+    expect(() => createSandboxRunner("process")).toThrow(SandboxPolicyError);
+    expect(() => createSandboxRunner()).toThrow(SandboxPolicyError);
+    expect(createSandboxRunner("container")).toBeInstanceOf(ContainerSandboxRunner);
+  });
 });
 
 describe("runValidation", () => {
@@ -222,7 +241,9 @@ describe("sandbox runners", () => {
   });
 });
 
-describe("provenance", () => {
+describe("provenance", async () => {
+  const dockerAvailable = await new ContainerSandboxRunner().isAvailable();
+
   it("records runtime, mode, network policy and failure class for a success", async () => {
     const dir = makeWorkspace({ test: 'node -e "console.log(\\"ok\\")"' });
     const result = await runValidation("npm test", dir);
@@ -246,28 +267,32 @@ describe("provenance", () => {
     expect(timedOutResult.provenance.failureClass).toBe("timed-out");
   }, 20_000);
 
-  it("container provenance carries image digest and configured limits", async () => {
-    const runner = new ContainerSandboxRunner({
-      probe: async () => true,
-      digestResolver: async () => "sha256:abc123",
-      cpus: "1.5",
-      memory: "1g",
-      pidsLimit: 256,
-    });
-    const dir = makeWorkspace({ test: 'node -e "console.log(\\"provenance\\")"' });
-    const result = await runner.run("npm test", dir, { timeoutMs: 5_000 });
-    expect(result.provenance.runtime).toBe("container");
-    expect(result.provenance.imageDigest).toBe("sha256:abc123");
-    expect(result.provenance.limits).toEqual({
-      cpus: "1.5",
-      memory: "1g",
-      pidsLimit: 256,
-      timeoutMs: 5_000,
-    });
-    expect(result.provenance.networkPolicy).toBe("none");
-    expect(result.provenance.workspace.disposable).toBe(true);
-    expect(result.provenance.failureClass).toBe("none");
-  }, 30_000);
+  it.runIf(dockerAvailable)(
+    "container provenance carries image digest and configured limits",
+    async () => {
+      const runner = new ContainerSandboxRunner({
+        probe: async () => true,
+        digestResolver: async () => "sha256:abc123",
+        cpus: "1.5",
+        memory: "1g",
+        pidsLimit: 256,
+      });
+      const dir = makeWorkspace({ test: 'node -e "console.log(\\"provenance\\")"' });
+      const result = await runner.run("npm test", dir, { timeoutMs: 120_000 });
+      expect(result.provenance.runtime).toBe("container");
+      expect(result.provenance.imageDigest).toBe("sha256:abc123");
+      expect(result.provenance.limits).toEqual({
+        cpus: "1.5",
+        memory: "1g",
+        pidsLimit: 256,
+        timeoutMs: 120_000,
+      });
+      expect(result.provenance.networkPolicy).toBe("none");
+      expect(result.provenance.workspace.disposable).toBe(true);
+      expect(result.provenance.failureClass).toBe("none");
+    },
+    180_000,
+  );
 
   it("reports runtime-unavailable for a container without a daemon", async () => {
     const runner = new ContainerSandboxRunner({ probe: async () => false });

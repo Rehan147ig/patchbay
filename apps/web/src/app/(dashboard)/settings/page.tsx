@@ -30,8 +30,10 @@ import {
 import { requireUser } from "@/lib/auth";
 import { env } from "@/lib/env";
 import { getEffectivePlan } from "@/lib/billing";
+import { isLegacyAgentKeyHash } from "@/lib/agent-keys";
 import { BillingActions } from "@/components/billing-actions";
 import { CapabilityGateControl } from "@/components/capability-gate-control";
+import { VendorAgentKeyControl } from "@/components/vendor-agent-key-control";
 import { formatDate, GATE_STATUS_TONE } from "@/lib/format";
 
 export const metadata: Metadata = {
@@ -110,7 +112,10 @@ export default async function SettingsPage({
           <CardHeader>
             <CardTitle>Monitored vendors</CardTitle>
             <CardDescription>
-              Vendor catalog entries available for change monitoring.
+              Vendor catalog entries available for change monitoring. Admins can issue a{" "}
+              <code className="font-mono text-xs">pb_agent_*</code> agent key per vendor so the
+              vendor can push change events directly — Patchbay never writes to customer
+              repositories. The plaintext key is shown exactly once; only its hash is stored.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -166,6 +171,17 @@ export default async function SettingsPage({
                       <Badge tone={vendor.enabled ? "green" : "neutral"}>
                         {vendor.enabled ? "enabled" : "disabled"}
                       </Badge>
+                      <VendorAgentKeyControl
+                        entry={{
+                          slug: vendor.slug,
+                          name: vendor.name,
+                          hasKey: vendor.agentKeyHash !== null,
+                          legacyKey:
+                            vendor.agentKeyHash !== null &&
+                            isLegacyAgentKeyHash(vendor.agentKeyHash),
+                        }}
+                        isAdmin={user.role === "ADMIN"}
+                      />
                     </div>
                   </li>
                 );
@@ -318,6 +334,19 @@ export default async function SettingsPage({
         </CardHeader>
         <CardContent className="text-sm text-slate-600">
           <ul className="list-disc space-y-1 pl-4">
+            <li>
+              Validation mode:{" "}
+              <span className="font-mono text-slate-800">
+                {process.env.SANDBOX_VALIDATION_MODE ?? "hosted-docker"}
+              </span>{" "}
+              (
+              {process.env.SANDBOX_VALIDATION_MODE === "github-checks-only"
+                ? "customer CI is the validation sandbox — Patchbay never executes customer code on this host"
+                : process.env.SANDBOX_VALIDATION_MODE === "process"
+                  ? "development/local only — not a multi-tenant sandbox"
+                  : "hosted Docker container isolation (production fail-closed)"}
+              ).
+            </li>
             <li>
               Validation runner runtime:{" "}
               <span className="font-mono text-slate-800">

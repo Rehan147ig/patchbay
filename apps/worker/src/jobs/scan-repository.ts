@@ -3,9 +3,12 @@ import { z } from "zod";
 import { prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import { ActorType, ScanStatus, logger } from "@patchbay/domain";
-import { analyzeRepository, resolveFixtureDir } from "@patchbay/repo-analysis";
+import { analyzeRepository } from "@patchbay/repo-analysis";
+import { enqueue, JobType } from "@patchbay/queue";
 import type { Job } from "bullmq";
 import { writeAuditEvent } from "../lib/audit";
+import { resolveRepositorySource } from "../lib/repository-source";
+import { getCapability } from "@patchbay/vendor-connectors";
 
 /**
  * scan-repository processor.
@@ -16,6 +19,12 @@ import { writeAuditEvent } from "../lib/audit";
  * rows with fresh analyzer output (preserving any manual owner assignments),
  * and writes scan.* audit events. Deterministic and idempotent: a retry simply
  * re-runs the same replacement.
+ *
+ * Source resolution: fixture repositories analyze the local fixture copy;
+ * GitHub-installed repositories check out the default-branch HEAD through the
+ * GitHub App installation token (resolveRepositorySource). On completion the
+ * next job in the pipeline, graph-index (BASELINE), is enqueued so the graph
+ * snapshot stays in sync with the scanned source.
  */
 export const ScanRepositoryJobDataSchema = z.object({
   repositoryId: z.string().min(1),
@@ -72,21 +81,24 @@ export async function processScanRepository(job: Job): Promise<ScanRepositoryRes
     action: AuditAction.SCAN_STARTED,
     correlationId,
     ...entity,
-    after: { fixture: fixtureOf(repository.metadata) },
+    after: { source: sourceLabel(repository.metadata) },
   });
   logger.info("scan started", { repositoryId, scanId, correlationId });
 
   try {
-    const fixture = fixtureOf(repository.metadata);
-    if (!fixture) {
-      throw new Error(`repository ${repositoryId} has no fixture metadata`);
-    }
-    const fixtureDir = resolveFixtureDir(fixture);
+    const source = await resolveRepositorySource(repository);
+    const rootDir = source.rootDir;
     const vendors = await prisma.vendor.findMany({ where: { enabled: true } });
-    const vendorBySlug = new Map(vendors.map((vendor) => [vendor.slug, vendor.id]));
-    const trackPackages = [...vendorBySlug.keys()];
+    const vendorIdByPackage = new Map<string, string>();
+    for (const vendor of vendors) {
+      vendorIdByPackage.set(vendor.slug, vendor.id);
+      const npmPackage = getCapability(vendor.slug)?.package;
+      if (npmPackage) vendorIdByPackage.set(npmPackage, vendor.id);
+    }
+    const trackPackages = [...vendorIdByPackage.keys()];
 
-    const analysis = await analyzeRepository({ rootDir: fixtureDir, trackPackages });
+    const analysis = await analyzeRepository({ rootDir, trackPackages });
+    const commitSha = source.kind === "github" ? source.commitSha : analysis.commitSha;
 
     // Read existing usages (for owner hints) and replace them inside a single
     // transaction so a concurrent scan cannot interleave between the read and
@@ -105,12 +117,12 @@ export async function processScanRepository(job: Job): Promise<ScanRepositoryRes
       );
 
       const nextUsages = analysis.usages
-        .filter((usage) => vendorBySlug.has(usage.packageName))
+        .filter((usage) => vendorIdByPackage.has(usage.packageName))
         .map((usage) => ({
           organizationId: repository.organizationId,
           repositoryId,
           scanId,
-          vendorId: vendorBySlug.get(usage.packageName)!,
+          vendorId: vendorIdByPackage.get(usage.packageName)!,
           filePath: usage.filePath,
           symbol: usage.symbol,
           usageType: usage.usageType,
@@ -120,7 +132,10 @@ export async function processScanRepository(job: Job): Promise<ScanRepositoryRes
           ownerHint:
             ownerByKey.get(usageKey(usage.filePath, usage.symbol, usage.usageType)) ?? "Unassigned",
           riskTags: usage.riskTags,
-          metadata: { fixture },
+          metadata:
+            source.kind === "github"
+              ? { installationId: source.installationId }
+              : { fixture: source.fixture },
         }));
 
       await tx.integrationUsage.deleteMany({ where: { repositoryId } });
@@ -155,7 +170,7 @@ export async function processScanRepository(job: Job): Promise<ScanRepositoryRes
           declaredRange: declaredByPackage.get(packageName) ?? null,
           resolvedVersion,
           lockfileKind: analysis.packageManager,
-          commitSha: analysis.commitSha,
+          commitSha,
         }),
       );
       await tx.repositoryDependency.createMany({ data: dependencyRows, skipDuplicates: true });
@@ -164,7 +179,7 @@ export async function processScanRepository(job: Job): Promise<ScanRepositoryRes
         where: { id: scanId },
         data: {
           status: ScanStatus.COMPLETED,
-          commitSha: analysis.commitSha,
+          commitSha,
           completedAt: new Date(),
           summary: {
             usageCount: nextUsages.length,
@@ -189,25 +204,36 @@ export async function processScanRepository(job: Job): Promise<ScanRepositoryRes
       correlationId,
       ...entity,
       after: {
-        commitSha: analysis.commitSha,
+        commitSha,
         usageCount: usages.length,
         dependencyCount: Object.keys(analysis.lockfileVersions).length,
         filesScanned: analysis.filesScanned,
         durationMs: analysis.durationMs,
+        source: source.kind,
       },
     });
     logger.info("scan completed", {
       repositoryId,
       scanId,
       correlationId,
-      commitSha: analysis.commitSha,
+      commitSha,
       usageCount: usages.length,
     });
+
+    // Next job in the pipeline: index the graph snapshot for the same source.
+    // A chaining failure must not fail the scan — the snapshot can be re-run
+    // from the repository page.
+    await enqueueGraphIndex(
+      organizationId,
+      repositoryId,
+      correlationId,
+      sourceLabel(repository.metadata),
+    );
 
     return {
       scanId,
       repositoryId,
-      commitSha: analysis.commitSha,
+      commitSha,
       usageCount: usages.length,
       durationMs: analysis.durationMs,
     };
@@ -234,10 +260,61 @@ export async function processScanRepository(job: Job): Promise<ScanRepositoryRes
   }
 }
 
+function sourceLabel(metadata: unknown): string {
+  const fixture = fixtureOf(metadata);
+  if (fixture) return `fixture:${fixture}`;
+  return "github";
+}
+
 function fixtureOf(metadata: unknown): string | null {
   if (typeof metadata !== "object" || metadata === null) return null;
   const fixture = (metadata as { fixture?: unknown }).fixture;
   return typeof fixture === "string" && fixture.length > 0 ? fixture : null;
+}
+
+/**
+ * Creates the GraphIndexJob row and enqueues the next pipeline job after a
+ * successful scan. Never throws: the snapshot is optional and can be re-run.
+ */
+async function enqueueGraphIndex(
+  organizationId: string,
+  repositoryId: string,
+  correlationId: string,
+  source: string,
+): Promise<void> {
+  try {
+    const indexJob = await prisma.graphIndexJob.create({
+      data: {
+        organizationId,
+        repositoryId,
+        mode: "BASELINE",
+        status: "INDEXING",
+        correlationId,
+      },
+    });
+    await enqueue(JobType.GRAPH_INDEX, {
+      jobId: indexJob.id,
+      repositoryId,
+      correlationId,
+      mode: "BASELINE",
+    });
+    await writeAuditEvent({
+      organizationId,
+      actorType: ActorType.SYSTEM,
+      actorId: null,
+      action: AuditAction.GRAPH_INDEX_QUEUED,
+      entityType: "repository",
+      entityId: repositoryId,
+      correlationId,
+      after: { jobId: indexJob.id, mode: "BASELINE", source },
+    });
+    logger.info("graph index queued after scan", { repositoryId, jobId: indexJob.id });
+  } catch (error) {
+    logger.warn("failed to enqueue graph index after scan", {
+      repositoryId,
+      error: String(error),
+    });
+  }
 }
 
 function usageKey(filePath: string, symbol: string, usageType: string): string {

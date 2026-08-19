@@ -133,6 +133,69 @@ describe("POST /api/demo/run", () => {
     });
   });
 
+  it("runs the stripe-metadata scenario (approval-then-PR)", async () => {
+    vi.mocked(prisma.vendor.findUnique).mockResolvedValue({
+      id: "v-stripe",
+      slug: "stripe",
+      name: "Stripe",
+    } as never);
+    vi.mocked(prisma.vendorChangeEvent.upsert).mockResolvedValue({
+      id: "c-stripe-metadata-org-acme",
+      organizationId: "org-acme",
+    } as never);
+
+    const response = await post({ scenario: "stripe-metadata" });
+    expect(response.status).toBe(202);
+
+    const json = (await response.json()) as { data: { changeEventId: string; status: string } };
+    expect(json.data.changeEventId).toBe("c-stripe-metadata-org-acme");
+    expect(json.data.status).toBe("QUEUED");
+
+    expect(prisma.vendorChangeEvent.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          vendorId: "v-stripe",
+          sourceType: "SDK_RELEASE",
+          rawPayload: expect.objectContaining({ sdk: "stripe", demo: true }),
+        }),
+        update: expect.objectContaining({
+          rawPayload: expect.objectContaining({ sdk: "stripe", demo: true }),
+        }),
+      }),
+    );
+
+    expect(enqueue).toHaveBeenCalledWith(JobType.ANALYZE_CHANGE, {
+      changeEventId: "c-stripe-metadata-org-acme",
+      organizationId: "org-acme",
+      correlationId: expect.any(String),
+    });
+  });
+
+  it("runs the anthropic-completions scenario", async () => {
+    vi.mocked(prisma.vendor.findUnique).mockResolvedValue({
+      id: "v-anthropic",
+      slug: "anthropic",
+      name: "Anthropic",
+    } as never);
+    vi.mocked(prisma.vendorChangeEvent.upsert).mockResolvedValue({
+      id: "c-anthropic-completions-org-acme",
+      organizationId: "org-acme",
+    } as never);
+
+    const response = await post({ scenario: "anthropic-completions" });
+    expect(response.status).toBe(202);
+    const json = (await response.json()) as { data: { changeEventId: string } };
+    expect(json.data.changeEventId).toBe("c-anthropic-completions-org-acme");
+    expect(prisma.vendorChangeEvent.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          vendorId: "v-anthropic",
+          rawPayload: expect.objectContaining({ sdk: "anthropic", demo: true }),
+        }),
+      }),
+    );
+  });
+
   it("rejects an invalid or unknown scenario", async () => {
     const response = await post({ scenario: "invalid-scenario" });
     expect(response.status).toBe(422);

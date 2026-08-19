@@ -16,6 +16,7 @@
     "format:check": "prettier --check .",
     "typecheck": "pnpm -r --parallel typecheck",
     "test": "vitest run",
+    "test:corpus": "vitest run packages/remediation-engine/src/eval-corpus.test.ts",
     "test:watch": "vitest",
     "db:generate": "pnpm --filter @patchbay/db generate",
     "db:migrate": "pnpm --filter @patchbay/db migrate",

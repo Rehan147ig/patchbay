@@ -72,7 +72,7 @@ async function main(): Promise<void> {
 }
 
 /**
- * Gives the demo org a PRO subscription so the four seeded repositories fit
+ * Gives the demo org a PRO subscription so the seven seeded repositories fit
  * under the 10-repo cap (the FREE tier allows only 1). Idempotent; never
  * downgrades an existing subscription.
  */
@@ -159,6 +159,30 @@ async function seedVendors(): Promise<void> {
       name: "Auth0",
       category: "Identity",
       docsUrl: "https://auth0.com/docs",
+      enabled: true,
+    },
+    {
+      id: "v-anthropic",
+      slug: "anthropic",
+      name: "Anthropic",
+      category: "AI",
+      docsUrl: "https://docs.anthropic.com",
+      enabled: true,
+    },
+    {
+      id: "v-aws-sdk",
+      slug: "aws-sdk",
+      name: "AWS SDK",
+      category: "Cloud",
+      docsUrl: "https://docs.aws.amazon.com/sdk-for-javascript",
+      enabled: true,
+    },
+    {
+      id: "v-supabase",
+      slug: "supabase",
+      name: "Supabase",
+      category: "Backend",
+      docsUrl: "https://supabase.com/docs",
       enabled: true,
     },
     {
@@ -322,6 +346,27 @@ async function seedRepositories(): Promise<void> {
       fullName: "acme/auth-gateway",
       vendor: "v-auth0",
       fixture: "auth0-node-legacy",
+    },
+    {
+      id: "r-claude",
+      name: "claude-assistant-service",
+      fullName: "acme/claude-assistant-service",
+      vendor: "v-anthropic",
+      fixture: "anthropic-node-legacy",
+    },
+    {
+      id: "r-aws-workers",
+      name: "aws-workers-service",
+      fullName: "acme/aws-workers-service",
+      vendor: "v-aws-sdk",
+      fixture: "aws-sdk-node-legacy",
+    },
+    {
+      id: "r-supabase",
+      name: "supabase-backend-service",
+      fullName: "acme/supabase-backend-service",
+      vendor: "v-supabase",
+      fixture: "supabase-js-legacy",
     },
   ] as const;
 
@@ -502,6 +547,78 @@ const USAGE_FIXTURES: Record<
       line: 4,
       column: 5,
       excerpt: `export const auth0Config = { domain: process.env.AUTH0_DOMAIN };`,
+      ownerHint: "platform-team",
+      riskTags: [RiskTag.AUTH],
+    },
+  ],
+  "anthropic-node-legacy": [
+    {
+      vendor: "v-anthropic",
+      filePath: "src/chat/complete.ts",
+      symbol: "anthropic.completions.create",
+      usageType: UsageType.METHOD_CALL,
+      line: 6,
+      column: 5,
+      excerpt: `const completion = await anthropic.completions.create({`,
+      ownerHint: "ml-team",
+      riskTags: [],
+    },
+    {
+      vendor: "v-anthropic",
+      filePath: "src/lib/anthropic-client.ts",
+      symbol: "Anthropic",
+      usageType: UsageType.IMPORT,
+      line: 1,
+      column: 1,
+      excerpt: `import Anthropic from "@anthropic-ai/sdk";`,
+      ownerHint: "ml-team",
+      riskTags: [],
+    },
+  ],
+  "aws-sdk-node-legacy": [
+    {
+      vendor: "v-aws-sdk",
+      filePath: "src/aws-clients.ts",
+      symbol: "AWS.S3",
+      usageType: UsageType.INITIALIZATION,
+      line: 7,
+      column: 5,
+      excerpt: `const s3 = new AWS.S3({ region: "us-east-1" });`,
+      ownerHint: "platform-team",
+      riskTags: [RiskTag.INFRASTRUCTURE],
+    },
+    {
+      vendor: "v-aws-sdk",
+      filePath: "src/aws-clients.ts",
+      symbol: "AWS.SQS",
+      usageType: UsageType.INITIALIZATION,
+      line: 8,
+      column: 5,
+      excerpt: `const sqs = new AWS.SQS({ region: "us-east-1" });`,
+      ownerHint: "platform-team",
+      riskTags: [RiskTag.INFRASTRUCTURE],
+    },
+    {
+      vendor: "v-aws-sdk",
+      filePath: "src/aws-clients.ts",
+      symbol: "AWS.DynamoDB",
+      usageType: UsageType.INITIALIZATION,
+      line: 9,
+      column: 5,
+      excerpt: `const dynamo = new AWS.DynamoDB({ region: "us-east-1" });`,
+      ownerHint: "platform-team",
+      riskTags: [RiskTag.INFRASTRUCTURE],
+    },
+  ],
+  "supabase-js-legacy": [
+    {
+      vendor: "v-supabase",
+      filePath: "src/auth/session.ts",
+      symbol: "supabase.auth.user",
+      usageType: UsageType.METHOD_CALL,
+      line: 12,
+      column: 3,
+      excerpt: `return supabase.auth.user();`,
       ownerHint: "platform-team",
       riskTags: [RiskTag.AUTH],
     },

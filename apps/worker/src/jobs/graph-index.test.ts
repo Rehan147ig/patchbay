@@ -42,6 +42,14 @@ vi.mock("../lib/audit", () => ({
   writeAuditEvent: vi.fn(),
 }));
 
+vi.mock("@patchbay/git-provider", () => ({
+  createGitHubAppProviderFromStore: vi.fn(),
+}));
+
+vi.mock("@patchbay/env", () => ({
+  getSecretStore: vi.fn().mockReturnValue({}),
+}));
+
 vi.mock("@patchbay/audit", () => ({
   AuditAction: {
     GRAPH_INDEX_STARTED: "graph.index.started",
@@ -69,6 +77,7 @@ import {
   inverseIndex,
   mergeIncrementalExtraction,
 } from "@patchbay/repo-analysis";
+import { createGitHubAppProviderFromStore } from "@patchbay/git-provider";
 import { pruneGraphSnapshots } from "@patchbay/db";
 
 const job = (data: unknown) => ({ data }) as Job;
@@ -393,5 +402,65 @@ describe("processGraphIndex incremental wiring (WP5)", () => {
         ]),
       }),
     );
+  });
+
+  it("extracts from an exact-HEAD GitHub App checkout for connected repositories", async () => {
+    baseMocks();
+    vi.mocked(prisma.repository.findUnique).mockResolvedValue({
+      id: "repo-1",
+      organizationId: "org-1",
+      provider: "GITHUB",
+      fullName: "acme/app",
+      defaultBranch: "main",
+      metadata: { installationId: 42, externalId: "github:1" },
+    } as never);
+    vi.mocked(prisma.graphIndexJob.findUnique).mockResolvedValue({
+      id: "job-1",
+      repositoryId: "repo-1",
+      mode: "BASELINE",
+      status: "INDEXING",
+      changedPaths: null,
+    } as never);
+    const providerMock = {
+      resolveHeadSha: vi.fn().mockResolvedValue("sha-gh"),
+      checkout: vi.fn().mockResolvedValue({ workspaceDir: "C:/ws/gh-checkout" }),
+    };
+    vi.mocked(createGitHubAppProviderFromStore).mockResolvedValue(providerMock as never);
+    vi.mocked(extractGraph).mockResolvedValue({
+      commitSha: "sha-gh",
+      rootTreeHash: "tree-gh",
+      nodeFacts: [],
+      edgeFacts: [],
+      errors: [],
+    });
+
+    const result = await processGraphIndex(
+      job({ jobId: "job-1", repositoryId: "repo-1", correlationId: "c-1", mode: "BASELINE" }),
+    );
+
+    expect(createGitHubAppProviderFromStore).toHaveBeenCalledWith(
+      { installationId: 42, repositoryFullName: "acme/app" },
+      expect.anything(),
+    );
+    expect(providerMock.resolveHeadSha).toHaveBeenCalledWith("main");
+    expect(providerMock.checkout).toHaveBeenCalledWith({
+      sha: "sha-gh",
+      baseBranch: "main",
+      repositoryFullName: "acme/app",
+    });
+    expect(extractGraph).toHaveBeenCalledWith(
+      expect.objectContaining({ rootDir: "C:/ws/gh-checkout" }),
+    );
+    expect(prisma.graphSnapshot.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ commitSha: "sha-gh" }),
+      }),
+    );
+    expect(result).toMatchObject({
+      snapshotId: "snap-1",
+      commitSha: "sha-gh",
+      mode: "BASELINE",
+      reused: false,
+    });
   });
 });

@@ -2,16 +2,11 @@ import { defineConnector } from "../sdk";
 import { RiskTag } from "@patchbay/domain";
 
 /**
- * Supabase connector.
+ * Supabase JS v1 → v2 connector (certified DRAFT_PR).
  *
- * Supabase JS v2 breaking changes vs v1:
- * - `supabase.from('t').select()` is unchanged, but the v1
- *   `postgrest-js` client filters (`.eq()`, `.single()`) return different
- *   shapes: v2 `select()` returns `{ data, error }` — the old
- *   `body` field was renamed.
- * - The auth API changed: `supabase.auth.signIn` became
- *   `signInWithPassword`/`signInWithOtp`/`signInWithOAuth`.
- * - Storage `upload`/`download` signatures changed in v2.
+ * Certified pattern: `supabase.auth.user()` → `supabase.auth.getUser()`.
+ * Auth call sites are approval-gated (AUTH). signIn splits and PostgREST `body`
+ * → `data` are not part of this certified kit.
  */
 export const supabaseConnector = defineConnector({
   slug: "supabase",
@@ -19,47 +14,20 @@ export const supabaseConnector = defineConnector({
   rules: [
     {
       changeType: "METHOD_RENAMED",
-      oldValue: "supabase.auth.signIn",
-      newValue: "supabase.auth.signInWithPassword",
+      oldValue: "supabase.auth.user",
+      newValue: "supabase.auth.getUser",
       description:
-        "Supabase JS v2 split `signIn` into `signInWithPassword` (email+password), `signInWithOtp`, and `signInWithOAuth`.",
-      affectedSymbols: ["supabase.auth.signIn", "supabase.auth.signUp"],
+        "Supabase JS v2 replaced the sync `auth.user()` helper with async `auth.getUser()`.",
+      affectedSymbols: ["supabase.auth.user"],
       breaking: true,
-      evidence: { sdk: "supabase", riskTag: RiskTag.AUTH },
-    },
-    {
-      changeType: "RESPONSE_FIELD_REMOVED",
-      oldValue: "response.body",
-      newValue: "response.data",
-      description:
-        "Supabase JS v2 renamed the query result field from `body` to `data`; `{ data, error }` is the canonical response shape.",
-      affectedSymbols: ["supabase.from", "postgrest"],
-      breaking: true,
-      evidence: { sdk: "supabase" },
-    },
-    {
-      changeType: "PARAMETER_REQUIRED",
-      oldValue: "storage.upload(path, file)",
-      newValue: "storage.upload(path, file, { upsert })",
-      description:
-        "Supabase storage v2 requires an options object for `upload` (upsert, contentType); the legacy 2-arg call fails.",
-      affectedSymbols: ["supabase.storage.upload", "storage.upload"],
-      breaking: false,
-      evidence: { sdk: "supabase" },
+      evidence: { sdk: "supabase", riskTag: RiskTag.AUTH, rule: "auth-user-to-getUser" },
     },
   ],
   patchSuggestions: {
-    "supabase.auth.signIn": {
-      replacement: "supabase.auth.signInWithPassword",
-      description:
-        "Replace `supabase.auth.signIn({ email, password })` with `supabase.auth.signInWithPassword({ email, password })` (v2).",
-      confidence: 95,
-    },
-    "supabase.auth.signUp": {
-      replacement: "supabase.auth.signUp",
-      description:
-        "`signUp` now returns `{ data: { user, session }, error }` — update destructuring from `body` to `data`.",
-      confidence: 85,
+    "supabase.auth.user": {
+      replacement: "supabase.auth.getUser",
+      description: "Rename supabase.auth.user to supabase.auth.getUser (Supabase JS v2).",
+      confidence: 94,
     },
   },
 });

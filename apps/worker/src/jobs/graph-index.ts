@@ -9,18 +9,19 @@ import {
   extractGraph,
   inverseIndex,
   mergeIncrementalExtraction,
-  resolveFixtureDir,
 } from "@patchbay/repo-analysis";
 import type { GraphEdgeFact, GraphExtraction, GraphNodeFact } from "@patchbay/repo-analysis";
 import type { Job } from "bullmq";
 import { writeAuditEvent } from "../lib/audit";
+import { resolveRepositorySource } from "../lib/repository-source";
 
 /**
  * graph-index processor (Phase C: deterministic graph pipeline).
  *
- * Job data carries the GraphIndexJob row id (created by a web route) and the
- * repository. The processor:
- *  1. loads the repository fixture and vendors -> tracked package set
+ * Job data carries the GraphIndexJob row id (created by a web route or the
+ * scan pipeline) and the repository. The processor:
+ *  1. resolves the repository source (fixture copy or exact-HEAD GitHub App
+ *     checkout) and vendors -> tracked package set
  *  2. runs the deterministic extractor (extractGraph)
  *  3. reuses the latest READY snapshot when the commit SHA is unchanged
  *  4. in INCREMENTAL mode, computes the conservative re-extraction set from
@@ -107,11 +108,8 @@ export async function processGraphIndex(job: Job): Promise<GraphIndexResult> {
   logger.info("graph index started", { repositoryId, jobId, correlationId, mode });
 
   try {
-    const fixture = fixtureOf(repository.metadata);
-    if (!fixture) {
-      throw new Error(`repository ${repositoryId} has no fixture metadata`);
-    }
-    const fixtureDir = resolveFixtureDir(fixture);
+    const source = await resolveRepositorySource(repository);
+    const rootDir = source.rootDir;
     const vendors = await prisma.vendor.findMany({ where: { enabled: true } });
     const trackPackages = vendors.map((vendor) => vendor.slug);
 
@@ -140,7 +138,7 @@ export async function processGraphIndex(job: Job): Promise<GraphIndexResult> {
       }
     }
 
-    const extraction = await extractGraph({ rootDir: fixtureDir, trackPackages, changedFiles });
+    const extraction = await extractGraph({ rootDir, trackPackages, changedFiles });
 
     const existing = await prisma.graphSnapshot.findFirst({
       where: {
@@ -622,12 +620,6 @@ async function persistSnapshot(args: {
       edgesAffected: updated.edgesAffected,
     };
   });
-}
-
-function fixtureOf(metadata: unknown): string | null {
-  if (typeof metadata !== "object" || metadata === null) return null;
-  const fixture = (metadata as { fixture?: unknown }).fixture;
-  return typeof fixture === "string" && fixture.length > 0 ? fixture : null;
 }
 
 function chunks<T>(items: T[], size: number): T[][] {

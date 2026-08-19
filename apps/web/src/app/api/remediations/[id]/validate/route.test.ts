@@ -63,7 +63,7 @@ describe("POST /api/remediations/[id]/validate (WP9 certification gate)", () => 
   });
 
   it("blocks validation when the connector is not certified for VALIDATE", async () => {
-    vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValue(planFor("anthropic") as never);
+    vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValue(planFor("auth0") as never);
     const response = await POST(requestWithCsrf(), { params: Promise.resolve({ id: "p-1" }) });
     expect(response.status).toBe(422);
     const body = (await response.json()) as { error: { message: string } };
@@ -105,5 +105,29 @@ describe("POST /api/remediations/[id]/validate (WP9 certification gate)", () => 
     const response = await POST(requestWithCsrf(), { params: Promise.resolve({ id: "p-1" }) });
     expect(response.status).toBe(422);
     expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it("records SKIPPED and does not enqueue in github-checks-only mode", async () => {
+    vi.stubEnv("SANDBOX_VALIDATION_MODE", "github-checks-only");
+    vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValue(planFor("openai") as never);
+    vi.mocked(prisma.validationRun.create).mockResolvedValue({
+      id: "vr-skipped",
+      remediationPlanId: "p-1",
+      status: "SKIPPED",
+    } as never);
+    const response = await POST(requestWithCsrf(), { params: Promise.resolve({ id: "p-1" }) });
+    expect(response.status).toBe(202);
+    const body = (await response.json()) as { data: { status: string } };
+    expect(body.data.status).toBe("SKIPPED");
+    expect(prisma.validationRun.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "SKIPPED",
+          stdout: expect.stringContaining("customer CI"),
+        }),
+      }),
+    );
+    expect(enqueue).not.toHaveBeenCalled();
+    vi.unstubAllEnvs();
   });
 });

@@ -1,0 +1,9 @@
+{
+  "name": "@acme/supabase-backend-service",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "dependencies": {
+    "@supabase/supabase-js": "^1.35.7"
+  }
+}

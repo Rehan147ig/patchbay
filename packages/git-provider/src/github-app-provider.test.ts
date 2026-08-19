@@ -123,6 +123,8 @@ describe("GitHubAppProvider", () => {
         return jsonResponse(201, {});
       }
       if (url.endsWith("/pulls")) {
+        const body = JSON.parse(init?.body as string);
+        expect(body.draft).toBe(true);
         return jsonResponse(201, { number: 7, html_url: "https://github.com/acme/app/pull/7" });
       }
       throw new Error(`unexpected request: ${init?.method} ${url}`);
@@ -204,6 +206,33 @@ describe("GitHubAppProvider", () => {
     await expect(provider.fetchRepositoryInfo()).rejects.toThrow(
       "GitHub App token exchange failed for installation 999: 404",
     );
+  });
+
+  it("resolves the default branch HEAD sha through an installation token", async () => {
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/app/installations/777/access_tokens")) {
+        return jsonResponse(201, { token: "inst-token" });
+      }
+      if (url.endsWith("/repos/acme/app")) {
+        return jsonResponse(200, { default_branch: "main" });
+      }
+      if (url.includes("/git/ref/heads/main")) {
+        const headers = (init?.headers ?? {}) as Record<string, string>;
+        expect(headers.Authorization).toBe("Bearer inst-token");
+        return jsonResponse(200, { object: { sha: "head-sha-1" } });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    }) as typeof fetch;
+
+    const provider = new GitHubAppProvider({
+      appId: "12345",
+      privateKey: PRIVATE_KEY_PEM,
+      installationId: 777,
+      repositoryFullName: "acme/app",
+      fetchImpl,
+    });
+
+    await expect(provider.resolveHeadSha()).resolves.toBe("head-sha-1");
   });
 
   it("rejects invalid configuration", () => {

@@ -1,10 +1,19 @@
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { analyzeRepository } from "./analyzer";
 import { extractPythonUsages, parsePyProjectToml, parseRequirementsTxt } from "./python";
 import { UsageType } from "@patchbay/domain";
+
+function fixtureDir(name: string): string {
+  return path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../../fixtures/repositories",
+    name,
+  );
+}
 
 describe("python manifest parsing", () => {
   it("parses PEP 621 project dependencies", () => {
@@ -67,7 +76,7 @@ twilio==9.0.0 ; python_version >= "3.9"
 describe("python L1 usage extraction (tree-sitter)", () => {
   const track = new Set(["openai", "stripe", "twilio"]);
 
-  it("records imports and method calls through imported modules", async () => {
+  it("records imports, client construction, and method calls through imported modules", async () => {
     const source = [
       "import openai",
       "from stripe import StripeClient",
@@ -82,13 +91,34 @@ describe("python L1 usage extraction (tree-sitter)", () => {
     expect(usages).toHaveLength(6);
     const imports = usages.filter((u) => u.usageType === UsageType.IMPORT);
     expect(imports.map((u) => u.packageName).sort()).toEqual(["openai", "stripe", "twilio"]);
+    const inits = usages.filter((u) => u.usageType === UsageType.INITIALIZATION);
+    expect(inits.map((u) => u.symbol)).toEqual(["StripeClient"]);
+    expect(inits[0]?.packageName).toBe("stripe");
     const calls = usages.filter((u) => u.usageType === UsageType.METHOD_CALL);
     expect(calls.map((u) => u.symbol).sort()).toEqual([
-      "StripeClient('sk_test')",
       "openai.chat.completions.create",
       "tw.api.account.fetch",
     ]);
-    expect(calls[0]?.packageName).toBe("openai");
+  });
+
+  it("tracks the official-style v1 client pattern end to end", async () => {
+    const source = [
+      "from openai import OpenAI",
+      "client = OpenAI(api_key='sk-test')",
+      "completion = client.chat.completions.create(model='gpt-4o-mini', messages=[])",
+      "return completion.choices[0].message.content",
+      "",
+    ].join("\n");
+    const usages = await extractPythonUsages(source, "src/chat.py", track);
+    expect(usages).toHaveLength(3);
+    const init = usages.find((u) => u.usageType === UsageType.INITIALIZATION);
+    expect(init?.packageName).toBe("openai");
+    expect(init?.symbol).toBe("OpenAI");
+    const call = usages.find((u) => u.usageType === UsageType.METHOD_CALL);
+    expect(call?.packageName).toBe("openai");
+    expect(call?.symbol).toBe("client.chat.completions.create");
+    expect(call?.filePath).toBe("src/chat.py");
+    expect(call?.line).toBeGreaterThan(0);
   });
 
   it("ignores untracked packages", async () => {
@@ -116,6 +146,59 @@ describe("python L1 usage extraction (tree-sitter)", () => {
     const first = await extractPythonUsages(source, "src/app.py", track);
     const second = await extractPythonUsages(source, "src/app.py", track);
     expect(first).toEqual(second);
+  });
+});
+
+describe("openai-python-legacy fixture", () => {
+  it("indexes python manifests, usages, and call sites for certified packages", async () => {
+    const analysis = await analyzeRepository({
+      rootDir: fixtureDir("openai-python-legacy"),
+      trackPackages: ["openai", "stripe", "twilio"],
+    });
+
+    expect(analysis.pythonFiles).toBeGreaterThan(0);
+    expect(analysis.errors).toEqual([]);
+
+    const manifest = analysis.pythonManifests[0];
+    expect(manifest?.path).toBe("pyproject.toml");
+    expect(Object.keys(manifest?.dependencies ?? {})).toEqual(
+      expect.arrayContaining(["openai", "stripe", "twilio"]),
+    );
+
+    const openaiUsages = analysis.usages.filter((u) => u.packageName === "openai");
+    expect(openaiUsages.length).toBeGreaterThan(0);
+    expect(openaiUsages.some((u) => u.usageType === UsageType.IMPORT)).toBe(true);
+    expect(
+      openaiUsages.some((u) => u.usageType === UsageType.INITIALIZATION && u.symbol === "OpenAI"),
+    ).toBe(true);
+    expect(
+      openaiUsages.some(
+        (u) =>
+          u.usageType === UsageType.METHOD_CALL && u.symbol.includes("chat.completions.create"),
+      ),
+    ).toBe(true);
+    expect(openaiUsages.every((u) => u.filePath === "src/chat.py")).toBe(true);
+
+    expect(
+      analysis.usages.some(
+        (u) => u.packageName === "stripe" && u.symbol === "client.customers.create",
+      ),
+    ).toBe(true);
+    expect(
+      analysis.usages.some(
+        (u) => u.packageName === "twilio" && u.symbol === "client.messages.create",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not index usages of untracked packages (requests)", async () => {
+    const analysis = await analyzeRepository({
+      rootDir: fixtureDir("openai-python-legacy"),
+      trackPackages: ["openai", "stripe", "twilio"],
+    });
+
+    expect(analysis.usages.some((u) => u.packageName === "requests")).toBe(false);
+    expect(analysis.usages.some((u) => u.excerpt.includes("requests.get"))).toBe(false);
   });
 });
 

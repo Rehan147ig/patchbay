@@ -147,7 +147,7 @@ describe("connector catalog", () => {
 
   it("patch suggestions resolve to known symbols per group", () => {
     const checks: Array<[VendorConnectorLike, string, string]> = [
-      [anthropicConnector, "anthropic.completions", "anthropic.messages.create"],
+      [anthropicConnector, "anthropic.completions.create", "anthropic.messages.create"],
       [mistralConnector, "client.chat.completions.create", "client.chat.complete"],
       [typeormConnector, "createConnection", "AppDataSource.initialize()"],
       [nextAuthConnector, "getServerSession", "auth()"],

@@ -94,7 +94,7 @@ const STEPS = [
   {
     number: "02",
     title: "Certified rule packs patch",
-    body: "For certified SDKs (OpenAI, Stripe, Twilio), deterministic migration rules apply bounded code patches. Every patch is validated against allowlisted test commands in an isolated sandbox runner before attachment.",
+    body: "For certified SDKs (OpenAI, Stripe, Twilio, Anthropic, AWS SDK, Supabase), deterministic migration rules apply bounded code patches. Every patch is validated against allowlisted test commands in an isolated sandbox runner before attachment.",
   },
   {
     number: "03",

@@ -10,6 +10,15 @@ Vendor agent ingestion enables a vendor (e.g. Stripe, OpenAI, Twilio) or a CI pi
 
 ---
 
+## 0. Quickstart (under 10 minutes)
+
+A runnable example lives in [`examples/vendor-agent/`](../examples/vendor-agent/): set
+`PATCHBAY_URL` + `AGENT_KEY`, then `curl` (or `node ingest.mjs`) an OpenAI-shaped event into
+`POST /api/vendors/openai/events`. Issue the key from **Settings → Monitored vendors**
+(ADMIN only); the plaintext key is shown exactly once.
+
+---
+
 ## 1. Issuing an Agent Key
 
 An administrator issues a per-vendor agent API key:
@@ -21,7 +30,7 @@ Cookie: pb_session=...
 x-csrf-token: ...
 ```
 
-**Response (200 OK):**
+**Response (201 Created):**
 
 ```json
 {
@@ -93,13 +102,13 @@ Content-Type: application/json
 }
 ```
 
-**Response (202 Accepted):**
+**Response (201 Created):**
 
 ```json
 {
   "data": {
     "changeEventId": "c-openai-sdk-v4-1234",
-    "normalizedChanges": 3,
+    "normalizations": 3,
     "status": "QUEUED"
   }
 }
@@ -111,5 +120,8 @@ Content-Type: application/json
 
 - **Body Size Cap**: Maximum 256 KB (`MAX_AGENT_BODY_BYTES`), enforced on the streamed body.
 - **Rate Limiting**: Rate limited globally and per-vendor.
-- **Deduplication**: Change events are deduplicated by external reference and vendor ID.
-- **Audit Trail**: Every ingestion produces an `AuditAction.AGENT_EVENT_INGESTED` record with correlation tracking.
+- **Idempotency**: Patchbay does not deduplicate agent events today — every accepted POST
+  creates a new change event. Agents that retry should send their own `externalReference`
+  and treat it as their idempotency key.
+- **Audit Trail**: Every ingestion produces an `AuditAction.AGENT_EVENT_RECEIVED`
+  (`agent.event_received`) record with correlation tracking.
