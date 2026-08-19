@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "Patchbay — Governed API-Change Remediation",
+  title: "Patch — Governed API-Change Remediation",
   description:
-    "Patchbay detects breaking API and SDK changes, proves TypeScript usages across your repositories, and opens draft pull requests when certified rule packs exist.",
+    "Patch detects breaking API and SDK changes, proves TypeScript usages across your repositories, and opens draft pull requests when certified rule packs exist.",
 };
 
 const CERTIFIED_MATRIX = [
@@ -89,7 +89,7 @@ const STEPS = [
   {
     number: "01",
     title: "Watchtower detects & matches",
-    body: "Patchbay monitors npm releases, GitHub changelogs, and OpenAPI spec diffs for tracked vendors, classifying changes and matching them against exact AST callsites in your TypeScript repositories.",
+    body: "Patch monitors npm releases, GitHub changelogs, and OpenAPI spec diffs for tracked vendors, classifying changes and matching them against exact AST callsites in your TypeScript repositories.",
   },
   {
     number: "02",
@@ -99,14 +99,14 @@ const STEPS = [
   {
     number: "03",
     title: "You review and approve",
-    body: "Patchbay opens draft pull requests only and never auto-merges. High-risk paths (payments, authentication, webhooks) require explicit human approval before PR creation.",
+    body: "Patch opens draft pull requests only and never auto-merges. High-risk paths (payments, authentication, webhooks) require explicit human approval before PR creation.",
   },
 ];
 
 const GOVERNANCE = [
   {
     title: "Draft PRs only",
-    body: "Patchbay opens draft pull requests and stops there. Merging stays a human decision, every time.",
+    body: "Patch opens draft pull requests and stops there. Merging stays a human decision, every time.",
   },
   {
     title: "Policy gates & approvals",
@@ -131,7 +131,7 @@ export default function LandingPage() {
             <span className="flex size-7 items-center justify-center rounded-md bg-slate-900 text-sm font-bold text-white">
               P
             </span>
-            <span className="text-lg font-semibold tracking-tight">Patchbay</span>
+            <span className="text-lg font-semibold tracking-tight">Patch</span>
           </div>
           <nav aria-label="Marketing" className="flex items-center gap-4 text-sm">
             <a href="#how-it-works" className="text-slate-600 hover:text-slate-900">
@@ -166,7 +166,7 @@ export default function LandingPage() {
           </p>
           <h1 className="text-4xl font-bold tracking-tight text-slate-900 sm:text-5xl">
             Dependabot tells you a version changed.
-            <span className="block text-slate-700">Patchbay drafts the migration code.</span>
+            <span className="block text-slate-700">Patch drafts the migration code.</span>
           </h1>
           <p className="mx-auto mt-5 max-w-2xl text-lg text-slate-600">
             A neutral GitHub App that detects SDK and API changes, proves TypeScript usages across
@@ -240,8 +240,8 @@ export default function LandingPage() {
               Capability & Support Matrix
             </h2>
             <p className="mt-2 text-sm text-slate-600">
-              Patchbay maintains a 56-connector catalog for dependency detection and impact
-              assessment. Automated draft PRs are strictly limited to certified rule packs.
+              Patch maintains a 56-connector catalog for dependency detection and impact assessment.
+              Automated draft PRs are strictly limited to certified rule packs.
             </p>
           </div>
 
@@ -326,7 +326,7 @@ export default function LandingPage() {
         </h2>
         <p className="mx-auto mt-2 max-w-xl text-center text-sm text-slate-600">
           Every plan includes vendor tracking, AST impact analysis, validation, and draft pull
-          requests. Plans differ only in how many active repositories Patchbay watches.
+          requests. Plans differ only in how many active repositories Patch watches.
         </p>
         <div className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {PRICING.map((plan) => (

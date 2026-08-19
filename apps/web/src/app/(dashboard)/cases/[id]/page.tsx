@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { prisma } from "@patchbay/db";
+import { prisma, agentStepSummary } from "@patchbay/db";
 import {
   Badge,
   Card,
@@ -16,6 +15,7 @@ import { requireRole } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 import { CaseActions, type CaseAction } from "@/components/case-actions";
 import { PlanRunButton } from "@/components/plan-run-button";
+import { AgentOrbsPanel } from "@/components/agent-orbs-panel";
 
 export const metadata: Metadata = {
   title: "Remediation case",
@@ -62,7 +62,22 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
       events: { orderBy: { createdAt: "desc" } },
       agentRuns: {
         orderBy: { createdAt: "desc" },
-        select: { id: true, status: true, model: true, createdAt: true },
+        select: {
+          id: true,
+          status: true,
+          model: true,
+          createdAt: true,
+          steps: {
+            orderBy: { startedAt: "asc" },
+            select: {
+              id: true,
+              role: true,
+              kind: true,
+              status: true,
+              toolName: true,
+            },
+          },
+        },
       },
       plans: {
         include: {
@@ -119,6 +134,19 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
 
   const latestPlan = remediationCase.plans[0];
   const latestPR = latestPlan?.pullRequests[0];
+
+  const orbRuns = remediationCase.agentRuns.map((run) => ({
+    id: run.id,
+    status: run.status,
+    model: run.model,
+    createdAt: formatDate(run.createdAt),
+    steps: run.steps.map((step) => ({
+      id: step.id,
+      role: step.role as "ANALYST" | "PLANNER" | "REVIEWER",
+      status: step.status as "STARTED" | "COMPLETED" | "FAILED",
+      summary: agentStepSummary(step),
+    })),
+  }));
 
   const actions: CaseAction[] = [];
   if (remediationCase.status === "APPROVAL_REQUIRED") actions.push("approve");
@@ -323,27 +351,7 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Agent runs</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {remediationCase.agentRuns.length === 0 ? (
-                <p className="text-sm text-slate-500">No agent runs yet.</p>
-              ) : (
-                <ul className="space-y-1 text-xs text-slate-600">
-                  {remediationCase.agentRuns.map((run) => (
-                    <li key={run.id}>
-                      <Link href={`/runs/${run.id}`} className="text-blue-600 hover:underline">
-                        {run.status}
-                      </Link>{" "}
-                      · {run.model} · {formatDate(run.createdAt)}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </CardContent>
-          </Card>
+          <AgentOrbsPanel runs={orbRuns} />
         </div>
       </div>
     </div>

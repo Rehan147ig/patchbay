@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Badge } from "@patchbay/ui";
 import { Nav } from "@/components/nav";
+import { NotificationBell } from "@/components/notification-bell";
 import { LogoutButton } from "@/components/logout-button";
 import { getSessionUser } from "@/lib/auth";
 
@@ -14,21 +15,18 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
           <div className="flex items-center gap-3">
-            <Link
-              href="/overview"
-              className="flex items-center gap-2"
-              aria-label="Patchbay overview"
-            >
+            <Link href="/overview" className="flex items-center gap-2" aria-label="Patch overview">
               <span className="flex size-7 items-center justify-center rounded-md bg-slate-900 text-sm font-bold text-white">
                 P
               </span>
-              <span className="text-lg font-semibold tracking-tight">Patchbay</span>
+              <span className="text-lg font-semibold tracking-tight">Patch</span>
             </Link>
             <Badge tone="blue">Demo data</Badge>
           </div>
           {user ? (
             <div className="flex items-center gap-3">
               <Nav />
+              <NotificationBell />
               <div className="hidden items-center gap-3 border-l border-slate-200 pl-3 md:flex">
                 <div className="text-right">
                   <p className="text-xs font-medium text-slate-900">{user.name}</p>
@@ -47,8 +45,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
       <footer className="border-t border-slate-200 bg-white">
         <div className="mx-auto w-full max-w-6xl px-4 py-3 text-xs text-slate-500">
-          Patchbay local development MVP. The bundled validation sandbox and dev authentication are
-          not hardened multi-tenant infrastructure.
+          Patch local development MVP. The bundled validation sandbox and dev authentication are not
+          hardened multi-tenant infrastructure.
         </div>
       </footer>
     </div>
