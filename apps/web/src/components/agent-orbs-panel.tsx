@@ -37,6 +37,12 @@ const ORB_SPECS: OrbSpec[] = [
   { role: "REVIEWER", state: "shaping", label: "Reviewer", verb: "Shaping…" },
 ];
 
+const ORB_GLOW: Record<AgentRole, string> = {
+  ANALYST: "bg-accent-400",
+  PLANNER: "bg-accent-600",
+  REVIEWER: "bg-mint-400",
+};
+
 interface OrbActivity {
   status: "waiting" | "running" | "completed" | "failed";
   speedMul: number;
@@ -109,12 +115,16 @@ export function AgentOrbsPanel({ runs }: { runs: AgentOrbRun[] }) {
   return (
     <section
       aria-label="Agent trail"
-      className={`rounded-xl border p-4 transition-colors ${
+      className={`relative overflow-hidden rounded-2xl border p-4 transition-colors ${
         isDark
           ? "border-[#1e1e1e] bg-[#0a0a0a] text-[#eaeaea]"
           : "border-slate-200 bg-white text-slate-800"
       }`}
     >
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent-400/60 to-transparent"
+      />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold">Agent trail</h2>
@@ -156,10 +166,16 @@ export function AgentOrbsPanel({ runs }: { runs: AgentOrbRun[] }) {
           return (
             <div
               key={orb.role}
-              className={`flex flex-col items-center gap-2 rounded-lg border p-4 ${
+              className={`relative flex flex-col items-center gap-2 overflow-hidden rounded-xl border p-4 transition-colors ${
                 isDark ? "border-[#1e1e1e] bg-[#111]" : "border-slate-200 bg-[#f8fafc]"
               }`}
             >
+              <div
+                aria-hidden
+                className={`absolute -top-10 size-28 rounded-full blur-2xl transition-opacity ${
+                  ORB_GLOW[orb.role]
+                } ${activity.active ? "opacity-30" : "opacity-10"} ${isDark ? "" : "opacity-20"}`}
+              />
               <ThinkingOrb
                 state={orb.state}
                 size={64}

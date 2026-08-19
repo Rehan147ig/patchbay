@@ -7,7 +7,7 @@ import "./globals.css";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: { default: "Patchbay", template: "%s · Patchbay" },
+  title: { default: "Patch", template: "%s · Patch" },
   description: "Governed API-change remediation platform",
 };
 

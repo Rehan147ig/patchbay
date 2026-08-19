@@ -4,8 +4,173 @@
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, Consolas, monospace;
+
+  /* Patch "Dark Observatory" ink scale */
+  --color-ink-950: #08090b;
+  --color-ink-900: #0d0e11;
+  --color-ink-800: #14161a;
+  --color-ink-700: #1c1f24;
+  --color-ink-600: #262a31;
+  --color-ink-500: #3a3f48;
+  --color-ink-400: #7c848f;
+  --color-ink-300: #a2a9b3;
+  --color-ink-200: #c3c9d1;
+  --color-ink-100: #e7e9ec;
+
+  /* Accent: indigo -> violet, applied surgically */
+  --color-accent-300: #a5b4fc;
+  --color-accent-400: #818cf8;
+  --color-accent-500: #6366f1;
+  --color-accent-600: #8b5cf6;
+
+  /* Positive / validation */
+  --color-mint-300: #6ee7b7;
+  --color-mint-400: #34d399;
+
+  --animate-aurora: aurora 22s ease-in-out infinite alternate;
+  --animate-float: float 7s ease-in-out infinite;
+  --animate-marquee: marquee 44s linear infinite;
+  --animate-scan: scan 3.6s ease-in-out infinite;
+  --animate-pulse-dot: pulse-dot 2.2s ease-in-out infinite;
+  --animate-rise: rise 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+
+  @keyframes aurora {
+    0% {
+      transform: translate3d(-6%, -4%, 0) scale(1);
+    }
+    50% {
+      transform: translate3d(6%, 5%, 0) scale(1.15);
+    }
+    100% {
+      transform: translate3d(-3%, 6%, 0) scale(1.05);
+    }
+  }
+  @keyframes float {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-10px);
+    }
+  }
+  @keyframes marquee {
+    to {
+      transform: translateX(-50%);
+    }
+  }
+  @keyframes scan {
+    0% {
+      top: 0;
+      opacity: 0;
+    }
+    10% {
+      opacity: 1;
+    }
+    90% {
+      opacity: 1;
+    }
+    100% {
+      top: 100%;
+      opacity: 0;
+    }
+  }
+  @keyframes pulse-dot {
+    0%,
+    100% {
+      opacity: 1;
+      box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.5);
+    }
+    50% {
+      opacity: 0.6;
+      box-shadow: 0 0 0 5px rgba(52, 211, 153, 0);
+    }
+  }
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(22px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
 }
 
 body {
   @apply bg-slate-50 text-slate-900 antialiased;
+}
+
+@layer components {
+  /* Scroll reveal (driven by the <Reveal> client component). */
+  .reveal {
+    opacity: 0;
+    transform: translateY(26px) scale(0.985);
+    transition:
+      opacity 0.75s cubic-bezier(0.16, 1, 0.3, 1),
+      transform 0.75s cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: opacity, transform;
+  }
+  .reveal[data-visible="true"] {
+    opacity: 1;
+    transform: none;
+  }
+
+  /* Glassmorphism 2.0 — subtle blur, kept high-contrast. */
+  .glass {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(14px);
+  }
+  .glass-strong {
+    background: rgba(13, 14, 17, 0.72);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    backdrop-filter: blur(18px);
+  }
+
+  /* Surgical gradient text — used once per viewport, not everywhere. */
+  .text-gradient {
+    background: linear-gradient(92deg, #a5b4fc 0%, #818cf8 42%, #c084fc 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* Faint engineering grid for hero backdrops. */
+  .grid-bg {
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+    background-size: 56px 56px;
+  }
+
+  /* Hover glow for primary actions. */
+  .btn-glow {
+    box-shadow:
+      0 0 0 1px rgba(129, 140, 248, 0.35),
+      0 8px 40px -8px rgba(99, 102, 241, 0.55);
+    transition:
+      box-shadow 0.3s ease,
+      transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .btn-glow:hover {
+    box-shadow:
+      0 0 0 1px rgba(129, 140, 248, 0.55),
+      0 14px 56px -6px rgba(99, 102, 241, 0.7);
+    transform: translateY(-1px);
+  }
+
+  /* Card lift + border glow micro-interaction. */
+  .card-lift {
+    transition:
+      transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+      border-color 0.35s ease,
+      box-shadow 0.35s ease;
+  }
+  .card-lift:hover {
+    transform: translateY(-4px);
+    border-color: rgba(129, 140, 248, 0.4);
+    box-shadow: 0 24px 60px -24px rgba(99, 102, 241, 0.35);
+  }
 }

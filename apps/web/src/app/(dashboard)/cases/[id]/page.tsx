@@ -166,35 +166,51 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-semibold text-slate-900">
-              {remediationCase.release.product.packageName}{" "}
-              <span className="text-slate-400">v{remediationCase.release.version}</span>
-            </h1>
-            <StatusPill
-              label={remediationCase.status}
-              tone={STATUS_TONE[remediationCase.status] ?? "neutral"}
-            />
+      <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-5">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -right-24 -top-24 size-64 rounded-full bg-gradient-to-br from-accent-400/15 to-accent-600/10 blur-3xl"
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent-400/50 to-transparent"
+        />
+        <div className="relative flex flex-wrap items-start justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-accent-500 to-accent-600 font-bold text-white shadow-[0_8px_24px_-8px_rgba(99,102,241,0.6)]">
+              {remediationCase.release.product.packageName.charAt(0).toUpperCase()}
+            </span>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-xl font-semibold text-slate-900">
+                  {remediationCase.release.product.packageName}{" "}
+                  <span className="text-slate-400">v{remediationCase.release.version}</span>
+                </h1>
+                <StatusPill
+                  label={remediationCase.status}
+                  tone={STATUS_TONE[remediationCase.status] ?? "neutral"}
+                />
+              </div>
+              <p className="mt-0.5 text-sm text-slate-500">
+                {remediationCase.release.product.vendor.name} (
+                {remediationCase.release.product.vendor.slug}) ·{" "}
+                {remediationCase.repository.fullName} · resolved{" "}
+                {remediationCase.dependency.resolvedVersion} ·{" "}
+                {remediationCase.dependency.lockfileKind}
+              </p>
+            </div>
           </div>
-          <p className="text-sm text-slate-500">
-            {remediationCase.release.product.vendor.name} (
-            {remediationCase.release.product.vendor.slug}) · {remediationCase.repository.fullName} ·
-            resolved {remediationCase.dependency.resolvedVersion} ·{" "}
-            {remediationCase.dependency.lockfileKind}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {canPlan && remediationCase.releaseRepositoryMatchId ? (
-            <PlanRunButton
-              releaseId={remediationCase.release.id}
-              matchId={remediationCase.releaseRepositoryMatchId}
-            />
-          ) : null}
-          {actions.length > 0 ? (
-            <CaseActions caseId={remediationCase.id} actions={actions} />
-          ) : null}
+          <div className="flex items-center gap-2">
+            {canPlan && remediationCase.releaseRepositoryMatchId ? (
+              <PlanRunButton
+                releaseId={remediationCase.release.id}
+                matchId={remediationCase.releaseRepositoryMatchId}
+              />
+            ) : null}
+            {actions.length > 0 ? (
+              <CaseActions caseId={remediationCase.id} actions={actions} />
+            ) : null}
+          </div>
         </div>
       </div>
 
