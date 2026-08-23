@@ -1,79 +1,83 @@
 const DIFF_LINES: Array<{ type: "del" | "add" | "ctx"; text: string }> = [
-  { type: "del", text: 'import OpenAI from "openai";' },
+  { type: "ctx", text: 'import OpenAI from "openai";' },
   { type: "del", text: "const completion = await openai.createChatCompletion(" },
   { type: "del", text: '  { model: "gpt-4", messages });' },
-  { type: "add", text: 'import OpenAI from "openai";' },
   { type: "add", text: "const client = new OpenAI();" },
   { type: "add", text: "const completion = await client.chat.completions.create(" },
   { type: "add", text: '  { model: "gpt-4", messages });' },
 ];
 
+const LINE_STYLES: Record<string, string> = {
+  del: "bg-red-50 text-red-700",
+  add: "bg-emerald-50 text-emerald-700",
+  ctx: "text-gray-500",
+};
+
 /**
- * Hero product visual: the real certified OpenAI migration diff rendered as a
- * floating code window with a scanning line and a validation badge.
+ * Hero product visual: a real certified OpenAI migration diff rendered as a
+ * clean code window with floating agent-event satellites orbiting it.
  */
 export function DiffWindow() {
   return (
-    <div className="relative mx-auto mt-16 w-full max-w-4xl">
-      {/* Ambient glow behind the window */}
+    <div className="relative w-full">
+      {/* Floating satellites */}
       <div
-        aria-hidden
-        className="absolute -inset-8 rounded-[40px] bg-gradient-to-r from-accent-500/25 via-accent-600/20 to-transparent blur-3xl"
-      />
-      <div
-        className="relative animate-float overflow-hidden rounded-2xl border border-white/10 bg-ink-900/90 shadow-[0_40px_120px_-40px_rgba(0,0,0,0.9)]"
-        style={{ animationDelay: "1.2s" }}
+        className="absolute -left-8 -top-6 z-10 hidden animate-float items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 font-mono text-[11px] text-gray-600 shadow-[0_8px_24px_-12px_rgba(0,0,0,0.25)] lg:flex"
+        style={{ animationDelay: "-1.5s" }}
       >
-        {/* Title bar */}
-        <div className="flex items-center gap-2 border-b border-white/8 px-4 py-3">
-          <span className="size-3 rounded-full bg-[#ff5f57]" />
-          <span className="size-3 rounded-full bg-[#febc2e]" />
-          <span className="size-3 rounded-full bg-[#28c840]" />
-          <span className="ml-3 font-mono text-xs text-ink-400">
+        <span className="size-1.5 rounded-full bg-indigo-500" />
+        ANALYST · 14 callsites matched
+      </div>
+      <div
+        className="absolute -right-6 top-1/3 z-10 hidden animate-float items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 font-mono text-[11px] text-gray-600 shadow-[0_8px_24px_-12px_rgba(0,0,0,0.25)] lg:flex"
+        style={{ animationDelay: "-3.2s" }}
+      >
+        <span className="size-1.5 rounded-full bg-emerald-500" />
+        sandbox · pnpm test ✓
+      </div>
+      <div
+        className="absolute -bottom-5 -right-4 z-10 hidden animate-float items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 font-mono text-[11px] text-gray-600 shadow-[0_8px_24px_-12px_rgba(0,0,0,0.25)] lg:flex"
+        style={{ animationDelay: "-4.8s" }}
+      >
+        <span className="size-1.5 rounded-full bg-gray-900" />
+        draft PR #128 opened
+      </div>
+
+      {/* Code window */}
+      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white text-left shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
+        <div className="flex items-center gap-2 border-b border-gray-100 bg-gray-50/70 px-4 py-2.5">
+          <span className="size-2.5 rounded-full bg-gray-300" />
+          <span className="size-2.5 rounded-full bg-gray-300" />
+          <span className="size-2.5 rounded-full bg-gray-300" />
+          <span className="ml-3 truncate font-mono text-xs text-gray-500">
             openai v3.3.0 → v4.0.0 · draft PR
           </span>
-          <span className="ml-auto hidden items-center gap-1.5 rounded-full border border-mint-400/25 bg-mint-400/10 px-2.5 py-1 text-xs font-medium text-mint-300 sm:flex">
-            <span className="size-1.5 animate-pulse-dot rounded-full bg-mint-400" />
+          <span className="ml-auto hidden shrink-0 items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700 sm:flex">
             Validation passed
           </span>
         </div>
 
-        {/* Diff body with scan line */}
-        <div className="relative px-5 py-5 font-mono text-[13px] leading-7">
+        <div className="py-2 font-mono text-[13px] leading-6">
           {DIFF_LINES.map((line, index) => (
-            <div
-              key={index}
-              className={`flex gap-3 rounded px-2 ${
-                line.type === "del"
-                  ? "text-ink-500"
-                  : line.type === "add"
-                    ? "text-mint-300"
-                    : "text-ink-300"
-              }`}
-            >
-              <span className="w-4 select-none text-ink-500">
+            <div key={index} className={`flex gap-3 px-4 ${LINE_STYLES[line.type]}`}>
+              <span className="w-3 shrink-0 select-none">
                 {line.type === "del" ? "−" : line.type === "add" ? "+" : ""}
               </span>
-              <code>{line.text}</code>
+              <code className="whitespace-pre">{line.text}</code>
             </div>
           ))}
-          <div
-            aria-hidden
-            className="absolute left-2 right-2 h-px animate-scan bg-gradient-to-r from-transparent via-accent-400/80 to-transparent"
-          />
         </div>
 
-        {/* Footer strip */}
-        <div className="flex items-center gap-2 border-t border-white/8 px-4 py-2.5 text-xs text-ink-400">
-          <span className="rounded bg-accent-500/15 px-1.5 py-0.5 font-mono text-accent-300">
+        <div className="flex items-center gap-2 border-t border-gray-100 px-4 py-2.5 text-xs">
+          <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-gray-600">
             rule-pack: openai/chat-completions-v4
           </span>
-          <span className="rounded bg-white/5 px-1.5 py-0.5 font-mono text-ink-300">
+          <span className="hidden rounded bg-gray-100 px-1.5 py-0.5 font-mono text-gray-600 sm:inline">
             sandbox: pnpm test
           </span>
-          <span className="ml-auto hidden items-center gap-1.5 sm:flex">
-            <span className="size-1.5 rounded-full bg-mint-400" />
-            draft PR #128 ready for review
+          <span className="ml-auto hidden items-center gap-1.5 text-gray-500 sm:flex">
+            <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" />
+            ready for review
           </span>
         </div>
       </div>

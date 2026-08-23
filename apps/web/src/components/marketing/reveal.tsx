@@ -10,8 +10,7 @@ type RevealProps = {
 
 /**
  * Scroll-triggered reveal wrapper. Fades/slides children in the first time
- * they enter the viewport. Styles live in globals.css (.reveal) so the markup
- * stays dependency-free.
+ * they enter the viewport. Styles live in globals.css (.reveal).
  */
 export function Reveal({ children, delay = 0, className = "" }: RevealProps) {
   const ref = useRef<HTMLDivElement>(null);
