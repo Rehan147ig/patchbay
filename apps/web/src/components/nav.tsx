@@ -21,7 +21,10 @@ const LINKS = [
 export function Nav() {
   const pathname = usePathname();
   return (
-    <nav aria-label="Primary" className="flex items-center gap-1 overflow-x-auto">
+    <nav
+      aria-label="Primary"
+      className="scrollbar-none flex max-w-full items-center gap-0.5 overflow-x-auto rounded-full border border-gray-200/80 bg-white/90 p-1 shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
+    >
       {LINKS.map((link) => {
         const active =
           link.href === "/overview" ? pathname === "/overview" : pathname.startsWith(link.href);
@@ -31,10 +34,10 @@ export function Nav() {
             href={link.href}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+              "whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
               active
-                ? "bg-slate-900 text-white"
-                : "text-slate-600 hover:bg-slate-200 hover:text-slate-900",
+                ? "bg-gray-900 text-white shadow-sm"
+                : "text-gray-500 hover:bg-gray-100 hover:text-gray-900",
             )}
           >
             {link.label}

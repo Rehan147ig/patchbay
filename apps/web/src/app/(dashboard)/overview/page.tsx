@@ -80,22 +80,18 @@ export default async function OverviewPage() {
     totalValidations > 0 ? Math.round((passedValidations / totalValidations) * 100) : null;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">Overview</h1>
-        <p className="text-sm text-slate-500">
+        <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Overview</h1>
+        <p className="mt-1 text-sm text-gray-500">
           Remediation health for{" "}
           {user.organizationId === "org-acme" ? "Acme SaaS" : "your workspace"}. All figures are
           local demo data.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <StatCard
-          label="Active repositories"
-          value={repositoryCount}
-          hint="Connected to Patchbay"
-        />
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        <StatCard label="Active repositories" value={repositoryCount} hint="Connected to Patch" />
         <StatCard label="Monitored vendors" value={vendorCount} hint="Catalog entries" />
         <StatCard
           label="Open change events"
@@ -131,7 +127,7 @@ export default async function OverviewPage() {
           <CardHeader>
             <CardTitle>Recent audit events</CardTitle>
             <CardDescription>
-              <Link href="/audit" className="text-blue-600 hover:underline">
+              <Link href="/audit" className="text-accent-600 hover:underline">
                 View full audit trail
               </Link>
             </CardDescription>
@@ -178,27 +174,42 @@ export default async function OverviewPage() {
             <CardTitle>Next steps</CardTitle>
             <CardDescription>What you can do with this demo environment.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-3 text-sm text-slate-700">
-            <p>
-              <Link href="/repositories" className="font-medium text-blue-600 hover:underline">
-                Repositories
-              </Link>{" "}
-              — inspect the seeded integration usage inventory for billing, AI, notifications, and
-              auth services.
-            </p>
-            <p>
-              <Link href="/changes" className="font-medium text-blue-600 hover:underline">
-                Changes
-              </Link>{" "}
-              — review detected vendor change events and their normalized classifications.
-            </p>
-            <p>
-              <Link href="/policies" className="font-medium text-blue-600 hover:underline">
-                Policies
-              </Link>{" "}
-              — view and toggle the approval gates that govern remediation.
-            </p>
-            <p>
+          <CardContent className="space-y-1 text-sm">
+            {[
+              {
+                href: "/repositories",
+                title: "Repositories",
+                body: "Inspect the seeded integration usage inventory for billing, AI, notifications, and auth services.",
+              },
+              {
+                href: "/changes",
+                title: "Changes",
+                body: "Review detected vendor change events and their normalized classifications.",
+              },
+              {
+                href: "/policies",
+                title: "Policies",
+                body: "View and toggle the approval gates that govern remediation.",
+              },
+            ].map((step) => (
+              <Link
+                key={step.href}
+                href={step.href}
+                className="group flex items-start gap-3 rounded-lg px-2 py-2.5 transition-colors hover:bg-gray-50"
+              >
+                <span
+                  aria-hidden
+                  className="mt-0.5 text-gray-400 transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-accent-600"
+                >
+                  →
+                </span>
+                <span>
+                  <span className="font-medium text-gray-900">{step.title}</span>
+                  <span className="ml-2 text-gray-500">{step.body}</span>
+                </span>
+              </Link>
+            ))}
+            <p className="px-2 pb-1 pt-2 text-xs leading-relaxed text-gray-500">
               Run the guided demo scenarios from the Demo page to see change detection, impact
               analysis, patch generation, validation, and draft PR creation end to end.
             </p>
@@ -206,7 +217,7 @@ export default async function OverviewPage() {
         </Card>
       </div>
 
-      <p className="text-xs text-slate-400">
+      <p className="text-xs text-gray-400">
         Demo data seed:{" "}
         {truncate(
           "Acme SaaS · billing-service, ai-assistant-service, notification-service, auth-gateway",
