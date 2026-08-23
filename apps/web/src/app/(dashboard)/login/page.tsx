@@ -19,7 +19,7 @@ export default async function LoginPage() {
     <div className="mx-auto mt-10 w-full max-w-sm">
       <Card>
         <CardHeader>
-          <CardTitle>Sign in to Patchbay</CardTitle>
+          <CardTitle>Sign in to Patch</CardTitle>
           <CardDescription>
             {oauthEnabled
               ? "Use your GitHub account, or the seeded demo user for local development."

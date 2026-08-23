@@ -7,14 +7,14 @@ import { apiFetch } from "@/lib/client-fetch";
 
 const STEPS = [
   { number: 1, label: "Install the GitHub App" },
-  { number: 2, label: "Connect repositories" },
-  { number: 3, label: "Start watching" },
+  { number: 2, label: "Connect a repository" },
+  { number: 3, label: "From change to draft PR" },
 ] as const;
 
 const CONNECT_STATUS = {
   idle: null,
   pending: "Connecting repository…",
-  ok: "Connected. Patchbay will scan it for affected usages.",
+  ok: "Connected. Patch will scan it for affected usages.",
   error: "Failed to connect the repository.",
 } as const;
 
@@ -80,14 +80,16 @@ export function OnboardingWizard() {
         <div className="space-y-4">
           <h2 className="text-lg font-semibold text-slate-900">Install the GitHub App</h2>
           <p className="text-sm leading-relaxed text-slate-600">
-            Patchbay uses a GitHub App to read your repositories, detect releases from changelogs,
-            and open draft pull requests with migration patches. Installing takes you to GitHub and
-            back — you will land on <code className="text-slate-700">Settings → GitHub</code> when
-            it is done.
+            Patch uses a GitHub App to read your repositories, detect upstream SDK changes, and open
+            draft pull requests with migration patches. It asks for exactly three permissions —
+            Contents (read/write), Pull requests (read/write), and Metadata (read) — and nothing
+            else. Draft PRs only: Patch never merges, never writes to your default branch, and
+            agents never hold git tokens — credentials stay server-side.
           </p>
           <p className="text-xs text-slate-500">
-            Requires a workspace admin account and a configured{" "}
-            <code className="text-slate-600">GITHUB_APP_SLUG</code> in this deployment.
+            Installing takes you to GitHub and back — you will land on{" "}
+            <code className="text-slate-600">Settings → GitHub</code> when it is done. Requires a
+            configured <code className="text-slate-600">GITHUB_APP_SLUG</code> in this deployment.
           </p>
           <div className="flex items-center gap-3">
             <a
@@ -105,10 +107,17 @@ export function OnboardingWizard() {
 
       {step === 1 ? (
         <div className="space-y-4">
-          <h2 className="text-lg font-semibold text-slate-900">Connect repositories</h2>
+          <h2 className="text-lg font-semibold text-slate-900">Connect a repository</h2>
           <p className="text-sm leading-relaxed text-slate-600">
-            Register one repository now; you can connect more later from the Repositories page. Your
-            plan determines how many active repositories Patchbay may watch.
+            Register one TypeScript repository that imports a certified SDK —{" "}
+            <code className="text-slate-700">openai</code>,{" "}
+            <code className="text-slate-700">stripe</code>,{" "}
+            <code className="text-slate-700">twilio</code>,{" "}
+            <code className="text-slate-700">anthropic</code>,{" "}
+            <code className="text-slate-700">aws-sdk</code>, or{" "}
+            <code className="text-slate-700">supabase</code> — the fastest path from a release to a
+            draft PR. You can connect more later from the Repositories page; your plan determines
+            how many active repositories Patch may watch.
           </p>
           <form action={connectRepository} className="space-y-3">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -155,18 +164,30 @@ export function OnboardingWizard() {
 
       {step === 2 ? (
         <div className="space-y-4">
-          <h2 className="text-lg font-semibold text-slate-900">Start watching releases</h2>
+          <h2 className="text-lg font-semibold text-slate-900">From change to draft PR</h2>
           <p className="text-sm leading-relaxed text-slate-600">
-            Watchtower tracks npm releases and GitHub changelogs for the vendors Patchbay knows.
-            When a breaking change is detected, it is classified and matched against your
-            repositories — no action needed from you.
+            When a tracked vendor releases a breaking change, Watchtower records it under Changes.
+            Open the change → Generate plan → open the remediation → Draft PR. That is the whole
+            path: Patch opens drafts only and never auto-merges; a human reviews and merges.
+          </p>
+          <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-800">
+            If this deployment runs{" "}
+            <code className="font-mono">SANDBOX_VALIDATION_MODE=github-checks-only</code>,
+            validation reports <strong>SKIPPED — never PASSED</strong>. Your CI is the judge of the
+            patch.
           </p>
           <div className="flex flex-wrap items-center gap-3">
             <Link
-              href="/releases"
+              href="/changes"
               className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
             >
-              Open Release Explorer
+              Open Changes
+            </Link>
+            <Link
+              href="/releases"
+              className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Release Explorer
             </Link>
             <Link
               href="/demo"

@@ -72,7 +72,7 @@ export default async function OutcomesPage() {
       <div>
         <h1 className="text-xl font-semibold text-slate-900">Outcomes</h1>
         <p className="text-sm text-slate-500">
-          What happened after Patchbay acted — merged pull requests, human feedback, and the
+          What happened after Patch acted — merged pull requests, human feedback, and the
           capability-health signals derived from them.
         </p>
       </div>

@@ -114,8 +114,8 @@ export default async function SettingsPage({
             <CardDescription>
               Vendor catalog entries available for change monitoring. Admins can issue a{" "}
               <code className="font-mono text-xs">pb_agent_*</code> agent key per vendor so the
-              vendor can push change events directly — Patchbay never writes to customer
-              repositories. The plaintext key is shown exactly once; only its hash is stored.
+              vendor can push change events directly — Patch never writes to customer repositories.
+              The plaintext key is shown exactly once; only its hash is stored.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -341,7 +341,7 @@ export default async function SettingsPage({
               </span>{" "}
               (
               {process.env.SANDBOX_VALIDATION_MODE === "github-checks-only"
-                ? "customer CI is the validation sandbox — Patchbay never executes customer code on this host"
+                ? "customer CI is the validation sandbox — Patch never executes customer code on this host"
                 : process.env.SANDBOX_VALIDATION_MODE === "process"
                   ? "development/local only — not a multi-tenant sandbox"
                   : "hosted Docker container isolation (production fail-closed)"}

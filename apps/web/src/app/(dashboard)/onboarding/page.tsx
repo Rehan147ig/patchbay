@@ -3,7 +3,7 @@ import { requireRole } from "@/lib/auth";
 import { OnboardingWizard } from "@/components/onboarding-wizard";
 
 export const metadata: Metadata = {
-  title: "Set up Patchbay",
+  title: "Set up Patch",
 };
 
 export default async function OnboardingPage() {
@@ -12,10 +12,11 @@ export default async function OnboardingPage() {
   return (
     <div className="mx-auto mt-6 w-full max-w-2xl">
       <div className="mb-6 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Set up Patchbay</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Set up Patch</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Three steps to connect your repositories and start watching upstream releases. Every step
-          is optional — you can always continue later from Settings.
+          One path to your first draft PR: install the GitHub App, connect a TypeScript repository
+          that uses a certified SDK, and watch a release turn into a reviewable migration. Every
+          step is optional — you can always continue later from Settings.
         </p>
       </div>
       <OnboardingWizard />

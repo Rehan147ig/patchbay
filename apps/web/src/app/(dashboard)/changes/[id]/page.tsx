@@ -90,7 +90,7 @@ export default async function ChangeDetailPage({ params }: { params: Promise<{ i
         <Card>
           <CardHeader>
             <CardTitle>Normalized changes</CardTitle>
-            <CardDescription>How Patchbay classified this event.</CardDescription>
+            <CardDescription>How Patch classified this event.</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
             {event.normalizations.length === 0 ? (

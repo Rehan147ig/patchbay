@@ -319,7 +319,7 @@ export default async function RemediationDetailPage({
           <CardTitle>Validation runs</CardTitle>
           <CardDescription>
             {validationMode === "github-checks-only"
-              ? "Validation is skipped on Patchbay — customer CI (GitHub checks) is the validation sandbox."
+              ? "Validation is skipped on Patch — customer CI (GitHub checks) is the validation sandbox."
               : "Allowlisted commands executed in the sandbox."}
           </CardDescription>
         </CardHeader>
