@@ -155,7 +155,7 @@ describe("processCreatePR", () => {
       provider: "LOCAL",
       branchName: "patchbay/remediation-plan-1",
       url: "file:///tmp/pr",
-      title: "[Patchbay] Test Change",
+      title: "[Patch] Test Change",
       body: "body",
       status: "DRAFT",
     });
@@ -206,7 +206,7 @@ describe("processCreatePR", () => {
       branchName: "patchbay/remediation-plan-1",
       url: "https://github.com/acme/app/pull/42",
       externalId: "42",
-      title: "[Patchbay] Test Change",
+      title: "[Patch] Test Change",
       body: "body",
       status: "DRAFT",
     });
@@ -253,7 +253,7 @@ describe("processCreatePR", () => {
       provider: "LOCAL",
       branchName: "patchbay/remediation-plan-1",
       url: "file:///tmp/pr",
-      title: "[Patchbay] Test Change",
+      title: "[Patch] Test Change",
       body: "body",
       status: "DRAFT",
     });
@@ -313,7 +313,7 @@ describe("processCreatePR", () => {
       provider: "LOCAL",
       branchName: "patchbay/remediation-plan-1",
       url: "file:///tmp/pr",
-      title: "[Patchbay] Test Change",
+      title: "[Patch] Test Change",
       body: "body",
       status: "DRAFT",
     });
@@ -364,7 +364,7 @@ describe("processCreatePR", () => {
       provider: "LOCAL",
       branchName: "patchbay/remediation-plan-1",
       url: "file:///tmp/pr",
-      title: "[Patchbay] Test Change",
+      title: "[Patch] Test Change",
       body: "body",
       status: "DRAFT",
     });

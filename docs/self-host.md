@@ -1,6 +1,6 @@
-# Self-hosting Patchbay (one organization)
+# Self-hosting Patch (one organization)
 
-This guide gets a technical founder running Patchbay for a single
+This guide gets a technical founder running Patch for a single
 organization, from an empty machine to a draft pull request. Every command,
 port, and environment variable below was verified against `docker-compose.yml`,
 `.env.example`, and `AGENTS.md` in this repository. If something disagrees with
@@ -93,7 +93,7 @@ Honest summary of what each does (details in `.env.example`):
 - `SANDBOX_VALIDATION_MODE=hosted-docker` (default) — validation commands run
   in the container sandbox. In production the worker refuses to start if the
   container runtime is unavailable (fail-closed).
-- `SANDBOX_VALIDATION_MODE=github-checks-only` — Patchbay **never executes
+- `SANDBOX_VALIDATION_MODE=github-checks-only` — Patch **never executes
   customer code on your host**. Validation runs are recorded as `SKIPPED`,
   which is **never** reported as `PASSED`; your CI (GitHub checks) is the
   sandbox. No container required.
@@ -152,7 +152,7 @@ BullMQ worker (scan, analyze, plan, PR creation). Sign in with
    inventory, and builds the graph snapshot.
 
 Agent runs (analyst → planner → reviewer) only ever read release facts and
-usage graphs from Patchbay's own database and the local fixture checkout —
+usage graphs from Patch's own database and the local fixture checkout —
 they never hold GitHub tokens or credentials. Git access lives exclusively in
 the git-provider layer: the GitHub App's installation access token is minted
 server-side by the App itself (App JWT + installation token, scoped to the
@@ -204,16 +204,16 @@ migrations are outside this guide's scope.
   hardened sandbox: `process` mode executes commands on your host and is
   rejected in production; production requires `SANDBOX_RUNTIME=container`.
   This deployment is for one organization on infrastructure you trust.
-- **`github-checks-only` is not "passing".** In that mode Patchbay never runs
+- **`github-checks-only` is not "passing".** In that mode Patch never runs
   your code and records validation as `SKIPPED` — never `PASSED`. Treat
-  "skipped" as "unvalidated by Patchbay", and let your CI be the judge.
+  "skipped" as "unvalidated by Patch", and let your CI be the judge.
 - **No SSO, no multi-tenant auth, no billing.** Auth is the dev session
   cookie; billing routes 503 unless you configure Stripe keys.
 - **Six certified patch kits.** `openai`, `stripe`, `twilio`, `anthropic`,
   `aws-sdk`, `supabase` produce patches. The catalog is 50+ connectors but
   everything else — including all Python — is detect/assess only. Catalog
   presence is not an auto-fix.
-- **No auto-merging, ever.** Patchbay only opens drafts and tracks their
+- **No auto-merging, ever.** Patch only opens drafts and tracks their
   lifecycle via webhooks; a human merges.
 - **No Firecracker-based isolation, no Kubernetes operator, no HA failover.**
   One Postgres, one Redis, one worker.

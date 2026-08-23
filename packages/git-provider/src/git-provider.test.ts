@@ -16,7 +16,7 @@ describe("LocalGitProvider", () => {
       fixtureDir: OPENAI_FIXTURE,
       branchName: "patchbay/openai-v4-migration",
       title: "Migrate OpenAI SDK to v4",
-      body: "Automated remediation plan applied by Patchbay.",
+      body: "Automated remediation plan applied by Patch.",
       patches: [
         {
           filePath: "src/chat/chat-service.ts",

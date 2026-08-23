@@ -126,11 +126,11 @@ export const PLAN_REVIEW_TEMPLATE_PATH = () =>
   path.join(process.cwd(), "packages", "ai-provider", "prompts", "plan-review.md");
 
 /** Inline fallback so the provider stays functional even if the file is absent. */
-const FALLBACK_SYSTEM_PROMPT = `You are Patchbay, an API-change remediation advisor. Given a vendor API change and affected code usages, produce a remediation plan draft. Respond with strict JSON only. The plan is advisory: it must not contain shell commands, and every suggestion must be grounded in the provided change details.`;
+const FALLBACK_SYSTEM_PROMPT = `You are Patch, an API-change remediation advisor. Given a vendor API change and affected code usages, produce a remediation plan draft. Respond with strict JSON only. The plan is advisory: it must not contain shell commands, and every suggestion must be grounded in the provided change details.`;
 
-const FALLBACK_PLAN_GENERATION_PROMPT = `You are Patchbay's migration planner. Given trusted release facts (deterministic change drafts) and bounded graph evidence of affected modules, produce a strict-JSON PatchPlan: edits are declarative file edits (filePath, operation REPLACE|INSERT_AFTER|DELETE, searchText, replacement, description, confidence), each grounded in the provided drafts. Never invent files, symbols, or content not grounded in the input. The plan is a proposal; it must never contain shell commands or credentials.`;
+const FALLBACK_PLAN_GENERATION_PROMPT = `You are Patch's migration planner. Given trusted release facts (deterministic change drafts) and bounded graph evidence of affected modules, produce a strict-JSON PatchPlan: edits are declarative file edits (filePath, operation REPLACE|INSERT_AFTER|DELETE, searchText, replacement, description, confidence), each grounded in the provided drafts. Never invent files, symbols, or content not grounded in the input. The plan is a proposal; it must never contain shell commands or credentials.`;
 
-const FALLBACK_PLAN_REVIEW_PROMPT = `You are Patchbay's independent reviewer. Compare the release evidence (change drafts), the proposed plan edits, and validation evidence. Return strict JSON: { approved, independent: true, confidence, summary, issues: [{severity: error|warning|info, target: plan|evidence|validation, message}] }. Be conservative: approval requires every breaking affected symbol to be addressed by the plan.`;
+const FALLBACK_PLAN_REVIEW_PROMPT = `You are Patch's independent reviewer. Compare the release evidence (change drafts), the proposed plan edits, and validation evidence. Return strict JSON: { approved, independent: true, confidence, summary, issues: [{severity: error|warning|info, target: plan|evidence|validation, message}] }. Be conservative: approval requires every breaking affected symbol to be addressed by the plan.`;
 
 export function loadPlanDraftTemplate(): string {
   try {

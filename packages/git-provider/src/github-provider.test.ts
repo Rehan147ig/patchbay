@@ -45,7 +45,7 @@ describe("GitHubProvider", () => {
       if (url.endsWith("/pulls")) {
         const body = JSON.parse(init?.body as string);
         expect(body).toMatchObject({
-          title: "[Patchbay] Fix",
+          title: "[Patch] Fix",
           head: "patchbay/fix-1",
           base: "main",
           draft: true,
@@ -65,7 +65,7 @@ describe("GitHubProvider", () => {
       repositoryName: "app",
       fixtureDir: "",
       branchName: "patchbay/fix-1",
-      title: "[Patchbay] Fix",
+      title: "[Patch] Fix",
       body: "Automated.",
       patches: PATCHES,
     });

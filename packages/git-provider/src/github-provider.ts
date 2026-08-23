@@ -222,7 +222,7 @@ export class GitHubProvider implements GitProvider {
       await this.request(`/repos/${owner}/${repo}/contents/${encodeURIComponent(filePath)}`, {
         method: "PUT",
         body: JSON.stringify({
-          message: `Apply Patchbay patch: ${filePath}`,
+          message: `Apply Patch patch: ${filePath}`,
           content: Buffer.from(patch.patchedContent, "utf8").toString("base64"),
           branch: branchName,
           ...(existing ? { sha: existing.sha } : {}),
@@ -299,7 +299,7 @@ export function redactTokenInError(error: unknown, token: string): unknown {
 
 /**
  * Environment-driven provider selection: when GITHUB_TOKEN and GITHUB_REPOSITORY
- * are set, Patchbay opens real draft PRs; otherwise it falls back to the local
+ * are set, Patch opens real draft PRs; otherwise it falls back to the local
  * workspace mock so the demo keeps working offline.
  */
 export function createGitProviderFromEnv(env?: NodeJS.ProcessEnv): GitProvider;

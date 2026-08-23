@@ -1,4 +1,4 @@
-# Deploying Patchbay on Railway
+# Deploying Patch on Railway
 
 A founder-sized deployment guide. Everything here is copy-pasteable and every
 environment variable below is read by the code (`packages/env`, or documented
@@ -121,7 +121,7 @@ login route 404s there).
      files into the draft-PR branch).
    - **Pull requests: Read and write** (create **draft** PRs).
    - **Metadata: Read** (required for any installation).
-   - **No Checks API permission** — Patchbay has no code path that creates
+   - **No Checks API permission** — Patch has no code path that creates
      check runs.
 5. Webhook events — subscribe to exactly **`installation`**, **`pull_request`**,
    and **`push`**. Any other event is acknowledged and ignored by the code.
@@ -143,7 +143,7 @@ Railway containers have no Docker daemon, so the hardened container sandbox
   boot and at validation time.
 - `SANDBOX_VALIDATION_MODE=hosted-docker` (the default) → the worker
   **refuses to start** when the container runtime is unavailable.
-- `SANDBOX_VALIDATION_MODE=github-checks-only` → Patchbay **never executes
+- `SANDBOX_VALIDATION_MODE=github-checks-only` → Patch **never executes
   customer code on this host**. Validation runs are recorded as **SKIPPED,
   never PASSED**, and the customer's GitHub CI is the validation sandbox.
   Draft PRs still require the policy gates.

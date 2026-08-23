@@ -142,7 +142,7 @@ describe("GitHubAppProvider", () => {
       repositoryName: "app",
       fixtureDir: "",
       branchName: "patchbay/fix-1",
-      title: "[Patchbay] Fix",
+      title: "[Patch] Fix",
       body: "Automated.",
       patches: [{ filePath: "src/app.ts", patchedContent: "// patched" }],
     });
@@ -291,7 +291,7 @@ describe("GitHubAppProvider", () => {
       repositoryName: "app",
       fixtureDir: "",
       branchName: "patchbay/fix-1",
-      title: "[Patchbay] Fix",
+      title: "[Patch] Fix",
       body: "Automated.",
       patches: [{ filePath: "src/app.ts", patchedContent: "// patched" }],
     };
@@ -350,7 +350,7 @@ describe("GitHubAppProvider", () => {
       repositoryName: "app",
       fixtureDir: "",
       branchName: "patchbay/fix-1",
-      title: "[Patchbay] Fix",
+      title: "[Patch] Fix",
       body: "Automated.",
       patches: [{ filePath: "src/app.ts", patchedContent: "// patched" }],
     });

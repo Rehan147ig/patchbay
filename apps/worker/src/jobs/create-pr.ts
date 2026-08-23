@@ -157,7 +157,7 @@ async function createDraftPR(
   const installationId = installationIdOf(repository.metadata);
   const fixtureDir = fixtureName ? resolveFixtureDir(fixtureName) : "";
   const branchName = `patchbay/remediation-${plan.id.slice(0, 8)}`;
-  const title = `[Patchbay] ${plan.impactAssessment.changeEvent.title}`;
+  const title = `[Patch] ${plan.impactAssessment.changeEvent.title}`;
   const agentVerdict = plan.remediationCaseId
     ? await loadSucceededAgentVerdict(organizationId, plan.remediationCaseId)
     : null;

@@ -13,7 +13,7 @@ import { assertCapabilityGateOpen } from "@/lib/capability-gates";
 const VALIDATION_COMMANDS = ["pnpm install --frozen-lockfile"];
 
 const SKIPPED_MESSAGE =
-  "Validation skipped: SANDBOX_VALIDATION_MODE=github-checks-only — Patchbay does not " +
+  "Validation skipped: SANDBOX_VALIDATION_MODE=github-checks-only — Patch does not " +
   "execute customer code on this host; customer CI (GitHub checks) is the validation sandbox.";
 
 /**
