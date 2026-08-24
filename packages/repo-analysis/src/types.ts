@@ -46,7 +46,7 @@ export interface PythonManifest {
   devDependencies: Record<string, string>;
 }
 
-export type PackageManager = "pnpm" | "npm" | "yarn" | "unknown";
+export type PackageManager = "pnpm" | "npm" | "yarn" | "maven" | "gradle" | "unknown";
 
 export interface AnalysisError {
   filePath: string;
@@ -60,6 +60,7 @@ export interface RepositoryAnalysis {
   filesScanned: number;
   typescriptFiles: number;
   pythonFiles: number;
+  javaFiles: number;
   durationMs: number;
   /** Deterministic snapshot hash of all scanned file contents. */
   commitSha: string;

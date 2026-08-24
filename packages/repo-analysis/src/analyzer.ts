@@ -4,6 +4,7 @@ import path from "node:path";
 import ts from "typescript";
 import { analyzeSource, collectBindings } from "./ast";
 import { collectModuleExports, makeRelativeResolver } from "./exports";
+import { extractJavaUsages, parseJavaManifest } from "./java";
 import { resolveLockfileVersions } from "./lockfile";
 import { extractPythonUsages, parsePythonManifest } from "./python";
 import type {
@@ -103,6 +104,24 @@ export async function analyzeRepository(
   }
   pythonManifests.sort((a, b) => a.path.localeCompare(b.path));
 
+  // Java build manifests feed the shared PackageManifest list so dependency
+  // inventory, matching, and packageCount treat Maven/Gradle identically.
+  for (const rel of files.javaManifestFiles) {
+    try {
+      const raw = await fs.readFile(path.join(rootDir, rel), "utf8");
+      const parsed = parseJavaManifest(rel, raw);
+      manifests.push({
+        path: parsed.path,
+        name: parsed.manifest.name,
+        version: parsed.manifest.version,
+        dependencies: parsed.manifest.dependencies,
+        devDependencies: {},
+      });
+    } catch (error) {
+      errors.push({ filePath: rel, message: String(error) });
+    }
+  }
+
   const workspaceEntryFiles = await resolveWorkspacePackages(rootDir, files.tsFiles, manifests);
   const usages = await analyzeUsages(sourcesByFile, trackSet, envPrefixes, workspaceEntryFiles);
   errors.push(...usages.errors);
@@ -111,6 +130,17 @@ export async function analyzeRepository(
   for (const [rel, source] of pythonSourcesByFile) {
     try {
       pythonUsages.push(...(await extractPythonUsages(source, rel, trackSet)));
+    } catch (error) {
+      errors.push({ filePath: rel, message: String(error) });
+    }
+  }
+
+  // Java L1 extraction (same trackSet semantics as Python: segment match).
+  const javaUsages: AnalyzedUsage[] = [];
+  for (const rel of files.javaFiles) {
+    try {
+      const raw = await fs.readFile(path.join(rootDir, rel), "utf8");
+      javaUsages.push(...(await extractJavaUsages(raw, rel, trackSet)));
     } catch (error) {
       errors.push({ filePath: rel, message: String(error) });
     }
@@ -132,15 +162,18 @@ export async function analyzeRepository(
       files.tsFiles.length +
       files.jsonFiles.length +
       files.pyFiles.length +
+      files.javaFiles.length +
+      files.javaManifestFiles.length +
       files.pythonManifestFiles.length,
     typescriptFiles: files.tsFiles.length,
     pythonFiles: files.pyFiles.length,
+    javaFiles: files.javaFiles.length,
     durationMs: Date.now() - startedAt,
     commitSha: computeSnapshotHash(files),
     lockfileVersions: versions,
     manifests,
     pythonManifests,
-    usages: [...usages.usages, ...pythonUsages],
+    usages: [...usages.usages, ...pythonUsages, ...javaUsages],
     errors,
     untrackedUsages: usages.untrackedUsages,
   };
@@ -224,6 +257,8 @@ interface CollectedFiles {
   tsFiles: string[];
   jsonFiles: string[];
   pyFiles: string[];
+  javaFiles: string[];
+  javaManifestFiles: string[];
   pythonManifestFiles: string[];
   /** Every file fed into the snapshot hash (all scanned sources + manifests). */
   allFiles: string[];
@@ -372,6 +407,8 @@ async function collectFiles(rootDir: string): Promise<CollectedFiles> {
   const tsFiles: string[] = [];
   const jsonFiles: string[] = [];
   const pyFiles: string[] = [];
+  const javaFiles: string[] = [];
+  const javaManifestFiles: string[] = [];
   const pythonManifestFiles: string[] = [];
   const allFiles: string[] = [];
 
@@ -391,6 +428,10 @@ async function collectFiles(rootDir: string): Promise<CollectedFiles> {
       if (/\.(ts|tsx|mts|cts)$/.test(entry.name)) tsFiles.push(rel);
       if (/\.json$/.test(entry.name)) jsonFiles.push(rel);
       if (/\.py$/.test(entry.name)) pyFiles.push(rel);
+      if (/\.java$/.test(entry.name)) javaFiles.push(rel);
+      if (/^(pom\.xml|build\.gradle|build\.gradle\.kts)$/.test(entry.name)) {
+        javaManifestFiles.push(rel);
+      }
       if (/^pyproject\.toml$/.test(entry.name) || /^requirements.*\.txt$/.test(entry.name)) {
         pythonManifestFiles.push(rel);
       }
@@ -398,7 +439,15 @@ async function collectFiles(rootDir: string): Promise<CollectedFiles> {
   }
 
   await walk(rootDir);
-  return { tsFiles, jsonFiles, pyFiles, pythonManifestFiles, allFiles };
+  return {
+    tsFiles,
+    jsonFiles,
+    pyFiles,
+    javaFiles,
+    javaManifestFiles,
+    pythonManifestFiles,
+    allFiles,
+  };
 }
 
 /** Deterministic hash over the scanned file set (paths only, order stable). */

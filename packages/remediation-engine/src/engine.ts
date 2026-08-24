@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { GenerationMethod, SCORING } from "@patchbay/domain";
-import { pythonSyntaxCheck } from "@patchbay/repo-analysis";
+import { javaSyntaxCheck, pythonSyntaxCheck } from "@patchbay/repo-analysis";
 import * as ts from "typescript";
 import { sha256Hex, unifiedDiff } from "./diff";
 import type { PatchDraft, PlanDraft, PlanInput } from "./types";
@@ -21,6 +21,7 @@ import type { PatchDraft, PlanDraft, PlanInput } from "./types";
 
 const RESPONSE_UNWRAP_PATTERN = /^([A-Za-z_$][\w$]*)\.data$/;
 const PYTHON_FILE = /\.py$/;
+const JAVA_FILE = /\.java$/;
 const OPENAI_CLIENT_IMPORT = /^from\s+openai\s+import\s+/m;
 const OPENAI_CLIENT_CONSTRUCTION = /=\s*OpenAI\(/;
 
@@ -110,6 +111,7 @@ export function reparseCheck(filePath: string, content: string): boolean {
  */
 export async function validatePatchSyntax(filePath: string, content: string): Promise<boolean> {
   if (PYTHON_FILE.test(filePath)) return pythonSyntaxCheck(content);
+  if (JAVA_FILE.test(filePath)) return javaSyntaxCheck(content);
   return reparseCheck(filePath, content);
 }
 

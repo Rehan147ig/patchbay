@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@patchbay/domain": "workspace:*",
+    "tree-sitter-java": "^0.23.5",
     "tree-sitter-python": "^0.25.0",
     "typescript": "^5.8.3",
     "web-tree-sitter": "^0.26.12"

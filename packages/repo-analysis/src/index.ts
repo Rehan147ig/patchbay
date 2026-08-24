@@ -10,6 +10,7 @@ export type {
   RelativeModuleResolver,
   RepositoryAnalysis,
 } from "./types";
+export { extractJavaUsages, javaSyntaxCheck, matchesTrackSet, parseJavaManifest } from "./java";
 export {
   extractPythonUsages,
   parsePythonManifest,
