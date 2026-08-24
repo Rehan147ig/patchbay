@@ -109,161 +109,166 @@ export async function processGraphIndex(job: Job): Promise<GraphIndexResult> {
 
   try {
     const source = await resolveRepositorySource(repository);
-    const rootDir = source.rootDir;
-    const vendors = await prisma.vendor.findMany({ where: { enabled: true } });
-    const trackPackages = vendors.map((vendor) => vendor.slug);
+    try {
+      const rootDir = source.rootDir;
+      const vendors = await prisma.vendor.findMany({ where: { enabled: true } });
+      const trackPackages = vendors.map((vendor) => vendor.slug);
 
-    const changedPaths = indexJob.changedPaths as string[] | null | undefined;
+      const changedPaths = indexJob.changedPaths as string[] | null | undefined;
 
-    // INCREMENTAL mode: load the previous READY snapshot and compute the
-    // conservative re-extraction set from its reverse dependency index.
-    // A manifest/lockfile/config change invalidates everything, in which case
-    // we fall back to a full extraction (no merge needed).
-    let baseline: GraphExtraction | null = null;
-    let reextractedPaths: string[] | null = null;
-    let changedFiles: Map<string, string> | undefined;
-    if (mode === GraphIndexMode.INCREMENTAL && changedPaths && changedPaths.length > 0) {
-      const previous = await loadPreviousSnapshotFacts(organizationId, repositoryId);
-      if (previous) {
-        const invalidation = computeReextractionSet({
-          changedFiles: changedPaths,
-          ...inverseIndex(previous),
-          allFiles: previousAllFiles(previous),
-        });
-        if (invalidation.invalidatingManifests.length === 0) {
-          baseline = previous;
-          reextractedPaths = invalidation.reextract;
-          changedFiles = new Map(invalidation.reextract.map((p) => [p, ""] as const));
+      // INCREMENTAL mode: load the previous READY snapshot and compute the
+      // conservative re-extraction set from its reverse dependency index.
+      // A manifest/lockfile/config change invalidates everything, in which case
+      // we fall back to a full extraction (no merge needed).
+      let baseline: GraphExtraction | null = null;
+      let reextractedPaths: string[] | null = null;
+      let changedFiles: Map<string, string> | undefined;
+      if (mode === GraphIndexMode.INCREMENTAL && changedPaths && changedPaths.length > 0) {
+        const previous = await loadPreviousSnapshotFacts(organizationId, repositoryId);
+        if (previous) {
+          const invalidation = computeReextractionSet({
+            changedFiles: changedPaths,
+            ...inverseIndex(previous),
+            allFiles: previousAllFiles(previous),
+          });
+          if (invalidation.invalidatingManifests.length === 0) {
+            baseline = previous;
+            reextractedPaths = invalidation.reextract;
+            changedFiles = new Map(invalidation.reextract.map((p) => [p, ""] as const));
+          }
         }
       }
-    }
 
-    const extraction = await extractGraph({ rootDir, trackPackages, changedFiles });
+      const extraction = await extractGraph({ rootDir, trackPackages, changedFiles });
 
-    const existing = await prisma.graphSnapshot.findFirst({
-      where: {
-        repositoryId,
-        organizationId,
-        commitSha: extraction.commitSha,
-        extractionVersion: EXTRACTOR_VERSION,
-        status: "READY",
-      },
-      select: { id: true },
-      orderBy: { createdAt: "desc" },
-    });
-
-    if (existing) {
-      await prisma.graphIndexJob.update({
-        where: { id: jobId },
-        data: {
+      const existing = await prisma.graphSnapshot.findFirst({
+        where: {
+          repositoryId,
+          organizationId,
+          commitSha: extraction.commitSha,
+          extractionVersion: EXTRACTOR_VERSION,
           status: "READY",
-          snapshotId: existing.id,
-          timingsJson: {
-            commitSha: extraction.commitSha,
-            nodeCount: extraction.nodeFacts.length,
-            edgeCount: extraction.edgeFacts.length,
-          },
-          completedAt: new Date(),
         },
+        select: { id: true },
+        orderBy: { createdAt: "desc" },
       });
+
+      if (existing) {
+        await prisma.graphIndexJob.update({
+          where: { id: jobId },
+          data: {
+            status: "READY",
+            snapshotId: existing.id,
+            timingsJson: {
+              commitSha: extraction.commitSha,
+              nodeCount: extraction.nodeFacts.length,
+              edgeCount: extraction.edgeFacts.length,
+            },
+            completedAt: new Date(),
+          },
+        });
+        await writeAuditEvent({
+          organizationId,
+          actorType: ActorType.SYSTEM,
+          actorId: null,
+          action: AuditAction.GRAPH_INDEX_REUSED,
+          correlationId,
+          ...entity,
+          after: { jobId, snapshotId: existing.id, commitSha: extraction.commitSha, mode },
+        });
+        logger.info("graph snapshot reused", { repositoryId, jobId, snapshotId: existing.id });
+        return {
+          jobId,
+          repositoryId,
+          snapshotId: existing.id,
+          reused: true,
+          commitSha: extraction.commitSha,
+          nodeCount: extraction.nodeFacts.length,
+          edgeCount: extraction.edgeFacts.length,
+          durationMs: 0,
+          mode,
+          reextractedPaths: null,
+          retention: null,
+        };
+      }
+
+      // Merge baseline facts with the incremental extraction when the re-extraction
+      // set was a strict subset of the repository (no manifest-wide invalidation).
+      const effective =
+        baseline && reextractedPaths
+          ? mergeIncrementalExtraction(baseline, extraction, new Set(reextractedPaths))
+          : extraction;
+
+      const snapshot = await persistSnapshot({
+        organizationId,
+        repositoryId,
+        jobId,
+        extraction: effective,
+        changedPaths: indexJob.changedPaths as Prisma.InputJsonValue | undefined,
+      });
+
+      // Retention: keep only the latest READY snapshots; prune stale incomplete ones.
+      let retention: GraphIndexResult["retention"] = null;
+      try {
+        const retentionResult = await pruneGraphSnapshots({ organizationId, repositoryId });
+        retention = {
+          readyDeleted: retentionResult.readyDeleted,
+          staleDeleted: retentionResult.staleDeleted,
+        };
+      } catch (error) {
+        logger.warn("graph snapshot retention failed", {
+          repositoryId,
+          jobId,
+          error: String(error),
+        });
+      }
+
       await writeAuditEvent({
         organizationId,
         actorType: ActorType.SYSTEM,
         actorId: null,
-        action: AuditAction.GRAPH_INDEX_REUSED,
+        action: AuditAction.GRAPH_INDEX_COMPLETED,
         correlationId,
         ...entity,
-        after: { jobId, snapshotId: existing.id, commitSha: extraction.commitSha, mode },
+        after: {
+          jobId,
+          snapshotId: snapshot.id,
+          commitSha: extraction.commitSha,
+          mode,
+          nodeCount: snapshot.nodesAffected,
+          edgeCount: snapshot.edgesAffected,
+          reextractedPaths,
+          retention,
+        },
       });
-      logger.info("graph snapshot reused", { repositoryId, jobId, snapshotId: existing.id });
+      logger.info("graph index completed", {
+        repositoryId,
+        jobId,
+        correlationId,
+        snapshotId: snapshot.id,
+        nodeCount: snapshot.nodesAffected,
+        edgeCount: snapshot.edgesAffected,
+        mode,
+        reextractedPaths,
+      });
+
       return {
         jobId,
         repositoryId,
-        snapshotId: existing.id,
-        reused: true,
-        commitSha: extraction.commitSha,
-        nodeCount: extraction.nodeFacts.length,
-        edgeCount: extraction.edgeFacts.length,
-        durationMs: 0,
-        mode,
-        reextractedPaths: null,
-        retention: null,
-      };
-    }
-
-    // Merge baseline facts with the incremental extraction when the re-extraction
-    // set was a strict subset of the repository (no manifest-wide invalidation).
-    const effective =
-      baseline && reextractedPaths
-        ? mergeIncrementalExtraction(baseline, extraction, new Set(reextractedPaths))
-        : extraction;
-
-    const snapshot = await persistSnapshot({
-      organizationId,
-      repositoryId,
-      jobId,
-      extraction: effective,
-      changedPaths: indexJob.changedPaths as Prisma.InputJsonValue | undefined,
-    });
-
-    // Retention: keep only the latest READY snapshots; prune stale incomplete ones.
-    let retention: GraphIndexResult["retention"] = null;
-    try {
-      const retentionResult = await pruneGraphSnapshots({ organizationId, repositoryId });
-      retention = {
-        readyDeleted: retentionResult.readyDeleted,
-        staleDeleted: retentionResult.staleDeleted,
-      };
-    } catch (error) {
-      logger.warn("graph snapshot retention failed", {
-        repositoryId,
-        jobId,
-        error: String(error),
-      });
-    }
-
-    await writeAuditEvent({
-      organizationId,
-      actorType: ActorType.SYSTEM,
-      actorId: null,
-      action: AuditAction.GRAPH_INDEX_COMPLETED,
-      correlationId,
-      ...entity,
-      after: {
-        jobId,
         snapshotId: snapshot.id,
+        reused: false,
         commitSha: extraction.commitSha,
-        mode,
         nodeCount: snapshot.nodesAffected,
         edgeCount: snapshot.edgesAffected,
+        durationMs: Date.now() - startedAt.getTime(),
+        mode,
         reextractedPaths,
         retention,
-      },
-    });
-    logger.info("graph index completed", {
-      repositoryId,
-      jobId,
-      correlationId,
-      snapshotId: snapshot.id,
-      nodeCount: snapshot.nodesAffected,
-      edgeCount: snapshot.edgesAffected,
-      mode,
-      reextractedPaths,
-    });
-
-    return {
-      jobId,
-      repositoryId,
-      snapshotId: snapshot.id,
-      reused: false,
-      commitSha: extraction.commitSha,
-      nodeCount: snapshot.nodesAffected,
-      edgeCount: snapshot.edgesAffected,
-      durationMs: Date.now() - startedAt.getTime(),
-      mode,
-      reextractedPaths,
-      retention,
-    };
+      };
+    } finally {
+      // Disposable workspaces (github checkout / plain clone) must never leak.
+      source.cleanup();
+    }
   } catch (error) {
     await prisma.graphIndexJob.update({
       where: { id: jobId },

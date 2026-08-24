@@ -262,13 +262,13 @@ describe("processScanRepository", () => {
       processScanRepository(
         job({ repositoryId: "repo-1", scanId: "scan-1", correlationId: "c-1" }),
       ),
-    ).rejects.toThrow(/has no fixture metadata and is not a GitHub installation/);
+    ).rejects.toThrow(/has no fixture or clone metadata and is not a GitHub installation/);
 
     expect(prisma.repositoryScan.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           status: "FAILED",
-          error: expect.stringMatching(/no fixture metadata/),
+          error: expect.stringMatching(/no fixture or clone metadata/),
         }),
       }),
     );

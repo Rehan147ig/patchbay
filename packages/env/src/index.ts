@@ -56,7 +56,10 @@ export const envSchema = z
     DEMO_USER_PASSWORD: z.string().min(1).optional(),
 
     // AI provider. Anything other than "mock" requires an API key.
-    AI_PROVIDER: z.enum(["mock", "openai", "openai-compatible"]).default("mock"),
+    // "ai-sdk" (Vercel AI SDK) is the recommended real-provider value and is
+    // consumed by createAiProvider; it must parse here or the worker refuses
+    // to boot with the documented recommended configuration.
+    AI_PROVIDER: z.enum(["mock", "ai-sdk", "openai", "openai-compatible"]).default("mock"),
     OPENAI_API_KEY: optionalText(1),
     OPENAI_BASE_URL: optionalUrl(),
     OPENAI_MODEL: z.string().trim().min(1).default("gpt-4o-mini"),

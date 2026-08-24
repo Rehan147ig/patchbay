@@ -27,3 +27,4 @@ export type {
   GitHubAppTarget,
   GitHubRepositoryInfo,
 } from "./github-app-provider";
+export { assertSafeRepoFullName, assertSafeSha, gitAuthEnv, runGit } from "./git-safe";

@@ -41,6 +41,19 @@ export const repositoryMetadataSchema = z
     provider: z.string().min(1).max(50).optional(),
     demo: z.boolean().optional(),
     note: z.string().max(500).optional(),
+    /**
+     * Controlled plain-clone transport for demo/public repositories: ONLY
+     * credential-free github.com HTTPS URLs. The worker re-validates this
+     * grammar before cloning (defense in depth) and shallow-clones via argv.
+     */
+    cloneUrl: z
+      .string()
+      .max(200)
+      .regex(
+        /^https:\/\/github\.com\/[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/,
+        "cloneUrl must be a credential-free https://github.com/owner/repo URL",
+      )
+      .optional(),
   })
   .strict();
 export type RepositoryMetadata = z.infer<typeof repositoryMetadataSchema>;

@@ -90,163 +90,171 @@ export async function processScanRepository(job: Job): Promise<ScanRepositoryRes
 
   try {
     const source = await resolveRepositorySource(repository);
-    const rootDir = source.rootDir;
-    const vendors = await prisma.vendor.findMany({ where: { enabled: true } });
-    const vendorIdByPackage = new Map<string, string>();
-    for (const vendor of vendors) {
-      vendorIdByPackage.set(vendor.slug, vendor.id);
-      const npmPackage = getCapability(vendor.slug)?.package;
-      if (npmPackage) vendorIdByPackage.set(npmPackage, vendor.id);
-    }
-    const trackPackages = [...vendorIdByPackage.keys()];
-
-    const analysis = await analyzeRepository({ rootDir, trackPackages });
-    const commitSha = source.kind === "github" ? source.commitSha : analysis.commitSha;
-
-    // Read existing usages (for owner hints) and replace them inside a single
-    // transaction so a concurrent scan cannot interleave between the read and
-    // the delete/create — otherwise owner hints can be lost or stale rows
-    // merged with fresh ones.
-    const usages = await prisma.$transaction(async (tx) => {
-      const existing = await tx.integrationUsage.findMany({
-        where: { repositoryId },
-        select: { filePath: true, symbol: true, usageType: true, ownerHint: true },
-      });
-      const ownerByKey = new Map(
-        existing.map((usage) => [
-          usageKey(usage.filePath, usage.symbol, usage.usageType),
-          usage.ownerHint,
-        ]),
-      );
-
-      const nextUsages = analysis.usages
-        .filter((usage) => vendorIdByPackage.has(usage.packageName))
-        .map((usage) => ({
-          organizationId: repository.organizationId,
-          repositoryId,
-          scanId,
-          vendorId: vendorIdByPackage.get(usage.packageName)!,
-          filePath: usage.filePath,
-          symbol: usage.symbol,
-          usageType: usage.usageType,
-          astLocation: { line: usage.line, column: usage.column },
-          surroundingCodeHash: hashCode(usage.excerpt),
-          codeExcerpt: { text: usage.excerpt, line: usage.line, column: usage.column },
-          ownerHint:
-            ownerByKey.get(usageKey(usage.filePath, usage.symbol, usage.usageType)) ?? "Unassigned",
-          riskTags: usage.riskTags,
-          metadata:
-            source.kind === "github"
-              ? { installationId: source.installationId }
-              : { fixture: source.fixture },
-        }));
-
-      await tx.integrationUsage.deleteMany({ where: { repositoryId } });
-      if (nextUsages.length > 0) {
-        await tx.integrationUsage.createMany({ data: nextUsages });
+    try {
+      const rootDir = source.rootDir;
+      const vendors = await prisma.vendor.findMany({ where: { enabled: true } });
+      const vendorIdByPackage = new Map<string, string>();
+      for (const vendor of vendors) {
+        vendorIdByPackage.set(vendor.slug, vendor.id);
+        const npmPackage = getCapability(vendor.slug)?.package;
+        if (npmPackage) vendorIdByPackage.set(npmPackage, vendor.id);
       }
+      const trackPackages = [...vendorIdByPackage.keys()];
 
-      // Lockfile-resolved dependency inventory (content-addressed per commit):
-      // every package named in the lockfile with a resolved version, carrying
-      // the merged declared range from manifests. This is the tenant-facing
-      // row the release matcher (Phase E) resolves against.
-      const declaredByPackage = new Map<string, string>();
-      for (const manifest of analysis.manifests) {
-        for (const [pkg, range] of Object.entries(manifest.dependencies)) {
-          declaredByPackage.set(
-            pkg,
-            declaredByPackage.has(pkg) ? declaredByPackage.get(pkg)! : range,
-          );
-        }
-        for (const [pkg, range] of Object.entries(manifest.devDependencies)) {
-          declaredByPackage.set(
-            pkg,
-            declaredByPackage.has(pkg) ? declaredByPackage.get(pkg)! : range,
-          );
-        }
-      }
-      const dependencyRows = Object.entries(analysis.lockfileVersions).map(
-        ([packageName, resolvedVersion]) => ({
-          organizationId: repository.organizationId,
-          repositoryId,
-          packageName,
-          declaredRange: declaredByPackage.get(packageName) ?? null,
-          resolvedVersion,
-          lockfileKind: analysis.packageManager,
-          commitSha,
-        }),
-      );
-      await tx.repositoryDependency.createMany({ data: dependencyRows, skipDuplicates: true });
+      const analysis = await analyzeRepository({ rootDir, trackPackages });
+      const commitSha = source.kind === "github" ? source.commitSha : analysis.commitSha;
 
-      await tx.repositoryScan.update({
-        where: { id: scanId },
-        data: {
-          status: ScanStatus.COMPLETED,
-          commitSha,
-          completedAt: new Date(),
-          summary: {
-            usageCount: nextUsages.length,
-            filesScanned: analysis.filesScanned,
-            typescriptFiles: analysis.typescriptFiles,
-            packageCount: analysis.packageCount,
-            packageManager: analysis.packageManager,
-            untrackedUsages: analysis.untrackedUsages,
-            durationMs: analysis.durationMs,
+      // Read existing usages (for owner hints) and replace them inside a single
+      // transaction so a concurrent scan cannot interleave between the read and
+      // the delete/create — otherwise owner hints can be lost or stale rows
+      // merged with fresh ones.
+      const usages = await prisma.$transaction(async (tx) => {
+        const existing = await tx.integrationUsage.findMany({
+          where: { repositoryId },
+          select: { filePath: true, symbol: true, usageType: true, ownerHint: true },
+        });
+        const ownerByKey = new Map(
+          existing.map((usage) => [
+            usageKey(usage.filePath, usage.symbol, usage.usageType),
+            usage.ownerHint,
+          ]),
+        );
+
+        const nextUsages = analysis.usages
+          .filter((usage) => vendorIdByPackage.has(usage.packageName))
+          .map((usage) => ({
+            organizationId: repository.organizationId,
+            repositoryId,
+            scanId,
+            vendorId: vendorIdByPackage.get(usage.packageName)!,
+            filePath: usage.filePath,
+            symbol: usage.symbol,
+            usageType: usage.usageType,
+            astLocation: { line: usage.line, column: usage.column },
+            surroundingCodeHash: hashCode(usage.excerpt),
+            codeExcerpt: { text: usage.excerpt, line: usage.line, column: usage.column },
+            ownerHint:
+              ownerByKey.get(usageKey(usage.filePath, usage.symbol, usage.usageType)) ??
+              "Unassigned",
+            riskTags: usage.riskTags,
+            metadata:
+              source.kind === "github"
+                ? { installationId: source.installationId }
+                : source.kind === "clone"
+                  ? { cloneUrl: source.cloneUrl }
+                  : { fixture: source.fixture },
+          }));
+
+        await tx.integrationUsage.deleteMany({ where: { repositoryId } });
+        if (nextUsages.length > 0) {
+          await tx.integrationUsage.createMany({ data: nextUsages });
+        }
+
+        // Lockfile-resolved dependency inventory (content-addressed per commit):
+        // every package named in the lockfile with a resolved version, carrying
+        // the merged declared range from manifests. This is the tenant-facing
+        // row the release matcher (Phase E) resolves against.
+        const declaredByPackage = new Map<string, string>();
+        for (const manifest of analysis.manifests) {
+          for (const [pkg, range] of Object.entries(manifest.dependencies)) {
+            declaredByPackage.set(
+              pkg,
+              declaredByPackage.has(pkg) ? declaredByPackage.get(pkg)! : range,
+            );
+          }
+          for (const [pkg, range] of Object.entries(manifest.devDependencies)) {
+            declaredByPackage.set(
+              pkg,
+              declaredByPackage.has(pkg) ? declaredByPackage.get(pkg)! : range,
+            );
+          }
+        }
+        const dependencyRows = Object.entries(analysis.lockfileVersions).map(
+          ([packageName, resolvedVersion]) => ({
+            organizationId: repository.organizationId,
+            repositoryId,
+            packageName,
+            declaredRange: declaredByPackage.get(packageName) ?? null,
+            resolvedVersion,
+            lockfileKind: analysis.packageManager,
+            commitSha,
+          }),
+        );
+        await tx.repositoryDependency.createMany({ data: dependencyRows, skipDuplicates: true });
+
+        await tx.repositoryScan.update({
+          where: { id: scanId },
+          data: {
+            status: ScanStatus.COMPLETED,
+            commitSha,
+            completedAt: new Date(),
+            summary: {
+              usageCount: nextUsages.length,
+              filesScanned: analysis.filesScanned,
+              typescriptFiles: analysis.typescriptFiles,
+              packageCount: analysis.packageCount,
+              packageManager: analysis.packageManager,
+              untrackedUsages: analysis.untrackedUsages,
+              durationMs: analysis.durationMs,
+            },
+            error: null,
           },
-          error: null,
+        });
+        return nextUsages;
+      });
+
+      await writeAuditEvent({
+        organizationId,
+        actorType: ActorType.SYSTEM,
+        actorId: null,
+        action: AuditAction.SCAN_COMPLETED,
+        correlationId,
+        ...entity,
+        after: {
+          commitSha,
+          usageCount: usages.length,
+          dependencyCount: Object.keys(analysis.lockfileVersions).length,
+          filesScanned: analysis.filesScanned,
+          durationMs: analysis.durationMs,
+          source: source.kind,
         },
       });
-      return nextUsages;
-    });
-
-    await writeAuditEvent({
-      organizationId,
-      actorType: ActorType.SYSTEM,
-      actorId: null,
-      action: AuditAction.SCAN_COMPLETED,
-      correlationId,
-      ...entity,
-      after: {
+      await createNotification({
+        organizationId,
+        type: NotificationType.SCAN_COMPLETED,
+        title: `Scan completed: ${repository.name}`,
+        body: `${usages.length} usages indexed across ${analysis.filesScanned} files`,
+        correlationId,
+      });
+      logger.info("scan completed", {
+        repositoryId,
+        scanId,
+        correlationId,
         commitSha,
         usageCount: usages.length,
-        dependencyCount: Object.keys(analysis.lockfileVersions).length,
-        filesScanned: analysis.filesScanned,
+      });
+
+      // Next job in the pipeline: index the graph snapshot for the same source.
+      // A chaining failure must not fail the scan — the snapshot can be re-run
+      // from the repository page.
+      await enqueueGraphIndex(
+        organizationId,
+        repositoryId,
+        correlationId,
+        sourceLabel(repository.metadata),
+      );
+
+      return {
+        scanId,
+        repositoryId,
+        commitSha,
+        usageCount: usages.length,
         durationMs: analysis.durationMs,
-        source: source.kind,
-      },
-    });
-    await createNotification({
-      organizationId,
-      type: NotificationType.SCAN_COMPLETED,
-      title: `Scan completed: ${repository.name}`,
-      body: `${usages.length} usages indexed across ${analysis.filesScanned} files`,
-      correlationId,
-    });
-    logger.info("scan completed", {
-      repositoryId,
-      scanId,
-      correlationId,
-      commitSha,
-      usageCount: usages.length,
-    });
-
-    // Next job in the pipeline: index the graph snapshot for the same source.
-    // A chaining failure must not fail the scan — the snapshot can be re-run
-    // from the repository page.
-    await enqueueGraphIndex(
-      organizationId,
-      repositoryId,
-      correlationId,
-      sourceLabel(repository.metadata),
-    );
-
-    return {
-      scanId,
-      repositoryId,
-      commitSha,
-      usageCount: usages.length,
-      durationMs: analysis.durationMs,
-    };
+      };
+    } finally {
+      // Disposable workspaces (github checkout / plain clone) must never leak.
+      source.cleanup();
+    }
   } catch (error) {
     await prisma.repositoryScan.update({
       where: { id: scanId },
