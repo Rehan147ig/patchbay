@@ -37,3 +37,4 @@ apps/worker/data/
 # AI tooling artifacts
 *.err
 graphify-out/
+q.sql
