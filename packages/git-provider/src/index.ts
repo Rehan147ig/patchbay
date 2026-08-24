@@ -16,6 +16,7 @@ export {
   createAppJwt,
   createGitHubAppProviderFromEnv,
   createGitHubAppProviderFromStore,
+  decodeAppPrivateKey,
   fetchGitHubInstallationInfo,
   fetchGitHubInstallationInfoFromStore,
   getGitHubAppCredentials,
@@ -28,3 +29,12 @@ export type {
   GitHubRepositoryInfo,
 } from "./github-app-provider";
 export { assertSafeRepoFullName, assertSafeSha, gitAuthEnv, runGit } from "./git-safe";
+export {
+  resolveRepositorySource,
+  assertInstallationBelongsToOrganization,
+} from "./repository-source";
+export type {
+  RepositorySource,
+  RepositorySourceDeps,
+  RepositorySourceRepository,
+} from "./repository-source";

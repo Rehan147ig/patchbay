@@ -364,7 +364,7 @@ export async function getGitHubAppCredentials(
   return { appId, privateKey };
 }
 
-function decodeAppPrivateKey(base64Pem: string): string {
+export function decodeAppPrivateKey(base64Pem: string): string {
   return Buffer.from(base64Pem, "base64").toString("utf8");
 }
 

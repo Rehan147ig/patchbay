@@ -11,6 +11,8 @@ import { getConnector, type NormalizedChangeDraft } from "@patchbay/vendor-conne
 import { generatePlan, scanPatches } from "@patchbay/remediation-engine";
 import { createAiProvider, type AiPlanDraftInput } from "@patchbay/ai-provider";
 import { resolveFixtureDir } from "@patchbay/repo-analysis";
+import { resolveRepositorySource, type RepositorySource } from "@patchbay/git-provider";
+import { getSecretStore } from "@patchbay/env";
 import type { NextRequest } from "next/server";
 import { getCorrelationId, jsonError, jsonOk, writeAuditEvent } from "@/lib/api";
 import { requireRole } from "@/lib/auth";
@@ -73,103 +75,131 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }> = [];
 
     for (const assessment of assessments) {
-      const fixture = fixtureOf(assessment.repository.metadata);
-      if (!fixture) continue;
+      const repository = assessment.repository;
 
-      const usages = assessment.affectedUsages.map(({ usage }) => ({
-        filePath: usage.filePath,
-        line: usageLine(usage),
-        symbol: usage.symbol,
-        excerpt: usageExcerpt(usage),
-      }));
-
-      const result = await generatePlan({
-        fixtureDir: resolveFixtureDir(fixture),
-        repositoryName: assessment.repository.name,
-        usages,
-        patchSuggestions,
-        normalizations: drafts,
-        assessmentConfidence: assessment.confidence,
-      });
-
-      // Patches are generated from repository content that may be hostile.
-      // Never persist a patch whose patched content contains execution,
-      // shell, escape or credential constructs; record why it was skipped.
-      const safetyVerdict = scanPatches(result.patches);
-      const safePatches = result.patches.filter(
-        (patch) => !safetyVerdict.findings.some((finding) => finding.filePath === patch.filePath),
-      );
-
-      const aiNote = await draftAiNote(aiProvider, drafts, usages);
-
-      const planId = crypto.randomUUID();
-      await prisma.$transaction([
-        prisma.remediationPlan.create({
-          data: {
-            id: planId,
+      // Source resolution: fixture repos analyze the local copy; connected
+      // GitHub repos (installation or controlled cloneUrl) materialize a
+      // disposable checkout so the deterministic engine can read real files.
+      let source: RepositorySource;
+      try {
+        source = await resolveRepositorySource(
+          {
+            id: repository.id,
+            provider: repository.provider,
+            fullName: repository.fullName,
+            defaultBranch: repository.defaultBranch,
             organizationId: user.organizationId,
-            impactAssessmentId: assessment.id,
-            status: PlanStatus.DRAFT,
-            strategy: result.strategy,
-            proposedChanges: result.proposedChanges as never,
-            confidence: result.confidence,
-            requiresHumanReview: result.requiresHumanReview,
+            metadata: repository.metadata,
           },
-        }),
-        ...safePatches.map((patch) =>
-          prisma.patchArtifact.create({
+          webRepositorySourceDeps(),
+        );
+      } catch (error) {
+        throw validationFailed(
+          `repository ${repository.name} has no usable source for planning: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+
+      try {
+        const usages = assessment.affectedUsages.map(({ usage }) => ({
+          filePath: usage.filePath,
+          line: usageLine(usage),
+          symbol: usage.symbol,
+          excerpt: usageExcerpt(usage),
+        }));
+
+        const result = await generatePlan({
+          fixtureDir: source.rootDir,
+          repositoryName: repository.name,
+          usages,
+          patchSuggestions,
+          normalizations: drafts,
+          assessmentConfidence: assessment.confidence,
+        });
+
+        // Patches are generated from repository content that may be hostile.
+        // Never persist a patch whose patched content contains execution,
+        // shell, escape or credential constructs; record why it was skipped.
+        const safetyVerdict = scanPatches(result.patches);
+        const safePatches = result.patches.filter(
+          (patch) => !safetyVerdict.findings.some((finding) => finding.filePath === patch.filePath),
+        );
+
+        const aiNote = await draftAiNote(aiProvider, drafts, usages);
+
+        const planId = crypto.randomUUID();
+        await prisma.$transaction([
+          prisma.remediationPlan.create({
             data: {
-              remediationPlanId: planId,
+              id: planId,
               organizationId: user.organizationId,
-              filePath: patch.filePath,
-              unifiedDiff: patch.unifiedDiff,
-              originalContent: patch.original,
-              patchedContent: patch.patched,
-              originalHash: patch.originalHash,
-              patchedHash: patch.patchedHash,
-              generationMethod: patch.generationMethod,
-              confidence: patch.confidence,
+              impactAssessmentId: assessment.id,
+              status: PlanStatus.DRAFT,
+              strategy: result.strategy,
+              proposedChanges: result.proposedChanges as never,
+              confidence: result.confidence,
+              requiresHumanReview: result.requiresHumanReview,
             },
           }),
-        ),
-      ]);
+          ...safePatches.map((patch) =>
+            prisma.patchArtifact.create({
+              data: {
+                remediationPlanId: planId,
+                organizationId: user.organizationId,
+                filePath: patch.filePath,
+                unifiedDiff: patch.unifiedDiff,
+                originalContent: patch.original,
+                patchedContent: patch.patched,
+                originalHash: patch.originalHash,
+                patchedHash: patch.patchedHash,
+                generationMethod: patch.generationMethod,
+                confidence: patch.confidence,
+              },
+            }),
+          ),
+        ]);
 
-      plans.push({
-        id: planId,
-        impactAssessmentId: assessment.id,
-        repositoryName: assessment.repository.name,
-        patchCount: safePatches.length,
-        confidence: result.confidence,
-        requiresHumanReview: result.requiresHumanReview,
-      });
-
-      await writeAuditEvent({
-        organizationId: user.organizationId,
-        actorType: ActorType.USER,
-        actorId: user.id,
-        action: AuditAction.PLAN_CREATED,
-        entityType: "remediationPlan",
-        entityId: planId,
-        correlationId,
-        after: {
-          changeEventId: event.id,
-          vendorSlug: event.vendor.slug,
+        plans.push({
+          id: planId,
+          impactAssessmentId: assessment.id,
           repositoryName: assessment.repository.name,
           patchCount: safePatches.length,
-          skippedFiles: result.skippedFiles,
-          unsafePatchesSkipped: safetyVerdict.findings,
           confidence: result.confidence,
           requiresHumanReview: result.requiresHumanReview,
-          aiNote,
-        },
-      });
-      await createNotification({
-        organizationId: user.organizationId,
-        type: NotificationType.PLAN_CREATED,
-        title: `Plan ready: ${assessment.repository.name}`,
-        body: `${safePatches.length} patches for ${event.vendor.slug} (confidence ${result.confidence})`,
-        correlationId,
-      });
+        });
+
+        await writeAuditEvent({
+          organizationId: user.organizationId,
+          actorType: ActorType.USER,
+          actorId: user.id,
+          action: AuditAction.PLAN_CREATED,
+          entityType: "remediationPlan",
+          entityId: planId,
+          correlationId,
+          after: {
+            changeEventId: event.id,
+            vendorSlug: event.vendor.slug,
+            repositoryName: assessment.repository.name,
+            patchCount: safePatches.length,
+            skippedFiles: result.skippedFiles,
+            unsafePatchesSkipped: safetyVerdict.findings,
+            confidence: result.confidence,
+            requiresHumanReview: result.requiresHumanReview,
+            aiNote,
+          },
+        });
+        await createNotification({
+          organizationId: user.organizationId,
+          type: NotificationType.PLAN_CREATED,
+          title: `Plan ready: ${assessment.repository.name}`,
+          body: `${safePatches.length} patches for ${event.vendor.slug} (confidence ${result.confidence})`,
+          correlationId,
+        });
+      } finally {
+        // Disposable checkouts (installation/clone) must never leak.
+        source.cleanup();
+      }
     }
 
     if (plans.length === 0) {
@@ -180,6 +210,31 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   } catch (error) {
     return jsonError(error, correlationId);
   }
+}
+
+/**
+ * Web binding of the shared repository-source resolver (same shape as the
+ * worker's): Prisma installation-ownership lookup + App provider factory +
+ * hardened fixture resolution.
+ */
+function webRepositorySourceDeps() {
+  return {
+    async findInstallationOrganizationId(installationId: number): Promise<string | null> {
+      const installation = await prisma.gitHubInstallation.findUnique({
+        where: { installationId },
+        select: { organizationId: true },
+      });
+      return installation?.organizationId ?? null;
+    },
+    async createInstallationProvider(input: {
+      installationId: number;
+      repositoryFullName: string;
+    }) {
+      const { createGitHubAppProviderFromStore } = await import("@patchbay/git-provider");
+      return createGitHubAppProviderFromStore(input, getSecretStore());
+    },
+    resolveFixtureDir,
+  };
 }
 
 async function draftAiNote(
@@ -228,12 +283,6 @@ function draftFromRow(row: {
     affectedSymbols: evidence?.affectedSymbols ?? [],
     evidence: evidence ?? undefined,
   };
-}
-
-function fixtureOf(metadata: unknown): string | null {
-  if (typeof metadata !== "object" || metadata === null) return null;
-  const fixture = (metadata as { fixture?: unknown }).fixture;
-  return typeof fixture === "string" && fixture.length > 0 ? fixture : null;
 }
 
 function usageLine(usage: { astLocation: unknown; codeExcerpt: unknown }): number {

@@ -43,9 +43,49 @@ vi.mock("../lib/audit", () => ({
   writeAuditEvent: vi.fn(),
 }));
 
-vi.mock("@patchbay/git-provider", () => ({
-  createGitHubAppProviderFromStore: vi.fn(),
-}));
+vi.mock("@patchbay/git-provider", async () => {
+  const createGitHubAppProviderFromStore = vi.fn();
+  return {
+    createGitHubAppProviderFromStore,
+    resolveRepositorySource: vi.fn(
+      async (repository: {
+        metadata: unknown;
+        fullName: string | null;
+        defaultBranch: string | null;
+      }) => {
+        const md = (repository.metadata ?? {}) as Record<string, unknown>;
+        if (typeof md.fixture === "string") {
+          return {
+            kind: "fixture",
+            fixture: md.fixture,
+            rootDir: "C:/fixtures/openai-node-legacy",
+            cleanup: () => undefined,
+          };
+        }
+        if (typeof md.installationId === "number") {
+          const provider = await createGitHubAppProviderFromStore({
+            installationId: md.installationId,
+            repositoryFullName: repository.fullName!,
+          });
+          const sha = await provider.resolveHeadSha(repository.defaultBranch ?? undefined);
+          const checkout = await provider.checkout({
+            sha,
+            baseBranch: repository.defaultBranch ?? undefined,
+            repositoryFullName: repository.fullName ?? undefined,
+          });
+          return {
+            kind: "github",
+            installationId: md.installationId,
+            commitSha: sha,
+            rootDir: checkout.workspaceDir,
+            cleanup: () => undefined,
+          };
+        }
+        throw new Error("no fixture or clone metadata");
+      },
+    ),
+  };
+});
 
 vi.mock("@patchbay/env", () => ({
   getSecretStore: vi.fn().mockReturnValue({}),
@@ -446,10 +486,10 @@ describe("processGraphIndex incremental wiring (WP5)", () => {
       job({ jobId: "job-1", repositoryId: "repo-1", correlationId: "c-1", mode: "BASELINE" }),
     );
 
-    expect(createGitHubAppProviderFromStore).toHaveBeenCalledWith(
-      { installationId: 42, repositoryFullName: "acme/app" },
-      expect.anything(),
-    );
+    expect(createGitHubAppProviderFromStore).toHaveBeenCalledWith({
+      installationId: 42,
+      repositoryFullName: "acme/app",
+    });
     expect(providerMock.resolveHeadSha).toHaveBeenCalledWith("main");
     expect(providerMock.checkout).toHaveBeenCalledWith({
       sha: "sha-gh",

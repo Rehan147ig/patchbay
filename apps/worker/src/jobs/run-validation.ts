@@ -15,8 +15,12 @@ import {
 } from "@patchbay/sandbox-runner";
 import type { Job } from "bullmq";
 import { writeAuditEvent } from "../lib/audit";
-import { assertInstallationBelongsToOrganization } from "../lib/repository-source";
-import { createGitProviderFromEnv } from "@patchbay/git-provider";
+import {
+  assertInstallationBelongsToOrganization,
+  resolveRepositorySource,
+} from "../lib/repository-source";
+import { createGitHubAppProviderFromStore, createGitProviderFromEnv } from "@patchbay/git-provider";
+import { getSecretStore } from "@patchbay/env";
 
 /**
  * run-validation processor.
@@ -191,6 +195,7 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
   const repository = plan.impactAssessment.repository;
   const installationId = installationIdOf(repository.metadata);
   const fixtureDir = fixtureOf(repository.metadata);
+  const cloneUrl = cloneUrlOf(repository.metadata);
   const isGitHubCheckout = repository.provider === "GITHUB" && Boolean(installationId);
   if (installationId) {
     // Tenant boundary: metadata installation ids are only usable when bound to
@@ -209,18 +214,40 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
       })
     : createGitProviderFromEnv();
 
-  // Checkout repository to a disposable workspace. The commit SHA always comes
-  // from the GitHub API (resolveHeadSha), never from repository metadata.
-  const sha = isGitHubCheckout
-    ? await provider.resolveHeadSha(repository.defaultBranch ?? undefined)
-    : undefined;
-  const checkoutResult = await provider.checkout({
-    ...(fixtureDir ? { repositoryDir: resolveFixtureDir(fixtureDir) } : {}),
-    ...(installationId ? { installationId } : {}),
-    ...(sha ? { sha } : {}),
-    baseBranch: repository.defaultBranch,
-  });
-  const workspace = checkoutResult.workspaceDir;
+  let workspace: string;
+  if (fixtureDir) {
+    // Fixture fast path: disposable copy of the local fixture directory.
+    const checkoutResult = await provider.checkout({
+      repositoryDir: resolveFixtureDir(fixtureDir),
+      baseBranch: repository.defaultBranch,
+    });
+    workspace = checkoutResult.workspaceDir;
+  } else if (cloneUrl) {
+    // Controlled plain-clone transport (public demo repositories): shallow
+    // argv clone of a credential-free github.com URL. Workspace removal stays
+    // in the shared finally below.
+    const source = await resolveRepositorySource({
+      id: repository.id,
+      provider: repository.provider,
+      fullName: repository.fullName,
+      defaultBranch: repository.defaultBranch,
+      organizationId: plan.impactAssessment.repository.organizationId,
+      metadata: repository.metadata,
+    });
+    if (source.kind !== "clone") throw new Error("unexpected source kind for cloneUrl metadata");
+    workspace = source.rootDir;
+  } else {
+    // GitHub App checkout path: exact HEAD resolved through the API.
+    const sha = isGitHubCheckout
+      ? await provider.resolveHeadSha(repository.defaultBranch ?? undefined)
+      : undefined;
+    const checkoutResult = await provider.checkout({
+      ...(installationId ? { installationId } : {}),
+      ...(sha ? { sha } : {}),
+      baseBranch: repository.defaultBranch,
+    });
+    workspace = checkoutResult.workspaceDir;
+  }
 
   try {
     // Symlink-hardened workspace boundary: resolve the real workspace path once
@@ -391,4 +418,30 @@ function installationIdOf(metadata: unknown): number | null {
   if (typeof metadata !== "object" || metadata === null) return null;
   const value = (metadata as { installationId?: unknown }).installationId;
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+function cloneUrlOf(metadata: unknown): string | null {
+  if (typeof metadata !== "object" || metadata === null) return null;
+  const value = (metadata as { cloneUrl?: unknown }).cloneUrl;
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+/** Worker binding of the shared resolver (Prisma + App provider + fixtures). */
+function workerRepositorySourceDeps() {
+  return {
+    async findInstallationOrganizationId(installationId: number): Promise<string | null> {
+      const installation = await prisma.gitHubInstallation.findUnique({
+        where: { installationId },
+        select: { organizationId: true },
+      });
+      return installation?.organizationId ?? null;
+    },
+    async createInstallationProvider(input: {
+      installationId: number;
+      repositoryFullName: string;
+    }) {
+      return createGitHubAppProviderFromStore(input, getSecretStore());
+    },
+    resolveFixtureDir,
+  };
 }
