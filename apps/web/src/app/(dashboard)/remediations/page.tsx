@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { prisma } from "@patchbay/db";
 import {
+  Card,
   EmptyState,
   StatusPill,
   Table,
@@ -36,14 +37,57 @@ export default async function RemediationsPage() {
     take: 100,
   });
 
+  const stageCounts = {
+    planning: plans.filter((p) => p.status === "DRAFT").length,
+    validation: plans.filter((p) => ["READY_FOR_VALIDATION", "VALIDATING"].includes(p.status))
+      .length,
+    approval: plans.filter((p) => p.validations.some((v) => v.status === "PASSED")).length,
+    draftPr: plans.filter((p) => p.pullRequests.length > 0).length,
+  };
+  const stages = [
+    { label: "Planning", count: stageCounts.planning },
+    { label: "Validation", count: stageCounts.validation },
+    { label: "Approval", count: stageCounts.approval },
+    { label: "Draft PR", count: stageCounts.draftPr },
+  ];
+
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">Remediations</h1>
-        <p className="text-sm text-slate-500">
+        <h1 className="text-2xl font-bold tracking-tight text-white">Remediations</h1>
+        <p className="mt-1 text-sm text-ink-400">
           Migration plans, patches, validation runs, and pull requests.
         </p>
       </div>
+
+      {/* Funnel visualization */}
+      <Card className="px-5 py-4">
+        <div className="flex flex-wrap items-center gap-y-3">
+          {stages.map((stage, i) => (
+            <div key={stage.label} className="flex items-center">
+              {i > 0 ? (
+                <span aria-hidden="true" className="mx-3 text-ink-600">
+                  →
+                </span>
+              ) : null}
+              <div className="rounded-lg border border-ink-700 bg-ink-800/60 px-4 py-2 text-center transition-colors hover:border-accent-500/40">
+                <p className="text-lg font-bold tabular-nums leading-none text-white">
+                  {stage.count}
+                </p>
+                <p className="mt-1 text-[10px] uppercase tracking-widest text-ink-400">
+                  {stage.label}
+                </p>
+              </div>
+            </div>
+          ))}
+          <span
+            aria-hidden="true"
+            className="ml-3 rounded-md border border-mint-400/20 bg-mint-400/5 px-2 py-1 text-[10px] uppercase tracking-wider text-mint-400"
+          >
+            Merged → outcomes
+          </span>
+        </div>
+      </Card>
 
       {plans.length === 0 ? (
         <EmptyState
@@ -103,7 +147,7 @@ export default async function RemediationsPage() {
                       "—"
                     )}
                   </TableCell>
-                  <TableCell className="text-xs text-slate-500">
+                  <TableCell className="text-xs text-ink-400">
                     {formatDate(plan.createdAt)}
                   </TableCell>
                 </TableRow>

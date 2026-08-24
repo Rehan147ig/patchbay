@@ -56,7 +56,7 @@ export default async function ReleasesPage() {
     <div className="space-y-4">
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900">Releases</h1>
+          <h1 className="text-xl font-semibold text-white">Releases</h1>
           <p className="text-sm text-slate-500">
             Observed upstream releases, deterministic classification, and affected repositories.
           </p>
@@ -97,7 +97,7 @@ export default async function ReleasesPage() {
                       <TableCell>
                         <Link
                           href={`/releases/${release.id}`}
-                          className="font-medium text-blue-600 hover:underline"
+                          className="font-medium text-accent-400 hover:underline"
                         >
                           {release.product.packageName}
                         </Link>

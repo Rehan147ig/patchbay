@@ -43,7 +43,7 @@ export function DemoRunButton({ scenario, disabled }: { scenario: string; disabl
       <Button variant="secondary" size="sm" onClick={run} loading={pending} disabled={disabled}>
         Run demo change
       </Button>
-      {status ? <span className="text-xs text-slate-500">{status}</span> : null}
+      {status ? <span className="text-xs text-ink-400">{status}</span> : null}
     </div>
   );
 }

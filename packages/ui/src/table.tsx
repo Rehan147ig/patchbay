@@ -3,7 +3,7 @@ import { cn } from "./cn";
 
 export function Table({ className, ...props }: HTMLAttributes<HTMLTableElement>) {
   return (
-    <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+    <div className="overflow-x-auto rounded-xl border border-ink-700/60 bg-ink-800/50">
       <table className={cn("w-full min-w-full text-left text-sm", className)} {...props} />
     </div>
   );
@@ -13,7 +13,7 @@ export function TableHead({ className, ...props }: HTMLAttributes<HTMLTableSecti
   return (
     <thead
       className={cn(
-        "border-b border-gray-200 bg-gray-50/80 text-[11px] uppercase tracking-wider text-gray-500",
+        "border-b border-ink-700 bg-ink-900/60 text-[11px] uppercase tracking-widest text-ink-400",
         className,
       )}
       {...props}
@@ -22,11 +22,19 @@ export function TableHead({ className, ...props }: HTMLAttributes<HTMLTableSecti
 }
 
 export function TableBody({ className, ...props }: HTMLAttributes<HTMLTableSectionElement>) {
-  return <tbody className={cn("divide-y divide-gray-100", className)} {...props} />;
+  return <tbody className={cn("divide-y divide-ink-700/40", className)} {...props} />;
 }
 
 export function TableRow({ className, ...props }: HTMLAttributes<HTMLTableRowElement>) {
-  return <tr className={cn("transition-colors hover:bg-gray-50/70", className)} {...props} />;
+  return (
+    <tr
+      className={cn(
+        "transition-all duration-150 hover:bg-ink-700/40 hover:shadow-[inset_3px_0_0_0_#6366f1]",
+        className,
+      )}
+      {...props}
+    />
+  );
 }
 
 export function TableHeaderCell({ className, ...props }: ThHTMLAttributes<HTMLTableCellElement>) {
@@ -34,5 +42,5 @@ export function TableHeaderCell({ className, ...props }: ThHTMLAttributes<HTMLTa
 }
 
 export function TableCell({ className, ...props }: TdHTMLAttributes<HTMLTableCellElement>) {
-  return <td className={cn("px-4 py-2.5 align-top text-gray-700", className)} {...props} />;
+  return <td className={cn("px-4 py-3 align-top text-gray-300", className)} {...props} />;
 }

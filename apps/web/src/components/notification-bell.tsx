@@ -42,7 +42,7 @@ export function NotificationBell() {
     <Link
       href="/notifications"
       aria-label={`Notifications (${unreadCount} unread)`}
-      className="relative inline-flex size-9 items-center justify-center rounded-md text-slate-600 transition-colors hover:bg-slate-200 hover:text-slate-900"
+      className="relative inline-flex size-9 items-center justify-center rounded-md text-ink-400 transition-colors hover:bg-ink-700 hover:text-gray-100"
     >
       <svg
         aria-hidden="true"

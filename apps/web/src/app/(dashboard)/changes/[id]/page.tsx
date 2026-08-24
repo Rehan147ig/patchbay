@@ -58,13 +58,13 @@ export default async function ChangeDetailPage({ params }: { params: Promise<{ i
     <div className="space-y-6">
       <div>
         <p className="text-sm text-slate-500">
-          <Link href="/changes" className="text-blue-600 hover:underline">
+          <Link href="/changes" className="text-accent-400 hover:underline">
             Changes
           </Link>{" "}
           /
         </p>
         <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-xl font-semibold text-slate-900">{event.title}</h1>
+          <h1 className="text-xl font-semibold text-white">{event.title}</h1>
           <Badge tone="blue">{event.vendor.name}</Badge>
           <Badge tone={SEVERITY_TONE[event.severity]}>{event.severity}</Badge>
           <StatusPill label={event.status} tone={CHANGE_STATUS_TONE[event.status]} />
@@ -178,7 +178,7 @@ export default async function ChangeDetailPage({ params }: { params: Promise<{ i
                     <TableCell>
                       <Link
                         href={`/repositories/${assessment.repository.id}`}
-                        className="text-blue-600 hover:underline"
+                        className="text-accent-400 hover:underline"
                       >
                         {assessment.repository.name}
                       </Link>

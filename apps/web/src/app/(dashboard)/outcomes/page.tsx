@@ -70,7 +70,7 @@ export default async function OutcomesPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">Outcomes</h1>
+        <h1 className="text-xl font-semibold text-white">Outcomes</h1>
         <p className="text-sm text-slate-500">
           What happened after Patch acted — merged pull requests, human feedback, and the
           capability-health signals derived from them.
@@ -215,7 +215,7 @@ export default async function OutcomesPage() {
                             href={outcome.pullRequest.url}
                             target="_blank"
                             rel="noreferrer"
-                            className="text-blue-600 hover:underline"
+                            className="text-accent-400 hover:underline"
                           >
                             {outcome.pullRequest.branchName}
                           </a>
@@ -279,7 +279,7 @@ export default async function OutcomesPage() {
                             href={outcome.pullRequest.url}
                             target="_blank"
                             rel="noreferrer"
-                            className="text-blue-600 hover:underline"
+                            className="text-accent-400 hover:underline"
                           >
                             {outcome.pullRequest.branchName}
                           </a>

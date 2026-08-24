@@ -30,7 +30,7 @@ export default async function AuditPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">Audit trail</h1>
+        <h1 className="text-xl font-semibold text-white">Audit trail</h1>
         <p className="text-sm text-slate-500">
           Append-only record of important actions. Secrets are redacted before storage.
         </p>

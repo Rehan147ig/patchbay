@@ -17,7 +17,7 @@ import {
   TableHeaderCell,
   TableRow,
 } from "@patchbay/ui";
-import { CaseReasonCode } from "@patchbay/domain";
+import { CaseReasonCode, CaseStatus } from "@patchbay/domain";
 import { requireRole } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 
@@ -56,12 +56,29 @@ const REASON_LABEL: Record<string, string> = {
   [CaseReasonCode.CANCELLED]: "Cancelled",
 };
 
-export default async function CasesPage() {
+export default async function CasesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ status?: string }>;
+}) {
   const user = await requireRole("VIEWER");
+  const { status: statusFilter } = await searchParams;
+  const activeStatuses: CaseStatus[] = [
+    "POLICY_ELIGIBLE",
+    "PLANNING",
+    "PATCH_PROPOSED",
+    "VALIDATING",
+    "APPROVAL_REQUIRED",
+    "DRAFT_PR_CREATED",
+  ];
+  const filterActive = typeof statusFilter === "string" && statusFilter === "active";
 
   const [cases, counts] = await Promise.all([
     prisma.remediationCase.findMany({
-      where: { organizationId: user.organizationId },
+      where: {
+        organizationId: user.organizationId,
+        ...(filterActive ? { status: { in: activeStatuses } } : {}),
+      },
       orderBy: { updatedAt: "desc" },
       take: 50,
       select: {
@@ -103,22 +120,51 @@ export default async function CasesPage() {
     return typeof score === "number" ? score : 0;
   };
 
+  const severityBorder: Record<string, string> = {
+    CRITICAL: "border-l-2 border-red-500",
+    HIGH: "border-l-2 border-amber-500",
+    MEDIUM: "border-l-2 border-accent-500",
+    LOW: "border-l-2 border-ink-600",
+  };
+
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold text-slate-900">Remediation cases</h1>
-          <p className="text-sm text-slate-500">
+          <h1 className="text-2xl font-bold tracking-tight text-white">Remediation cases</h1>
+          <p className="mt-1 text-sm text-ink-400">
             One case per affected (release, repository, dependency). Cases that cannot be automated
             stay visible with their reason instead of disappearing.
           </p>
         </div>
-        <Card className="w-40">
+        <Card className="w-36 shrink-0">
           <CardContent className="p-3">
-            <p className="text-2xl font-bold text-slate-900">{activeCount}</p>
-            <p className="text-xs text-slate-500">active cases</p>
+            <p className="text-2xl font-bold tabular-nums text-white">{activeCount}</p>
+            <p className="text-xs text-ink-400">active cases</p>
           </CardContent>
         </Card>
+      </div>
+
+      {/* Filter pills (server-driven via searchParams) */}
+      <div className="flex flex-wrap items-center gap-2">
+        {[
+          { label: "All", href: "/cases", active: !filterActive },
+          { label: "Active only", href: "/cases?status=active", active: filterActive },
+        ].map((pill) => (
+          <Link
+            key={pill.label}
+            href={pill.href}
+            aria-current={pill.active ? "true" : undefined}
+            className={
+              pill.active
+                ? "rounded-full border border-accent-500/30 bg-accent-500/20 px-3 py-1 text-xs font-medium text-accent-400"
+                : "rounded-full bg-ink-700 px-3 py-1 text-xs font-medium text-ink-300 transition-colors hover:bg-ink-600 hover:text-gray-100"
+            }
+          >
+            {pill.label}
+          </Link>
+        ))}
+        <Badge tone="blue">{cases.length} shown</Badge>
       </div>
 
       {cases.length === 0 ? (
@@ -140,51 +186,60 @@ export default async function CasesPage() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {cases.map((remediationCase) => (
-              <TableRow key={remediationCase.id}>
-                <TableCell>
-                  <Link
-                    href={`/cases/${remediationCase.id}`}
-                    className="font-medium text-blue-600 hover:underline"
-                  >
-                    {remediationCase.release.product.packageName}
-                  </Link>
-                  <div className="text-xs text-slate-500">
-                    {remediationCase.release.product.vendor.slug} v{remediationCase.release.version}
-                  </div>
-                </TableCell>
-                <TableCell className="text-sm">{remediationCase.repository.fullName}</TableCell>
-                <TableCell>
-                  <StatusPill
-                    label={remediationCase.status}
-                    tone={STATUS_TONE[remediationCase.status] ?? "neutral"}
-                  />
-                </TableCell>
-                <TableCell className="text-xs text-slate-500">
-                  {REASON_LABEL[remediationCase.reasonCode] ?? remediationCase.reasonCode}
-                </TableCell>
-                <TableCell>
-                  <Badge
-                    tone={
-                      severityOf(remediationCase.blastRadius) === "CRITICAL"
-                        ? "red"
-                        : severityOf(remediationCase.blastRadius) === "HIGH"
-                          ? "amber"
-                          : "blue"
-                    }
-                  >
-                    {severityOf(remediationCase.blastRadius)} ·{" "}
-                    {scoreOf(remediationCase.blastRadius)}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-xs text-slate-500">
-                  {remediationCase.capabilityLevel}
-                </TableCell>
-                <TableCell className="text-xs text-slate-500">
-                  {formatDate(remediationCase.updatedAt)}
-                </TableCell>
-              </TableRow>
-            ))}
+            {cases.map((remediationCase) => {
+              const severity = severityOf(remediationCase.blastRadius);
+              return (
+                <TableRow
+                  key={remediationCase.id}
+                  className={"group " + (severityBorder[severity] ?? "border-l-2 border-ink-600")}
+                >
+                  <TableCell>
+                    <Link
+                      href={`/cases/${remediationCase.id}`}
+                      className="group flex items-center gap-2 font-medium text-accent-400 hover:underline"
+                    >
+                      {remediationCase.release.product.packageName}
+                    </Link>
+                    <div className="text-xs text-ink-400">
+                      {remediationCase.release.product.vendor.slug} v
+                      {remediationCase.release.version}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-sm text-gray-300">
+                    {remediationCase.repository.fullName}
+                  </TableCell>
+                  <TableCell>
+                    <StatusPill
+                      label={remediationCase.status}
+                      tone={STATUS_TONE[remediationCase.status] ?? "neutral"}
+                    />
+                  </TableCell>
+                  <TableCell className="text-xs text-ink-400">
+                    {REASON_LABEL[remediationCase.reasonCode] ?? remediationCase.reasonCode}
+                  </TableCell>
+                  <TableCell>
+                    <Badge
+                      tone={
+                        severity === "CRITICAL" ? "red" : severity === "HIGH" ? "amber" : "blue"
+                      }
+                    >
+                      {severity} · {scoreOf(remediationCase.blastRadius)}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-xs text-ink-400">
+                    {remediationCase.capabilityLevel}
+                  </TableCell>
+                  <TableCell className="text-xs text-ink-400">
+                    {formatDate(remediationCase.updatedAt)}
+                  </TableCell>
+                  <TableCell aria-hidden="true">
+                    <span className="block opacity-0 transition-opacity group-hover:opacity-100">
+                      →
+                    </span>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       )}

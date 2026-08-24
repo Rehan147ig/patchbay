@@ -52,7 +52,7 @@ export default async function RepositoriesPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">Repositories</h1>
+        <h1 className="text-xl font-semibold text-white">Repositories</h1>
         <p className="text-sm text-slate-500">
           Connected repositories and their integration usage inventory.
         </p>
@@ -82,7 +82,7 @@ export default async function RepositoriesPage() {
                   <TableCell>
                     <Link
                       href={`/repositories/${repository.id}`}
-                      className="font-medium text-blue-600 hover:underline"
+                      className="font-medium text-accent-400 hover:underline"
                     >
                       {repository.name}
                     </Link>

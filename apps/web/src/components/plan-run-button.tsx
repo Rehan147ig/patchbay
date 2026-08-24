@@ -52,7 +52,7 @@ export function PlanRunButton({ releaseId, matchId }: { releaseId: string; match
       <Button variant="primary" size="sm" onClick={startRun} loading={pending}>
         Generate AI plan
       </Button>
-      {status ? <span className="text-xs text-slate-500">{status}</span> : null}
+      {status ? <span className="text-xs text-ink-400">{status}</span> : null}
       <Link href="/runs" className="text-xs text-blue-600 hover:underline">
         View all runs
       </Link>

@@ -9,7 +9,7 @@ export function CodeBlock({ className, maxHeight = "24rem", ...props }: CodeBloc
   return (
     <pre
       className={cn(
-        "overflow-auto rounded-lg bg-slate-950 p-4 font-mono text-xs leading-relaxed text-slate-100",
+        "overflow-auto rounded-lg border border-ink-700/60 bg-ink-950 p-4 font-mono text-xs leading-relaxed text-gray-200",
         className,
       )}
       style={{ maxHeight }}

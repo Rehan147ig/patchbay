@@ -73,15 +73,13 @@ export default async function RemediationDetailPage({
     <div className="space-y-6">
       <div>
         <p className="text-sm text-slate-500">
-          <Link href="/remediations" className="text-blue-600 hover:underline">
+          <Link href="/remediations" className="text-accent-400 hover:underline">
             Remediations
           </Link>{" "}
           /
         </p>
         <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-xl font-semibold text-slate-900">
-            {impactAssessment.changeEvent.title}
-          </h1>
+          <h1 className="text-xl font-semibold text-white">{impactAssessment.changeEvent.title}</h1>
           <StatusPill label={plan.status} tone={PLAN_STATUS_TONE[plan.status]} />
           <Badge tone={plan.requiresHumanReview ? "amber" : "green"}>
             {plan.requiresHumanReview ? "requires human review" : "no approval required"}
@@ -399,7 +397,7 @@ export default async function RemediationDetailPage({
                         href={pr.url}
                         target="_blank"
                         rel="noreferrer"
-                        className="text-blue-600 hover:underline"
+                        className="text-accent-400 hover:underline"
                       >
                         {pr.url}
                       </a>

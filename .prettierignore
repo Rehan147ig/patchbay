@@ -1,0 +1,18 @@
+# Dependency caches
+node_modules
+
+# Build output
+.next
+out
+dist
+coverage
+
+# Other-session scratch files (transient PowerShell helpers at repo root)
+*.ps1
+
+# Local diagnostics
+cookies.txt
+payload.json
+*-out.txt
+q.sql
+q2.sql

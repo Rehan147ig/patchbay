@@ -68,7 +68,7 @@ export default async function DemoPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">Demo scenarios</h1>
+        <h1 className="text-xl font-semibold text-white">Demo scenarios</h1>
         <p className="text-sm text-slate-500">
           Deterministic, self-contained runs against the seeded demo data. Every run is audited and
           carries a correlation id.

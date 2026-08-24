@@ -39,7 +39,7 @@ export function CreatePRButton({
       <Button variant="primary" size="sm" onClick={createPR} loading={pending} disabled={disabled}>
         Create Draft PR
       </Button>
-      {status ? <span className="text-xs text-slate-500">{status}</span> : null}
+      {status ? <span className="text-xs text-ink-400">{status}</span> : null}
     </div>
   );
 }

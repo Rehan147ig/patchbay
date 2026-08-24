@@ -65,7 +65,7 @@ export function CapabilityGateControl({
           onChange={(event) => setReason(event.target.value)}
           placeholder="Suspension reason (optional)"
           maxLength={500}
-          className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700"
+          className="rounded-md border border-ink-700/60 bg-ink-800/60 px-2 py-1 text-xs text-gray-200"
         />
       ) : null}
       {isAdmin ? (
@@ -89,7 +89,7 @@ export function CapabilityGateControl({
           </Button>
         )
       ) : null}
-      {status ? <span className="text-xs text-slate-500">{status}</span> : null}
+      {status ? <span className="text-xs text-ink-400">{status}</span> : null}
       {suspended && gate.reason ? (
         <span className="text-xs text-red-600">Reason: {gate.reason}</span>
       ) : null}

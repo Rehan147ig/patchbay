@@ -4,13 +4,13 @@ import { cn } from "./cn";
 export type BadgeTone = "neutral" | "green" | "amber" | "red" | "blue" | "purple" | "slate";
 
 const TONE_CLASSES: Record<BadgeTone, string> = {
-  neutral: "bg-gray-100 text-gray-700 ring-gray-200",
-  green: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-  amber: "bg-amber-50 text-amber-800 ring-amber-200",
-  red: "bg-red-50 text-red-700 ring-red-200",
-  blue: "bg-blue-50 text-blue-700 ring-blue-200",
-  purple: "bg-violet-50 text-violet-700 ring-violet-200",
-  slate: "bg-gray-50 text-gray-600 ring-gray-200",
+  neutral: "bg-ink-700 text-ink-300 ring-ink-600",
+  green: "bg-mint-400/10 text-mint-400 ring-mint-400/20",
+  amber: "bg-amber-400/10 text-amber-400 ring-amber-400/20",
+  red: "bg-red-400/10 text-red-400 ring-red-400/20",
+  blue: "bg-accent-500/10 text-accent-400 ring-accent-500/20",
+  purple: "bg-violet-400/10 text-violet-400 ring-violet-400/20",
+  slate: "bg-ink-700 text-ink-300 ring-ink-600",
 };
 
 export interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {

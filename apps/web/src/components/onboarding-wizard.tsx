@@ -55,46 +55,69 @@ export function OnboardingWizard() {
   }
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-      <ol className="mb-6 flex items-center gap-2 text-xs">
-        {STEPS.map((item, index) => (
-          <li key={item.number} className="flex items-center gap-2">
-            {index > 0 ? <span className="text-slate-300">→</span> : null}
-            <button
-              type="button"
-              onClick={() => setStep(index)}
-              aria-current={index === step ? "step" : undefined}
-              className={
-                index === step
-                  ? "rounded-md bg-slate-900 px-2 py-1 font-medium text-white"
-                  : "rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100"
-              }
-            >
-              {item.number}. {item.label}
-            </button>
-          </li>
-        ))}
-      </ol>
+    <div className="rounded-xl border border-ink-700/60 bg-ink-800/50 p-6 shadow-[0_1px_3px_rgba(0,0,0,0.4)] backdrop-blur-xl">
+      {/* Progress stepper */}
+      <div className="mb-8">
+        <ol className="flex items-start justify-between gap-2">
+          {STEPS.map((item, index) => (
+            <li key={item.number} className="flex flex-col items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setStep(index)}
+                aria-current={index === step ? "step" : undefined}
+                className={
+                  index < step
+                    ? "flex size-8 items-center justify-center rounded-full border border-accent-500 bg-accent-500 text-xs font-bold text-white transition-all"
+                    : index === step
+                      ? "flex size-8 items-center justify-center rounded-full border border-accent-500 bg-accent-500/10 text-xs font-bold text-accent-400 ring-2 ring-accent-500/30 transition-all"
+                      : "flex size-8 items-center justify-center rounded-full border border-ink-700 bg-ink-800 text-xs font-bold text-ink-500 transition-all hover:border-ink-600"
+                }
+              >
+                {index < step ? "✓" : item.number}
+              </button>
+              <span
+                className={
+                  index === step
+                    ? "text-center text-[11px] font-medium text-white"
+                    : "text-center text-[11px] text-ink-500"
+                }
+              >
+                {item.label}
+              </span>
+            </li>
+          ))}
+        </ol>
+        <div aria-hidden="true" className="mt-2 flex items-center">
+          {STEPS.slice(0, -1).map((_, i) => (
+            <div
+              key={i}
+              className={`h-0.5 flex-1 transition-all duration-500 ${
+                i < step ? "bg-accent-500" : "bg-ink-700"
+              }`}
+            />
+          ))}
+        </div>
+      </div>
 
       {step === 0 ? (
         <div className="space-y-4">
-          <h2 className="text-lg font-semibold text-slate-900">Install the GitHub App</h2>
-          <p className="text-sm leading-relaxed text-slate-600">
+          <h2 className="text-lg font-semibold text-white">Install the GitHub App</h2>
+          <p className="text-sm leading-relaxed text-ink-400">
             Patch uses a GitHub App to read your repositories, detect upstream SDK changes, and open
             draft pull requests with migration patches. It asks for exactly three permissions —
             Contents (read/write), Pull requests (read/write), and Metadata (read) — and nothing
             else. Draft PRs only: Patch never merges, never writes to your default branch, and
             agents never hold git tokens — credentials stay server-side.
           </p>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-ink-400">
             Installing takes you to GitHub and back — you will land on{" "}
-            <code className="text-slate-600">Settings → GitHub</code> when it is done. Requires a
-            configured <code className="text-slate-600">GITHUB_APP_SLUG</code> in this deployment.
+            <code className="text-ink-400">Settings → GitHub</code> when it is done. Requires a
+            configured <code className="text-ink-400">GITHUB_APP_SLUG</code> in this deployment.
           </p>
           <div className="flex items-center gap-3">
             <a
               href="/api/github/install"
-              className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+              className="rounded-md bg-accent-600 px-4 py-2 text-sm font-medium text-white shadow-[0_0_20px_-6px_rgba(99,102,241,0.6)] hover:bg-accent-500"
             >
               Install GitHub App
             </a>
@@ -107,21 +130,21 @@ export function OnboardingWizard() {
 
       {step === 1 ? (
         <div className="space-y-4">
-          <h2 className="text-lg font-semibold text-slate-900">Connect a repository</h2>
-          <p className="text-sm leading-relaxed text-slate-600">
+          <h2 className="text-lg font-semibold text-white">Connect a repository</h2>
+          <p className="text-sm leading-relaxed text-ink-400">
             Register one TypeScript repository that imports a certified SDK —{" "}
-            <code className="text-slate-700">openai</code>,{" "}
-            <code className="text-slate-700">stripe</code>,{" "}
-            <code className="text-slate-700">twilio</code>,{" "}
-            <code className="text-slate-700">anthropic</code>,{" "}
-            <code className="text-slate-700">aws-sdk</code>, or{" "}
-            <code className="text-slate-700">supabase</code> — the fastest path from a release to a
+            <code className="text-gray-200">openai</code>,{" "}
+            <code className="text-gray-200">stripe</code>,{" "}
+            <code className="text-gray-200">twilio</code>,{" "}
+            <code className="text-gray-200">anthropic</code>,{" "}
+            <code className="text-gray-200">aws-sdk</code>, or{" "}
+            <code className="text-gray-200">supabase</code> — the fastest path from a release to a
             draft PR. You can connect more later from the Repositories page; your plan determines
             how many active repositories Patch may watch.
           </p>
           <form action={connectRepository} className="space-y-3">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <label className="text-xs text-slate-500">
+              <label className="text-xs text-ink-400">
                 GitHub installation id
                 <input
                   name="installationId"
@@ -129,16 +152,16 @@ export function OnboardingWizard() {
                   min={1}
                   required
                   placeholder="e.g. 58432107"
-                  className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-300"
+                  className="mt-1 block w-full rounded-md border border-ink-600 px-3 py-2 text-sm focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/30"
                 />
               </label>
-              <label className="text-xs text-slate-500">
+              <label className="text-xs text-ink-400">
                 Repository (owner/repo)
                 <input
                   name="repositoryFullName"
                   required
                   placeholder="acme/billing-service"
-                  className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-300"
+                  className="mt-1 block w-full rounded-md border border-ink-600 px-3 py-2 text-sm focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/30"
                 />
               </label>
             </div>
@@ -152,7 +175,7 @@ export function OnboardingWizard() {
             </div>
           </form>
           {connectStatus === "ok" ? (
-            <p className="text-xs text-green-700">{CONNECT_STATUS.ok}</p>
+            <p className="text-xs text-mint-400">{CONNECT_STATUS.ok}</p>
           ) : null}
           {connectStatus === "error" ? (
             <p role="alert" className="text-xs text-red-600">
@@ -164,13 +187,13 @@ export function OnboardingWizard() {
 
       {step === 2 ? (
         <div className="space-y-4">
-          <h2 className="text-lg font-semibold text-slate-900">From change to draft PR</h2>
-          <p className="text-sm leading-relaxed text-slate-600">
+          <h2 className="text-lg font-semibold text-white">From change to draft PR</h2>
+          <p className="text-sm leading-relaxed text-ink-400">
             When a tracked vendor releases a breaking change, Watchtower records it under Changes.
             Open the change → Generate plan → open the remediation → Draft PR. That is the whole
             path: Patch opens drafts only and never auto-merges; a human reviews and merges.
           </p>
-          <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-800">
+          <p className="rounded-md border border-amber-400/20 bg-amber-400/10 p-3 text-xs leading-relaxed text-amber-300">
             If this deployment runs{" "}
             <code className="font-mono">SANDBOX_VALIDATION_MODE=github-checks-only</code>,
             validation reports <strong>SKIPPED — never PASSED</strong>. Your CI is the judge of the
@@ -179,25 +202,25 @@ export function OnboardingWizard() {
           <div className="flex flex-wrap items-center gap-3">
             <Link
               href="/changes"
-              className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+              className="rounded-md bg-accent-600 px-4 py-2 text-sm font-medium text-white shadow-[0_0_20px_-6px_rgba(99,102,241,0.6)] hover:bg-accent-500"
             >
               Open Changes
             </Link>
             <Link
               href="/releases"
-              className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              className="rounded-md border border-ink-600 bg-ink-700/60 px-4 py-2 text-sm font-medium text-gray-200 hover:bg-ink-600"
             >
               Release Explorer
             </Link>
             <Link
               href="/demo"
-              className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              className="rounded-md border border-ink-600 bg-ink-700/60 px-4 py-2 text-sm font-medium text-gray-200 hover:bg-ink-600"
             >
               Run the guided demo
             </Link>
             <Link
               href="/overview"
-              className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              className="rounded-md border border-ink-600 bg-ink-700/60 px-4 py-2 text-sm font-medium text-gray-200 hover:bg-ink-600"
             >
               Go to overview
             </Link>
@@ -205,7 +228,7 @@ export function OnboardingWizard() {
         </div>
       ) : null}
 
-      <div className="mt-6 flex items-center justify-between border-t border-slate-100 pt-4">
+      <div className="mt-6 flex items-center justify-between border-t border-ink-700/60 pt-4">
         {step > 0 ? (
           <Button variant="secondary" size="sm" onClick={() => setStep((s) => s - 1)}>
             Back
@@ -220,7 +243,7 @@ export function OnboardingWizard() {
         ) : (
           <Link
             href="/overview"
-            className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
+            className="rounded-md bg-accent-600 px-3 py-1.5 text-sm font-medium text-white shadow-[0_0_20px_-6px_rgba(99,102,241,0.6)] hover:bg-accent-500"
           >
             Finish setup
           </Link>

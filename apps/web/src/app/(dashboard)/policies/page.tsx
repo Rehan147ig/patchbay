@@ -27,8 +27,8 @@ export default async function PoliciesPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">Policies</h1>
-        <p className="text-sm text-slate-500">
+        <h1 className="text-2xl font-bold tracking-tight text-white">Policies</h1>
+        <p className="mt-1 text-sm text-ink-400">
           JSON-defined rules that govern remediation: when plans may be created, validated, or
           turned into draft pull requests. Toggling a policy records an audit event.
         </p>
@@ -39,9 +39,16 @@ export default async function PoliciesPage() {
       ) : (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {policies.map((policy) => (
-            <Card key={policy.id}>
+            <Card
+              key={policy.id}
+              className={
+                policy.enabled
+                  ? "border-l-4 border-l-mint-400 transition-colors"
+                  : "border-l-4 border-l-ink-600"
+              }
+            >
               <CardHeader>
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center justify-between gap-3">
                   <CardTitle>{policy.name}</CardTitle>
                   <PolicyToggle policyId={policy.id} enabled={policy.enabled} />
                 </div>
@@ -54,9 +61,16 @@ export default async function PoliciesPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <CodeBlock maxHeight="14rem">
-                  {JSON.stringify(policy.definitionJson, null, 2)}
-                </CodeBlock>
+                <details className="group">
+                  <summary className="cursor-pointer select-none text-xs font-medium text-accent-400 transition-colors hover:text-accent-300">
+                    Show definition
+                  </summary>
+                  <div className="mt-3">
+                    <CodeBlock maxHeight="14rem">
+                      {JSON.stringify(policy.definitionJson, null, 2)}
+                    </CodeBlock>
+                  </div>
+                </details>
               </CardContent>
             </Card>
           ))}

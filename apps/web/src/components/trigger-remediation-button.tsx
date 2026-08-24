@@ -44,7 +44,7 @@ export function TriggerRemediationButton({ releaseId, matchId, repositoryName }:
       </Button>
       {status ? (
         status.kind === "ok" ? (
-          <span className="text-xs text-slate-600">
+          <span className="text-xs text-ink-400">
             {status.text}{" "}
             <Link href="/remediations" className="text-blue-600 hover:underline">
               Track it in Remediations
@@ -56,9 +56,7 @@ export function TriggerRemediationButton({ releaseId, matchId, repositoryName }:
           </span>
         )
       ) : (
-        <span className="text-xs text-slate-400">
-          Generate a migration plan for {repositoryName}
-        </span>
+        <span className="text-xs text-ink-500">Generate a migration plan for {repositoryName}</span>
       )}
     </div>
   );

@@ -166,10 +166,10 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
 
   return (
     <div className="space-y-4">
-      <div className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-5">
+      <div className="relative overflow-hidden rounded-2xl border border-ink-700 bg-ink-800/80 p-5 backdrop-blur-xl">
         <div
           aria-hidden
-          className="pointer-events-none absolute -right-24 -top-24 size-64 rounded-full bg-gradient-to-br from-accent-400/15 to-accent-600/10 blur-3xl"
+          className="pointer-events-none absolute -right-24 -top-24 size-64 rounded-full bg-gradient-to-br from-accent-400/25 to-accent-600/15 blur-3xl"
         />
         <div
           aria-hidden
@@ -177,21 +177,27 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
         />
         <div className="relative flex flex-wrap items-start justify-between gap-3">
           <div className="flex items-start gap-3">
-            <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-accent-500 to-accent-600 font-bold text-white shadow-[0_8px_24px_-8px_rgba(99,102,241,0.6)]">
+            <span
+              className={`flex size-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-accent-500 to-accent-600 font-bold text-white shadow-[0_8px_24px_-8px_rgba(99,102,241,0.6)] ${
+                remediationCase.status === "VALIDATING" || remediationCase.status === "PLANNING"
+                  ? "ring-2 ring-accent-500/50 ring-offset-2 ring-offset-ink-800 animate-pulse-ring"
+                  : ""
+              }`}
+            >
               {remediationCase.release.product.packageName.charAt(0).toUpperCase()}
             </span>
             <div>
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-xl font-semibold text-slate-900">
+                <h1 className="text-xl font-semibold text-white">
                   {remediationCase.release.product.packageName}{" "}
-                  <span className="text-slate-400">v{remediationCase.release.version}</span>
+                  <span className="text-ink-400">v{remediationCase.release.version}</span>
                 </h1>
                 <StatusPill
                   label={remediationCase.status}
                   tone={STATUS_TONE[remediationCase.status] ?? "neutral"}
                 />
               </div>
-              <p className="mt-0.5 text-sm text-slate-500">
+              <p className="mt-0.5 text-sm text-ink-400">
                 {remediationCase.release.product.vendor.name} (
                 {remediationCase.release.product.vendor.slug}) ·{" "}
                 {remediationCase.repository.fullName} · resolved{" "}
@@ -222,23 +228,29 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
             </CardHeader>
             <CardContent>
               {remediationCase.events.length === 0 ? (
-                <p className="text-sm text-slate-500">No events recorded yet.</p>
+                <p className="text-sm text-ink-400">No events recorded yet.</p>
               ) : (
-                <ol className="space-y-3">
+                <ol className="relative space-y-4 border-l border-ink-700 pl-6">
                   {remediationCase.events.map((event) => (
-                    <li key={event.id} className="flex items-start gap-3 text-sm">
-                      <StatusPill
-                        label={event.status}
-                        tone={STATUS_TONE[event.status] ?? "neutral"}
-                      />
-                      <div className="min-w-0">
-                        <p className="text-xs text-slate-500">{formatDate(event.createdAt)}</p>
-                        {event.reasonCode ? (
-                          <p className="text-xs text-slate-500">
-                            {REASON_LABEL[event.reasonCode] ?? event.reasonCode}
-                          </p>
-                        ) : null}
+                    <li key={event.id} className="relative">
+                      <span
+                        aria-hidden="true"
+                        className="absolute -left-[27.5px] flex size-4 items-center justify-center rounded-full border border-ink-700 bg-ink-800"
+                      >
+                        <span className="size-1.5 rounded-full bg-accent-500" />
+                      </span>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <StatusPill
+                          label={event.status}
+                          tone={STATUS_TONE[event.status] ?? "neutral"}
+                        />
+                        <p className="text-xs text-ink-500">{formatDate(event.createdAt)}</p>
                       </div>
+                      {event.reasonCode ? (
+                        <p className="mt-0.5 text-xs text-ink-400">
+                          {REASON_LABEL[event.reasonCode] ?? event.reasonCode}
+                        </p>
+                      ) : null}
                     </li>
                   ))}
                 </ol>
@@ -262,13 +274,13 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
                       label={latestPlan.status}
                       tone={latestPlan.status === "PR_CREATED" ? "purple" : "blue"}
                     />
-                    <span className="text-slate-600">
+                    <span className="text-ink-400">
                       confidence {latestPlan.confidence}% · {latestPlan.patches.length} patch
                       {latestPlan.patches.length === 1 ? "" : "es"}
                       {latestPlan.requiresHumanReview ? " · human review required" : ""}
                     </span>
                   </div>
-                  <div className="space-y-1 text-xs text-slate-600">
+                  <div className="space-y-1 text-xs text-ink-400">
                     <p>
                       Validations:{" "}
                       {latestPlan.validations.map((v) => v.status).join(", ") || "none yet"}
@@ -286,7 +298,7 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
                           href={latestPR.url}
                           target="_blank"
                           rel="noreferrer"
-                          className="text-blue-600 hover:underline"
+                          className="text-accent-400 hover:underline"
                         >
                           {latestPR.branchName}
                         </a>
@@ -295,7 +307,7 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
                   </div>
                 </>
               ) : (
-                <p className="text-sm text-slate-500">
+                <p className="text-sm text-ink-400">
                   No plan linked to this case yet. Plans are linked once the agent workflow produces
                   one.
                 </p>
@@ -312,7 +324,23 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
             <CardContent className="space-y-2">
               {blastRadius ? (
                 <>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-3">
+                    <div
+                      role="meter"
+                      aria-valuenow={blastRadius.score}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-label={`Blast radius score ${blastRadius.score}`}
+                      className="h-2 flex-1 overflow-hidden rounded-full bg-ink-700"
+                    >
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-accent-600 to-red-500"
+                        style={{ width: `${Math.min(100, Math.max(0, blastRadius.score))}%` }}
+                      />
+                    </div>
+                    <span className="text-sm font-bold tabular-nums text-white">
+                      {blastRadius.score}
+                    </span>
                     <Badge
                       tone={
                         blastRadius.severity === "CRITICAL"
@@ -322,17 +350,23 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
                             : "blue"
                       }
                     >
-                      {blastRadius.severity} · {blastRadius.score}
+                      {blastRadius.severity}
                     </Badge>
                   </div>
-                  <ul className="list-disc space-y-1 pl-4 text-xs text-slate-600">
+                  <ul className="space-y-1 pt-1 text-xs text-ink-400">
                     {blastRadius.factors.map((factor) => (
-                      <li key={factor}>{factor}</li>
+                      <li key={factor} className="flex items-start gap-1.5">
+                        <span
+                          aria-hidden="true"
+                          className="mt-1 size-1 shrink-0 rounded-full bg-ink-500"
+                        />
+                        {factor}
+                      </li>
                     ))}
                   </ul>
                 </>
               ) : (
-                <p className="text-sm text-slate-500">No blast radius computed.</p>
+                <p className="text-sm text-ink-400">No blast radius computed.</p>
               )}
             </CardContent>
           </Card>
@@ -341,7 +375,7 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
             <CardHeader>
               <CardTitle>Funnel</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-1 text-xs text-slate-600">
+            <CardContent className="space-y-1 text-xs text-ink-400">
               <p>
                 Reason: {REASON_LABEL[remediationCase.reasonCode] ?? remediationCase.reasonCode}
               </p>

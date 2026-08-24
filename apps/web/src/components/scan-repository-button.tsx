@@ -221,7 +221,7 @@ export function ScanRepositoryButton({
       <Button variant="secondary" size="sm" onClick={scan} loading={pending} disabled={disabled}>
         Scan now
       </Button>
-      {status ? <span className="text-xs text-slate-500">{status}</span> : null}
+      {status ? <span className="text-xs text-ink-400">{status}</span> : null}
     </div>
   );
 }

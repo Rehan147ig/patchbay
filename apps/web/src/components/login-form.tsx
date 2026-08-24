@@ -35,7 +35,7 @@ export function LoginForm() {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
-        <label htmlFor="email" className="block text-sm font-medium text-slate-700">
+        <label htmlFor="email" className="block text-sm font-medium text-gray-200">
           Email
         </label>
         <input
@@ -45,11 +45,11 @@ export function LoginForm() {
           autoComplete="email"
           defaultValue="demo@patchbay.dev"
           required
-          className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-300"
+          className="mt-1 block w-full rounded-md border border-ink-600 px-3 py-2 text-sm shadow-sm focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/30"
         />
       </div>
       <div>
-        <label htmlFor="password" className="block text-sm font-medium text-slate-700">
+        <label htmlFor="password" className="block text-sm font-medium text-gray-200">
           Password
         </label>
         <input
@@ -59,7 +59,7 @@ export function LoginForm() {
           autoComplete="current-password"
           defaultValue="dev-only"
           required
-          className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-300"
+          className="mt-1 block w-full rounded-md border border-ink-600 px-3 py-2 text-sm shadow-sm focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/30"
         />
       </div>
       {error ? (
@@ -70,7 +70,7 @@ export function LoginForm() {
       <Button type="submit" className="w-full" loading={pending}>
         Sign in as demo user
       </Button>
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-ink-400">
         Local development auth only. The seeded demo admin is <code>demo@patchbay.dev</code> /
         <code> dev-only</code> (see .env).
       </p>

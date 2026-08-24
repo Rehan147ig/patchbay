@@ -60,7 +60,7 @@ export function OutcomeFeedbackForm({ pullRequestId }: { pullRequestId: string }
         aria-label="Outcome classification"
         value={verdict}
         onChange={(event) => setVerdict(event.target.value as Verdict)}
-        className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700"
+        className="rounded-md border border-ink-700/60 bg-ink-800/60 px-2 py-1 text-xs text-gray-200"
       >
         <option value="" disabled>
           Classify…
@@ -80,7 +80,7 @@ export function OutcomeFeedbackForm({ pullRequestId }: { pullRequestId: string }
       >
         Record
       </Button>
-      {status ? <span className="text-xs text-slate-500">{status}</span> : null}
+      {status ? <span className="text-xs text-ink-400">{status}</span> : null}
     </div>
   );
 }

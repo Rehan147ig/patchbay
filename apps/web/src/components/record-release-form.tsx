@@ -39,42 +39,42 @@ export function RecordReleaseForm() {
 
   return (
     <form action={submit} className="flex items-end gap-2">
-      <label className="text-xs text-slate-500">
+      <label className="text-xs text-ink-400">
         Vendor
         <input
           name="vendorSlug"
           defaultValue="openai"
-          className="mt-1 block w-24 rounded border border-slate-300 px-2 py-1 text-sm"
+          className="mt-1 block w-24 rounded border border-ink-600 px-2 py-1 text-sm"
         />
       </label>
-      <label className="text-xs text-slate-500">
+      <label className="text-xs text-ink-400">
         Package
         <input
           name="packageName"
           defaultValue="openai"
-          className="mt-1 block w-32 rounded border border-slate-300 px-2 py-1 text-sm"
+          className="mt-1 block w-32 rounded border border-ink-600 px-2 py-1 text-sm"
         />
       </label>
-      <label className="text-xs text-slate-500">
+      <label className="text-xs text-ink-400">
         Version
         <input
           name="version"
           defaultValue="4.0.0"
-          className="mt-1 block w-28 rounded border border-slate-300 px-2 py-1 text-sm"
+          className="mt-1 block w-28 rounded border border-ink-600 px-2 py-1 text-sm"
         />
       </label>
-      <label className="text-xs text-slate-500">
+      <label className="text-xs text-ink-400">
         Previous
         <input
           name="previousVersion"
           defaultValue="3.3.0"
-          className="mt-1 block w-28 rounded border border-slate-300 px-2 py-1 text-sm"
+          className="mt-1 block w-28 rounded border border-ink-600 px-2 py-1 text-sm"
         />
       </label>
       <Button variant="secondary" size="sm" loading={pending}>
         Record release
       </Button>
-      {status ? <span className="text-xs text-slate-500">{status}</span> : null}
+      {status ? <span className="text-xs text-ink-400">{status}</span> : null}
     </form>
   );
 }

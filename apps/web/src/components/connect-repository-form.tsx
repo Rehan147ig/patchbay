@@ -49,13 +49,13 @@ export function ConnectRepositoryForm({ installations }: { installations: Connec
   return (
     <form action={connect} className="space-y-3">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <label className="text-xs text-slate-500">
+        <label className="text-xs text-ink-400">
           GitHub installation
           <select
             name="installationId"
             required
             defaultValue={String(installations[0]?.installationId ?? "")}
-            className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-300"
+            className="mt-1 block w-full rounded-md border border-ink-600 bg-ink-800/60 px-3 py-2 text-sm focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/30"
           >
             {installations.map((installation) => (
               <option key={installation.installationId} value={installation.installationId}>
@@ -65,13 +65,13 @@ export function ConnectRepositoryForm({ installations }: { installations: Connec
             ))}
           </select>
         </label>
-        <label className="text-xs text-slate-500">
+        <label className="text-xs text-ink-400">
           Repository (owner/repo)
           <input
             name="repositoryFullName"
             required
             placeholder="acme/billing-service"
-            className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-300"
+            className="mt-1 block w-full rounded-md border border-ink-600 px-3 py-2 text-sm focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/30"
           />
         </label>
       </div>

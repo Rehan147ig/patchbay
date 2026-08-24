@@ -26,6 +26,7 @@
     "@patchbay/repo-analysis": "workspace:*",
     "@patchbay/ui": "workspace:*",
     "@patchbay/vendor-connectors": "workspace:*",
+    "lucide-react": "^1.33.0",
     "next": "^15.3.0",
     "next-auth": "^4.24.15",
     "react": "^19.1.0",

@@ -73,12 +73,12 @@ export default async function RepositoryDetailPage({
     <div className="space-y-6">
       <div>
         <p className="text-sm text-slate-500">
-          <Link href="/repositories" className="text-blue-600 hover:underline">
+          <Link href="/repositories" className="text-accent-400 hover:underline">
             Repositories
           </Link>{" "}
           /
         </p>
-        <h1 className="text-xl font-semibold text-slate-900">{repository.name}</h1>
+        <h1 className="text-xl font-semibold text-white">{repository.name}</h1>
         <p className="text-sm text-slate-500">
           {repository.fullName} · {repository.provider} · default branch {repository.defaultBranch}
         </p>
@@ -300,7 +300,7 @@ export default async function RepositoryDetailPage({
                     <TableCell>
                       <Link
                         href={`/changes/${assessment.changeEventId}`}
-                        className="text-blue-600 hover:underline"
+                        className="text-accent-400 hover:underline"
                       >
                         {assessment.changeEvent.title}
                       </Link>

@@ -29,14 +29,33 @@ export default async function ChangesPage() {
     take: 100,
   });
 
+  const breakingCount = events.filter((event) =>
+    event.normalizations.some((n) => n.breaking),
+  ).length;
+
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">Change events</h1>
-        <p className="text-sm text-slate-500">
+        <h1 className="text-2xl font-bold tracking-tight text-white">Change events</h1>
+        <p className="mt-1 text-sm text-ink-400">
           Vendor API/SDK changes detected for your monitored vendors.
         </p>
       </div>
+
+      {events.length > 0 ? (
+        <div className="grid grid-cols-2 gap-4">
+          <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-4">
+            <p className="text-2xl font-bold tabular-nums text-red-400">{breakingCount}</p>
+            <p className="text-xs text-red-400/70">Breaking changes</p>
+          </div>
+          <div className="rounded-xl border border-ink-700 bg-ink-800/50 p-4">
+            <p className="text-2xl font-bold tabular-nums text-gray-300">
+              {events.length - breakingCount}
+            </p>
+            <p className="text-xs text-ink-400">Non-breaking</p>
+          </div>
+        </div>
+      ) : null}
 
       {events.length === 0 ? (
         <EmptyState
@@ -61,7 +80,7 @@ export default async function ChangesPage() {
                 <TableCell>
                   <Link
                     href={`/changes/${event.id}`}
-                    className="font-medium text-blue-600 hover:underline"
+                    className="font-medium text-accent-400 hover:underline"
                   >
                     {event.title}
                   </Link>
@@ -71,15 +90,17 @@ export default async function ChangesPage() {
                     </Badge>
                   ) : null}
                 </TableCell>
-                <TableCell className="text-xs">{event.vendor.name}</TableCell>
-                <TableCell className="text-xs">{SOURCE_TYPE_LABEL[event.sourceType]}</TableCell>
+                <TableCell className="text-xs text-gray-300">{event.vendor.name}</TableCell>
+                <TableCell className="text-xs text-gray-300">
+                  {SOURCE_TYPE_LABEL[event.sourceType]}
+                </TableCell>
                 <TableCell>
                   <Badge tone={SEVERITY_TONE[event.severity]}>{event.severity}</Badge>
                 </TableCell>
                 <TableCell>
                   <StatusPill label={event.status} tone={CHANGE_STATUS_TONE[event.status]} />
                 </TableCell>
-                <TableCell className="text-xs text-slate-500">
+                <TableCell className="text-xs text-ink-400">
                   {formatDate(event.detectedAt)}
                 </TableCell>
               </TableRow>

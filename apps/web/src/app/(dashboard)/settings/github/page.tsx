@@ -20,7 +20,7 @@ export default async function GitHubSettingsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">GitHub Integration</h1>
+        <h1 className="text-xl font-semibold text-white">GitHub Integration</h1>
         <p className="text-sm text-slate-500">
           Install and manage the Patch GitHub App to enable automated PR creation and repository
           scanning.

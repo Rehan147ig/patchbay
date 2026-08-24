@@ -64,10 +64,10 @@ export function WatchtowerRunsPanel() {
     );
   }
   if (runs === null) {
-    return <p className="text-xs text-slate-400">Loading detection runs…</p>;
+    return <p className="text-xs text-ink-500">Loading detection runs…</p>;
   }
   if (runs.length === 0) {
-    return <p className="text-xs text-slate-400">No detection runs yet.</p>;
+    return <p className="text-xs text-ink-500">No detection runs yet.</p>;
   }
 
   return (
@@ -75,13 +75,13 @@ export function WatchtowerRunsPanel() {
       {runs.map((run) => (
         <li key={run.id} className="flex items-center justify-between gap-3 text-xs">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate font-mono text-slate-700">{run.adapter}</span>
+            <span className="truncate font-mono text-gray-200">{run.adapter}</span>
             <StatusPill label={run.status} tone={DETECTION_RUN_STATUS_TONE[run.status]} />
             {run.observedCount > 0 ? (
-              <span className="tabular-nums text-slate-500">{run.observedCount} observed</span>
+              <span className="tabular-nums text-ink-400">{run.observedCount} observed</span>
             ) : null}
           </div>
-          <span className="shrink-0 text-slate-400">
+          <span className="shrink-0 text-ink-500">
             {(run.completedAt ?? run.startedAt) ? formatDate(run.completedAt ?? run.startedAt) : ""}
           </span>
         </li>

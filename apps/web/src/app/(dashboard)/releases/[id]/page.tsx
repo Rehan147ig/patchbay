@@ -100,7 +100,7 @@ export default async function ReleaseDetailPage({ params }: { params: Promise<{ 
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="flex items-center gap-2 text-xl font-semibold text-slate-900">
+        <h1 className="flex items-center gap-2 text-xl font-semibold text-white">
           {release.product.packageName} {release.version}
           <Badge tone={AUTHENTICITY_TONE[release.authenticity]}>
             {AUTHENTICITY_LABEL[release.authenticity]}
@@ -194,7 +194,7 @@ export default async function ReleaseDetailPage({ params }: { params: Promise<{ 
                     <div className="flex items-center justify-between">
                       <Link
                         href={`/repositories/${match.repositoryId}`}
-                        className="font-medium text-blue-600 hover:underline"
+                        className="font-medium text-accent-400 hover:underline"
                       >
                         {match.repository.name}
                       </Link>
