@@ -39,7 +39,10 @@ afterEach(() => {
 
 describe("createOpenAPIAdapter", () => {
   it("normalizes a spec into a release", () => {
-    const adapter = createOpenAPIAdapter("stripe", "https://api.stripe.com/openapi/spec3.json");
+    const adapter = createOpenAPIAdapter(
+      "stripe",
+      "https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.json",
+    );
     const normalized = adapter.normalize({
       vendorSlug: "stripe",
       spec: SPEC_V1,
@@ -56,7 +59,10 @@ describe("createOpenAPIAdapter", () => {
   });
 
   it("emits evidence with apiDiff facts on first change", async () => {
-    const adapter = createOpenAPIAdapter("stripe", "https://api.stripe.com/openapi/spec3.json");
+    const adapter = createOpenAPIAdapter(
+      "stripe",
+      "https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.json",
+    );
     const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(SPEC_V1));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -81,7 +87,10 @@ describe("createOpenAPIAdapter", () => {
   });
 
   it("returns empty when the spec content hash is unchanged", async () => {
-    const adapter = createOpenAPIAdapter("stripe", "https://api.stripe.com/openapi/spec3.json");
+    const adapter = createOpenAPIAdapter(
+      "stripe",
+      "https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.json",
+    );
     vi.stubGlobal(
       "fetch",
       vi.fn().mockImplementation(() => Promise.resolve(jsonResponse(SPEC_V1))),
@@ -93,7 +102,10 @@ describe("createOpenAPIAdapter", () => {
   });
 
   it("short-circuits on 304 via If-None-Match", async () => {
-    const adapter = createOpenAPIAdapter("stripe", "https://api.stripe.com/openapi/spec3.json");
+    const adapter = createOpenAPIAdapter(
+      "stripe",
+      "https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.json",
+    );
     const fetchMock = vi
       .fn()
       .mockResolvedValue(new Response(null, { status: 304, headers: { etag: '"spec-1"' } }));
@@ -102,10 +114,24 @@ describe("createOpenAPIAdapter", () => {
     const result = await adapter.fetch({ etag: '"spec-1"' });
     expect(result.evidence).toEqual([]);
     expect(fetchMock).toHaveBeenCalledWith(
-      new URL("https://api.stripe.com/openapi/spec3.json"),
+      new URL("https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.json"),
       expect.objectContaining({
         headers: expect.objectContaining({ "If-None-Match": '"spec-1"' }),
       }),
     );
+  });
+
+  it("tolerates a legacy cursor written before lastSpec existed", async () => {
+    // Regression: persisted cursors from older adapter versions must never
+    // crash a poll; unknown fields normalize to safe empties.
+    const adapter = createOpenAPIAdapter(
+      "stripe",
+      "https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.json",
+    );
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(SPEC_V2)));
+
+    const result = await adapter.fetch({ etag: '"legacy"' } as never);
+    expect(result.evidence).toHaveLength(1);
+    expect(result.evidence[0]!.metadata).not.toHaveProperty("apiDiff");
   });
 });

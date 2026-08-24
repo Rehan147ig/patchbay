@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createGitHubReleasesAdapter } from "./github-releases";
+import { VENDOR_REPOS, createGitHubReleasesAdapter } from "./github-releases";
 
 const RELEASES = [
   {
@@ -96,5 +96,26 @@ describe("createGitHubReleasesAdapter", () => {
     const versions = result.evidence.map((ev) => ev.version);
     expect(versions).toEqual(["4.8.1"]);
     expect(result.evidence[0]!.previousVersion).toBe("4.0.0");
+  });
+
+  it("tolerates a legacy cursor missing the newest fields", async () => {
+    // Regression: persisted cursors from older adapter versions must never
+    // crash a poll; unknown fields normalize to safe empties.
+    const adapter = createGitHubReleasesAdapter("openai");
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(RELEASES));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await adapter.fetch({ etag: '"legacy"' } as never);
+    expect(result.evidence.map((ev) => ev.version)).toEqual(["3.3.0", "4.0.0", "4.8.1"]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      new URL("https://api.github.com/repos/openai/openai-node/releases?per_page=10"),
+      expect.anything(),
+    );
+  });
+
+  it("maps auth0 to the real node-auth0 repository", () => {
+    // Regression: auth0/auth0-nodejs does not exist — every poll 404'd.
+    expect(VENDOR_REPOS.auth0).toEqual({ owner: "auth0", repo: "node-auth0" });
+    expect(VENDOR_REPOS.stripe).toEqual({ owner: "stripe", repo: "stripe-node" });
   });
 });

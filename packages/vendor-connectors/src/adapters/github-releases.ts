@@ -19,11 +19,11 @@ interface GitHubRelease {
   draft: boolean;
 }
 
-const VENDOR_REPOS: Record<string, { owner: string; repo: string }> = {
+export const VENDOR_REPOS: Record<string, { owner: string; repo: string }> = {
   stripe: { owner: "stripe", repo: "stripe-node" },
   openai: { owner: "openai", repo: "openai-node" },
   twilio: { owner: "twilio", repo: "twilio-node" },
-  auth0: { owner: "auth0", repo: "auth0-nodejs" },
+  auth0: { owner: "auth0", repo: "node-auth0" },
 };
 
 const VENDOR_PACKAGES: Record<string, string> = {
@@ -40,6 +40,16 @@ interface GitHubCursor extends AdapterCursor {
   latestTag: string | null;
   /** Newest published date already observed (ISO). */
   latestPublishedAt: string | null;
+}
+
+/** Defensive cursor normalization: stored cursors outlive adapter code changes. */
+function normalizeCursor(cursor?: AdapterCursor): GitHubCursor {
+  const c = (cursor ?? {}) as Partial<GitHubCursor>;
+  return {
+    etag: typeof c.etag === "string" ? c.etag : null,
+    latestTag: typeof c.latestTag === "string" ? c.latestTag : null,
+    latestPublishedAt: typeof c.latestPublishedAt === "string" ? c.latestPublishedAt : null,
+  };
 }
 
 function stripV(tag: string): string {
@@ -118,11 +128,7 @@ export function createGitHubReleasesAdapter(vendorSlug: string): WatchtowerAdapt
     async fetch(
       cursor?: AdapterCursor,
     ): Promise<{ evidence: WatchtowerEvidence[]; cursor: AdapterCursor }> {
-      const prev = (cursor ?? {
-        etag: null,
-        latestTag: null,
-        latestPublishedAt: null,
-      }) as GitHubCursor;
+      const prev = normalizeCursor(cursor);
       const headers: Record<string, string> = { Accept: "application/vnd.github+json" };
       if (process.env.GITHUB_TOKEN) {
         headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;

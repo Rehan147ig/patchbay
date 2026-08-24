@@ -26,6 +26,19 @@ interface OpenApiCursor extends AdapterCursor {
   lastSpec: Record<string, unknown> | null;
 }
 
+/** Defensive cursor normalization: stored cursors outlive adapter code changes. */
+function normalizeCursor(cursor?: AdapterCursor): OpenApiCursor {
+  const c = (cursor ?? {}) as Partial<OpenApiCursor>;
+  return {
+    etag: typeof c.etag === "string" ? c.etag : null,
+    lastContentHash: typeof c.lastContentHash === "string" ? c.lastContentHash : null,
+    lastSpec:
+      c.lastSpec !== null && typeof c.lastSpec === "object" && !Array.isArray(c.lastSpec)
+        ? (c.lastSpec as Record<string, unknown>)
+        : null,
+  };
+}
+
 function isSpec(input: unknown): input is OpenAPISpec {
   if (typeof input !== "object" || input === null) return false;
   const obj = input as Record<string, unknown>;
@@ -77,11 +90,7 @@ export function createOpenAPIAdapter(vendorSlug: string, specUrl: string): Watch
     async fetch(
       cursor?: AdapterCursor,
     ): Promise<{ evidence: WatchtowerEvidence[]; cursor: AdapterCursor }> {
-      const prev = (cursor ?? {
-        etag: null,
-        lastContentHash: null,
-        lastSpec: null,
-      }) as OpenApiCursor;
+      const prev = normalizeCursor(cursor);
       const headers: Record<string, string> = { Accept: "application/json" };
       if (prev.etag) headers["If-None-Match"] = prev.etag;
 
@@ -135,8 +144,11 @@ export function createOpenAPIAdapter(vendorSlug: string, specUrl: string): Watch
 }
 
 export function createOpenAPIAdapters(): WatchtowerAdapter[] {
+  // Stripe publishes its canonical spec in the stripe/openapi repo; the
+  // api.stripe.com/openapi path does not exist (404). JSON variant chosen so
+  // JSON.parse works without a YAML dependency.
   const specs: Record<string, string> = {
-    stripe: "https://api.stripe.com/openapi/spec3.json",
+    stripe: "https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.json",
   };
   return Object.entries(specs).map(([vendor, url]) => createOpenAPIAdapter(vendor, url));
 }

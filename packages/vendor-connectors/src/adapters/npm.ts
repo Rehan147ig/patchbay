@@ -45,6 +45,25 @@ export function createNpmAdapter(vendorSlug: string): WatchtowerAdapter {
     seenVersions: string[];
   }
 
+  /** Newest versions retained in the persisted cursor (bounds cursor growth). */
+  const SEEN_VERSIONS_LIMIT = 50;
+
+  /**
+   * Cursors persist as opaque JSON and outlive adapter code changes: a cursor
+   * written before a field existed must never crash a poll. Normalize every
+   * field defensively instead of trusting the stored shape.
+   */
+  function normalizeCursor(cursor?: AdapterCursor): NpmCursor {
+    const c = (cursor ?? {}) as Partial<NpmCursor>;
+    return {
+      etag: typeof c.etag === "string" ? c.etag : null,
+      latestVersion: typeof c.latestVersion === "string" ? c.latestVersion : null,
+      seenVersions: Array.isArray(c.seenVersions)
+        ? c.seenVersions.filter((v): v is string => typeof v === "string")
+        : [],
+    };
+  }
+
   function evidenceFor(
     version: string,
     time: string | undefined,
@@ -104,7 +123,7 @@ export function createNpmAdapter(vendorSlug: string): WatchtowerAdapter {
     async fetch(
       cursor?: AdapterCursor,
     ): Promise<{ evidence: WatchtowerEvidence[]; cursor: AdapterCursor }> {
-      const prev = (cursor ?? { etag: null, latestVersion: null, seenVersions: [] }) as NpmCursor;
+      const prev = normalizeCursor(cursor);
       const headers: Record<string, string> = { Accept: NPM_ACCEPT };
       if (prev.etag) headers["If-None-Match"] = prev.etag;
 
@@ -142,7 +161,9 @@ export function createNpmAdapter(vendorSlug: string): WatchtowerAdapter {
       // Cap at what an MVP poll should ever need; keep oldest-first (newest last).
       const capped = evidence.slice(0, 10);
 
-      const seenVersions = [...new Set([...prev.seenVersions, ...publishedVersions])];
+      const seenVersions = [...new Set([...prev.seenVersions, ...publishedVersions])].slice(
+        -SEEN_VERSIONS_LIMIT,
+      );
       const next: NpmCursor = {
         etag: etag ?? prev.etag,
         latestVersion: newest,

@@ -159,7 +159,7 @@ async function pollAdapter(adapter: WatchtowerAdapter, options: PollOptions): Pr
     // Trust gate 2: classify trust violations (domain, redirect, size, timeout)
     // separately from generic failures so health views can show why a detector
     // was rejected rather than merely failing.
-    const runError = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    const runError = describeError(error);
     const rejectionReason = error instanceof TrustViolationError ? error.reason : null;
     await prisma.detectionRun.update({
       where: { id: run.id },
@@ -358,4 +358,29 @@ async function enqueueClassifyAndMatch(releaseId: string, correlationId: string)
   const { enqueue, JobType } = await import("@patchbay/queue");
   await enqueue(JobType.CLASSIFY_RELEASE, { releaseId, correlationId });
   await enqueue(JobType.MATCH_RELEASE, { releaseId, correlationId });
+}
+
+/**
+ * Serializes an error INCLUDING its cause chain. Undici network failures hide
+ * the real reason (ECONNRESET, UND_ERR_ABORTED, certificate errors) behind a
+ * bare "TypeError: fetch failed"; without the cause the DetectionRun error
+ * column is useless for diagnosis.
+ */
+export function describeError(error: unknown): string {
+  const parts: string[] = [];
+  let cursor: unknown = error;
+  for (let depth = 0; depth < 4 && cursor !== null && cursor !== undefined; depth += 1) {
+    if (cursor instanceof Error) {
+      const code =
+        typeof (cursor as NodeJS.ErrnoException).code === "string"
+          ? ` [${(cursor as NodeJS.ErrnoException).code}]`
+          : "";
+      parts.push(`${cursor.name}${code}: ${cursor.message}`);
+      cursor = cursor.cause;
+    } else {
+      parts.push(String(cursor));
+      break;
+    }
+  }
+  return parts.join(" <- ").slice(0, 2_000);
 }

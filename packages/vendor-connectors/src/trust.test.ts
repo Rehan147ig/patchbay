@@ -10,7 +10,7 @@ describe("trust profiles", () => {
   it("maps adapter slugs to the matching profile", () => {
     expect(trustProfileFor("npm:openai").allowedDomains).toEqual(["registry.npmjs.org"]);
     expect(trustProfileFor("github-releases:stripe").allowedDomains).toEqual(["api.github.com"]);
-    expect(trustProfileFor("openapi:stripe").allowedDomains).toEqual(["api.stripe.com"]);
+    expect(trustProfileFor("openapi:stripe").allowedDomains).toEqual(["raw.githubusercontent.com"]);
   });
 
   it("fails closed for unknown adapters: no domains, signatures required, evidence unverified", () => {

@@ -102,4 +102,36 @@ describe("createNpmAdapter", () => {
     });
     expect(second.evidence).toEqual([]);
   });
+
+  it("tolerates a legacy cursor written before seenVersions existed", async () => {
+    // Regression: persisted cursors from older adapter versions lack
+    // seenVersions; the poll must treat them as empty, never crash.
+    const adapter = createNpmAdapter("openai");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(PACKUMENT)));
+
+    const result = await adapter.fetch({ etag: '"legacy"', latestVersion: "4.8.1" } as never);
+    expect(result.evidence.map((ev) => ev.version)).toEqual(["3.3.0", "4.0.0", "4.8.1"]);
+    // publishedVersions are newest-first, and the cursor keeps that order.
+    expect((result.cursor as { seenVersions: string[] }).seenVersions).toEqual([
+      "4.8.1",
+      "4.0.0",
+      "3.3.0",
+    ]);
+  });
+
+  it("bounds cursor growth by keeping only the newest seen versions", async () => {
+    const adapter = createNpmAdapter("openai");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(PACKUMENT)));
+
+    const oldSeen = Array.from({ length: 60 }, (_, i) => `0.0.${i}`);
+    const result = await adapter.fetch({
+      etag: null,
+      latestVersion: null,
+      seenVersions: oldSeen,
+    } as never);
+    const seen = (result.cursor as { seenVersions: string[] }).seenVersions;
+    expect(seen.length).toBeLessThanOrEqual(50);
+    expect(seen).toContain("4.8.1");
+    expect(seen).not.toContain("0.0.0");
+  });
 });

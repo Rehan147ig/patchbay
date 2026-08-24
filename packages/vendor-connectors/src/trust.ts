@@ -64,15 +64,19 @@ export const GITHUB_TRUST_PROFILE: TrustProfile = {
 /**
  * OpenAPI spec fetches: an OpenAPI diff is an OBSERVATION, never a trusted
  * release, until deterministic classification (ReleaseClassificationMethod
- * DETERMINISTIC) corroborates it with release evidence.
+ * DETERMINISTIC) corroborates it with release evidence. Vendors publish their
+ * canonical specs in their GitHub repos (raw.githubusercontent.com); vendor
+ * API hosts do not serve the spec documents.
  */
 export const OPENAPI_TRUST_PROFILE: TrustProfile = {
   adapterPrefix: "openapi:",
   sources: ["OPENAPI"],
-  allowedDomains: ["api.stripe.com"],
+  allowedDomains: ["raw.githubusercontent.com"],
   allowRedirects: false,
-  maxResponseBytes: 5 * 1024 * 1024,
-  timeoutMs: 20_000,
+  // Real vendor specs are large (stripe spec3.json ~8 MB decompressed); the
+  // cap must fit them or every poll of that adapter fails.
+  maxResponseBytes: 16 * 1024 * 1024,
+  timeoutMs: 30_000,
   requireSignature: false,
   evidenceAuthenticity: "UNVERIFIED",
   evidenceConfidence: "LOW",

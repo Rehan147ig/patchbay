@@ -19,11 +19,12 @@ const DEFAULT_STORE_DIR = resolve(process.cwd(), "data", "evidence");
 
 /**
  * Hard cap on a single evidence object. Watchtower evidence is release
- * metadata (packuments, release notes, spec summaries), never tenant source;
- * anything larger than this is rejected instead of silently growing the
- * store (zero-source-at-rest hygiene + disk-exhaustion bound).
+ * metadata (packuments, release notes, OpenAPI specs — the largest real spec
+ * is ~8 MB), never tenant source; anything larger than this is rejected
+ * instead of silently growing the store. Content-addressed, so an unchanged
+ * spec costs one object regardless of poll count.
  */
-export const MAX_EVIDENCE_PAYLOAD_BYTES = 512 * 1024;
+export const MAX_EVIDENCE_PAYLOAD_BYTES = 12 * 1024 * 1024;
 
 export function evidenceStoreDir(): string {
   return process.env.EVIDENCE_STORE_DIR?.trim()
