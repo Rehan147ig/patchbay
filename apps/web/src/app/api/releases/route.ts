@@ -5,7 +5,7 @@ import { AuditAction } from "@patchbay/audit";
 import { validationFailed } from "@patchbay/domain";
 import { enqueue, JobType } from "@patchbay/queue";
 import type { NextRequest } from "next/server";
-import { getCorrelationId, jsonError, jsonOk, writeAuditEvent } from "@/lib/api";
+import { getCorrelationId, jsonError, jsonOk, parseBodyBounded, writeAuditEvent } from "@/lib/api";
 import { requireRole } from "@/lib/auth";
 import { assertCsrfToken } from "@/lib/csrf-server";
 
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   try {
     assertCsrfToken(request);
     const user = await requireRole("MEMBER");
-    const body = CreateReleaseSchema.parse(await request.json());
+    const body = await parseBodyBounded(request, CreateReleaseSchema, 64 * 1024);
 
     const vendor = await prisma.vendor.findUnique({
       where: { slug: body.vendorSlug },

@@ -1,4 +1,3 @@
-import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,6 +16,7 @@ import {
   isGitHubAppConfigured,
   type GitHubAppTarget,
 } from "./github-app-provider";
+import { assertSafeSha, gitAuthEnv, runGit } from "./git-safe";
 
 export interface GitHubConfig {
   /** Personal access token with `repo` scope. */
@@ -102,16 +102,17 @@ export class GitHubProvider implements GitProvider {
    * - Removes the workspace on success, failure, cancellation, or stale recovery
    *
    * The credential (installation token via GitHubAppProvider delegation, or a
-   * PAT) is never persisted: it exists only inside the ephemeral remote URL of
-   * this process and is redacted from any error message before it is rethrown.
+   * PAT) is never persisted and never appears in argv or the remote URL: it is
+   * injected per-invocation through GIT_CONFIG_* environment variables and
+   * redacted from any error message before it is rethrown.
    */
   async checkout(input: CheckoutInput): Promise<CheckoutResult> {
-    const owner = this.config.repository.split("/")[0]!;
-    const repo = this.config.repository.split("/")[1]!;
-    const sha = input.sha;
-    if (!sha) {
+    if (!input.sha) {
       throw new Error("GitHubProvider.checkout requires an exact commit sha");
     }
+    const owner = this.config.repository.split("/")[0]!;
+    const repo = this.config.repository.split("/")[1]!;
+    const sha = assertSafeSha(input.sha);
     if (input.repositoryFullName && input.repositoryFullName !== this.config.repository) {
       throw new Error(
         `GitHubProvider.checkout target ${input.repositoryFullName} does not match configured repository ${this.config.repository}`,
@@ -121,30 +122,27 @@ export class GitHubProvider implements GitProvider {
 
     const workspace = mkdtempSync(path.join(tmpdir(), `patchbay-checkout-`));
     try {
-      execSync(`git init`, { cwd: workspace, stdio: "ignore" });
-      execSync(
-        `git remote add origin https://x-access-token:${this.config.token}@github.com/${owner}/${repo}.git`,
-        { cwd: workspace, stdio: "ignore" },
-      );
-      execSync(`git fetch --depth 1 origin ${sha}`, { cwd: workspace, stdio: "ignore" });
-
-      const fetched = execSync(`git rev-parse origin/${sha}`, {
+      const authEnv = gitAuthEnv(this.config.token);
+      runGit(["init"], { cwd: workspace });
+      runGit(["remote", "add", "origin", `https://github.com/${owner}/${repo}.git`], {
         cwd: workspace,
-        encoding: "utf8",
-      }).trim();
+      });
+      runGit(["fetch", "--depth", "1", "origin", sha], { cwd: workspace, env: authEnv });
+
+      const fetched = runGit(["rev-parse", `origin/${sha}`], {
+        cwd: workspace,
+        capture: true,
+      });
       if (fetched !== sha) {
         throw new Error(
           `checkout SHA mismatch: expected ${sha}, got ${fetched}. The SHA may not exist or may not be reachable from this repository.`,
         );
       }
 
-      execSync(`git checkout --detach ${sha}`, { cwd: workspace, stdio: "ignore" });
-      execSync(`git config core.hooksPath /dev/null`, { cwd: workspace, stdio: "ignore" });
+      runGit(["checkout", "--detach", sha], { cwd: workspace });
+      runGit(["config", "core.hooksPath", "/dev/null"], { cwd: workspace });
 
-      const treeHash = execSync(`git write-tree`, {
-        cwd: workspace,
-        encoding: "utf8",
-      }).trim();
+      const treeHash = runGit(["write-tree"], { cwd: workspace, capture: true }) ?? "";
       const sourceHash = createHash("sha256")
         .update(`${sha}:${treeHash}`)
         .digest("hex")
@@ -215,6 +213,9 @@ export class GitHubProvider implements GitProvider {
   ): Promise<void> {
     for (const patch of patches) {
       const filePath = patch.filePath.replace(/^\/+/, "");
+      if (filePath.split("/").includes("..") || path.isAbsolute(patch.filePath)) {
+        throw new Error(`patch file path escapes the repository: ${patch.filePath}`);
+      }
       const existing = await this.request<GitHubContent | null>(
         `/repos/${owner}/${repo}/contents/${encodeURIComponent(filePath)}?ref=${encodeURIComponent(branchName)}`,
         { method: "GET", allowNotFound: true },
@@ -320,6 +321,15 @@ export function createGitProviderFromEnv(
   }
   const token = env.GITHUB_TOKEN;
   const repository = env.GITHUB_REPOSITORY;
+  if (target) {
+    // A per-repository target (create-pr / run-validation) MUST NOT silently
+    // fall back to a single global PAT repository: every org's PRs would land
+    // on the wrong repo. Fail loudly instead.
+    throw new Error(
+      `GitHub App is not configured, so no provider can serve installation ` +
+        `${target.installationId} for ${target.repositoryFullName}; refusing the global PAT fallback`,
+    );
+  }
   if (token && repository) {
     return new GitHubProvider({ token, repository });
   }

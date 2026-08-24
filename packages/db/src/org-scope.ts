@@ -43,6 +43,7 @@ export const ORG_SCOPED_MODELS = [
   "CapabilityGate",
   "Subscription",
   "Notification",
+  "TaskParameter",
 ] as const;
 
 export type OrgScopedModel = (typeof ORG_SCOPED_MODELS)[number];

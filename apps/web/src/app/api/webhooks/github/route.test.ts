@@ -62,13 +62,16 @@ describe("POST /api/webhooks/github", () => {
     expect(prisma.webhookDelivery.create).not.toHaveBeenCalled();
   });
 
-  it("drops a replay of the same payload inside the replay window", async () => {
-    vi.mocked(prisma.webhookDelivery.findFirst).mockResolvedValueOnce({ id: "w-old" } as never);
+  it("drops a replay of the same payload even under a brand-new delivery id", async () => {
+    // Atomic dedupe: the unique payloadHash constraint rejects the insert —
+    // no racy find-then-create window exists anymore.
+    vi.mocked(prisma.webhookDelivery.create).mockRejectedValueOnce(
+      new Error("Unique constraint failed on the fields: `payloadHash`"),
+    );
     const response = await POST(webhookRequest({ deliveryId: "delivery-brand-new" }));
     expect(response.status).toBe(200);
     const body = (await response.json()) as { data: { duplicate: boolean } };
     expect(body.data.duplicate).toBe(true);
-    expect(prisma.webhookDelivery.create).not.toHaveBeenCalled();
   });
 
   it("accepts a fresh delivery", async () => {

@@ -228,6 +228,9 @@ importers:
       "@ai-sdk/openai-compatible":
         specifier: ^3.0.31
         version: 3.0.31(zod@4.4.3)
+      "@patchbay/audit":
+        specifier: workspace:*
+        version: link:../audit
       "@patchbay/domain":
         specifier: workspace:*
         version: link:../domain
@@ -424,6 +427,9 @@ importers:
       "@patchbay/domain":
         specifier: workspace:*
         version: link:../domain
+      "@patchbay/repo-analysis":
+        specifier: workspace:*
+        version: link:../repo-analysis
       "@patchbay/vendor-connectors":
         specifier: workspace:*
         version: link:../vendor-connectors
@@ -434,9 +440,6 @@ importers:
       "@patchbay/policy-engine":
         specifier: workspace:*
         version: link:../policy-engine
-      "@patchbay/repo-analysis":
-        specifier: workspace:*
-        version: link:../repo-analysis
       "@types/node":
         specifier: ^22.15.0
         version: 22.20.1

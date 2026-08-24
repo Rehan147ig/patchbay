@@ -21,13 +21,37 @@ export interface LogFields {
   [key: string]: unknown;
 }
 
+/** Credential formats that must never reach aggregated logs (kept in sync with packages/audit/src/redact.ts). */
+const SECRET_VALUE_PATTERN =
+  /(sk-[a-zA-Z0-9_-]{12,}|sk_live_[a-zA-Z0-9]{16,}|gh[pousr]_[a-zA-Z0-9]{20,}|xox[baprs]-[a-zA-Z0-9-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{30,}|ya29\.[0-9A-Za-z_-]{20,}|npm_[a-zA-Z0-9]{30,}|whsec_[a-zA-Z0-9_]{16,}|eyJ[a-zA-Z0-9_-]{20,}\.[a-zA-Z0-9_-]{10,}|-----BEGIN [A-Z ]+ PRIVATE KEY-----|(Basic|Digest)\s+[A-Za-z0-9+/=]{8,}|Bearer\s+[a-zA-Z0-9._-]{10,}|\/\/[^@/\s:]+:[^@/\s]+@)/g;
+
+/** Redacts credential material from strings inside log fields (URL userinfo included). */
+function redactLogValue(value: unknown, depth = 0): unknown {
+  if (typeof value === "string") {
+    return value.replace(SECRET_VALUE_PATTERN, "[REDACTED]");
+  }
+  if (depth >= 4) return value;
+  if (Array.isArray(value)) return value.map((item) => redactLogValue(item, depth + 1));
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, field] of Object.entries(value)) {
+      out[key] =
+        /(secret|token|password|authorization|private[_-]?key|credential|api[_-]?key)/i.test(key)
+          ? "[REDACTED]"
+          : redactLogValue(field, depth + 1);
+    }
+    return out;
+  }
+  return value;
+}
+
 function write(level: LogLevel, message: string, fields?: LogFields): void {
   const line = JSON.stringify({
     ts: new Date().toISOString(),
     level,
     correlationId: getCorrelationId(),
     msg: message,
-    ...(fields ?? {}),
+    ...(fields ? (redactLogValue(fields) as LogFields) : {}),
   });
   if (level === "error" || level === "warn") {
     // Intentional console transport for the JSON logger.

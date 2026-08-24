@@ -28,6 +28,7 @@ export interface PrismaLike {
     findMany(args: unknown): Promise<Array<Record<string, unknown>>>;
   };
   capabilityGate: {
+    findUnique(args: unknown): Promise<Record<string, unknown> | null>;
     upsert(args: unknown): Promise<Record<string, unknown>>;
   };
   auditEvent: {
@@ -133,6 +134,12 @@ export async function evaluateCapabilityHealth(
     where: {
       organizationId: input.organizationId,
       createdAt: { gte: new Date(since) },
+      // Attribute runs to THIS vendor only (through the run's case -> release
+      // -> product -> vendor chain). Org-wide unattributed runs must never
+      // suspend an unrelated vendor's gate.
+      remediationCase: {
+        release: { product: { vendor: { slug: input.vendorSlug } } },
+      },
     },
     select: { status: true, latencyMs: true },
   })) as Array<{ status: string; latencyMs: number | null }>;
@@ -191,14 +198,17 @@ export async function setCapabilityGate(
   prisma: PrismaLike,
   input: CapabilityGateWrite,
 ): Promise<CapabilityGateResult> {
+  const key = {
+    organizationId: input.organizationId,
+    vendorSlug: input.vendorSlug,
+    level: input.level,
+  };
+  const before = await prisma.capabilityGate.findUnique({
+    where: { organizationId_vendorSlug_level: key },
+    select: { status: true },
+  });
   const existing = await prisma.capabilityGate.upsert({
-    where: {
-      organizationId_vendorSlug_level: {
-        organizationId: input.organizationId,
-        vendorSlug: input.vendorSlug,
-        level: input.level,
-      },
-    },
+    where: { organizationId_vendorSlug_level: key },
     create: {
       organizationId: input.organizationId,
       vendorSlug: input.vendorSlug,
@@ -215,7 +225,10 @@ export async function setCapabilityGate(
     select: { id: true, status: true },
   });
 
-  const changed = existing.status !== input.status || Boolean(input.reason);
+  // Audit only real status transitions (or first creation): a repeated
+  // not-healthy sweep rewrites the same SUSPENDED row every cycle and must
+  // not flood the append-only audit log.
+  const changed = before === null || before.status !== input.status;
   if (changed) {
     await prisma.auditEvent.create({
       data: buildAuditEvent({

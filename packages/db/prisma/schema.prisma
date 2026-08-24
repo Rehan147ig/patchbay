@@ -321,6 +321,7 @@ model Organization {
   prOutcomes             PrOutcome[]
   capabilityGates        CapabilityGate[]
   notifications          Notification[]
+  taskParameters         TaskParameter[]
   subscription           Subscription?
 }
 
@@ -403,7 +404,9 @@ model WebhookDelivery {
   id             String    @id @default(uuid())
   deliveryId     String    @unique
   event          String
-  payloadHash    String
+  /// Unique across all deliveries: replayed/resent payloads are deduplicated
+  /// atomically by insert-conflict, not by a racy find-first window.
+  payloadHash    String    @unique
   status         String    @default("RECEIVED")
   organizationId String?
   receivedAt     DateTime  @default(now())
@@ -414,7 +417,6 @@ model WebhookDelivery {
 
   @@index([status, receivedAt])
   @@index([organizationId, receivedAt])
-  @@index([payloadHash, receivedAt])
 }
 
 // A GitHub App installation bound to a Patchbay organization. Created via the
@@ -804,24 +806,28 @@ model DetectionRun {
 }
 
 /**
- * Single run of the activation task-management loop. Submission is
- * idempotent per (taskId, type): retries overwrite inputs, never duplicate.
+ * One run of the activation task-management loop, scoped to an organization.
+ * Submission is idempotent per (organizationId, taskId, type): retries
+ * overwrite inputs, never duplicate; cross-org tasks never collide or leak.
  */
 model TaskParameter {
-  id         String     @id @default(uuid())
-  taskId     String
-  type       String
+  id             String     @id @default(uuid())
+  organizationId String
+  taskId         String
+  type           String
   /** Executor domain, e.g. "NPM". Nullable so legacy rows stay loadable. */
-  domain     String?
-  status     TaskStatus @default(PENDING)
-  error      String?
-  inputJson  Json?
-  outputJson Json?
-  deadline   DateTime?
-  startedAt  DateTime   @default(now())
-  createdAt  DateTime   @default(now())
+  domain         String?
+  status         TaskStatus @default(PENDING)
+  error          String?
+  inputJson      Json?
+  outputJson     Json?
+  deadline       DateTime?
+  startedAt      DateTime   @default(now())
+  createdAt      DateTime   @default(now())
 
-  @@unique([taskId, type])
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, taskId, type])
   @@index([type, status])
   @@index([status])
 }
@@ -1051,6 +1057,10 @@ model VendorChangeEvent {
   normalizations  NormalizedChange[]
   impactAssessments ImpactAssessment[]
 
+  /// Ingest idempotency: the same external reference cannot create duplicate
+  /// change events within one org+vendor. Postgres NULLS DISTINCT keeps rows
+  /// without an external reference unaffected.
+  @@unique([organizationId, vendorId, externalReference])
   @@index([vendorId, status])
   @@index([status, createdAt])
   @@index([detectedAt])

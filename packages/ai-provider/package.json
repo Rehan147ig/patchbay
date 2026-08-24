@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.31",
+    "@patchbay/audit": "workspace:*",
     "@patchbay/domain": "workspace:*",
     "ai": "^7.0.66"
   },

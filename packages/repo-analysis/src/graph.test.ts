@@ -144,19 +144,8 @@ describe("extractGraph - openai-python-legacy fixture", () => {
       trackPackages: TRACKED,
     });
 
-    const client = nodeByKey(graph.nodeFacts, "client:openai:OpenAI");
-    expect(client?.kind).toBe(GraphNodeKind.API_CLIENT);
-    expect(client?.filePath).toBe("src/chat.py");
-    expect(
-      edgesOf(
-        graph.edgeFacts,
-        "module:src/chat.py",
-        GraphEdgeKind.CREATES_CLIENT,
-        "client:openai:OpenAI",
-      ),
-    ).toHaveLength(1);
-
-    const api = nodeByKey(graph.nodeFacts, "api:openai:client.chat.completions.create");
+    // Legacy v0 chat.py has no client construction; the module call is an API_OPERATION.
+    const api = nodeByKey(graph.nodeFacts, "api:openai:openai.ChatCompletion.create");
     expect(api?.kind).toBe(GraphNodeKind.API_OPERATION);
     expect(api?.filePath).toBe("src/chat.py");
 
@@ -164,12 +153,13 @@ describe("extractGraph - openai-python-legacy fixture", () => {
       graph.edgeFacts,
       "module:src/chat.py",
       GraphEdgeKind.INVOKES_API,
-      "api:openai:client.chat.completions.create",
+      "api:openai:openai.ChatCompletion.create",
     );
     expect(invokes).toHaveLength(1);
     expect(invokes[0]?.provenance).toBe(GraphProvenance.EXTRACTED);
     expect(invokes[0]?.confidence).toBe(100);
     expect(invokes[0]?.evidence[0]?.sourceHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(nodeByKey(graph.nodeFacts, "client:openai:OpenAI")).toBeUndefined();
 
     const uses = edgesOf(
       graph.edgeFacts,

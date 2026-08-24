@@ -27,6 +27,7 @@ function makePrisma(overrides: Record<string, unknown> = {}) {
       findMany: vi.fn().mockResolvedValue([] as never),
     },
     capabilityGate: {
+      findUnique: vi.fn().mockResolvedValue(null as never),
       upsert: vi.fn().mockResolvedValue({ id: "gate-1", status: "ACTIVE" } as never),
     },
     auditEvent: {
@@ -128,6 +129,7 @@ describe("setCapabilityGate", () => {
   it("creates a gate and audits a suspension", async () => {
     const prisma = makePrisma({
       capabilityGate: {
+        findUnique: vi.fn().mockResolvedValue(null as never),
         upsert: vi.fn().mockResolvedValue({ id: "gate-1", status: "SUSPENDED" } as never),
       },
     });
@@ -161,6 +163,7 @@ describe("setCapabilityGate", () => {
   it("does not audit an idempotent no-op write", async () => {
     const prisma = makePrisma({
       capabilityGate: {
+        findUnique: vi.fn().mockResolvedValue({ status: "SUSPENDED" } as never),
         upsert: vi.fn().mockResolvedValue({ id: "gate-1", status: "SUSPENDED" } as never),
       },
     });
@@ -170,6 +173,25 @@ describe("setCapabilityGate", () => {
       level: "DRAFT_PR",
       status: CapabilityGateStatus.SUSPENDED,
       reason: null,
+      correlationId: "corr-1",
+    });
+    expect(result.changed).toBe(false);
+    expect(prisma.auditEvent.create).not.toHaveBeenCalled();
+  });
+
+  it("does not audit a repeated unhealthy sweep that rewrites the same SUSPENDED row", async () => {
+    const prisma = makePrisma({
+      capabilityGate: {
+        findUnique: vi.fn().mockResolvedValue({ status: "SUSPENDED" } as never),
+        upsert: vi.fn().mockResolvedValue({ id: "gate-1", status: "SUSPENDED" } as never),
+      },
+    });
+    const result = await setCapabilityGate(prisma, {
+      organizationId: "org-acme",
+      vendorSlug: "stripe",
+      level: "DRAFT_PR",
+      status: CapabilityGateStatus.SUSPENDED,
+      reason: "merge rate low (repeat sweep)",
       correlationId: "corr-1",
     });
     expect(result.changed).toBe(false);

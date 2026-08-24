@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { GenerationMethod, SCORING } from "@patchbay/domain";
+import { pythonSyntaxCheck } from "@patchbay/repo-analysis";
 import * as ts from "typescript";
 import { sha256Hex, unifiedDiff } from "./diff";
 import type { PatchDraft, PlanDraft, PlanInput } from "./types";
@@ -12,11 +13,51 @@ import type { PatchDraft, PlanDraft, PlanInput } from "./types";
  * suggestions and normalizations, and produces a structured remediation plan:
  * source-text edits applied at indexed usage locations (symbol renames) plus
  * scoped pattern rules (e.g. v4 response unwrap), each file re-parsed with the
- * TypeScript compiler to guarantee the patched file still parses. Only then is
- * a unified diff emitted. No rule matched -> plan-only draft.
+ * TypeScript compiler (TS/JS) or tree-sitter (Python) to guarantee the patched
+ * file still parses. Python files patched with a client-based rename also get
+ * a deterministic `from openai import OpenAI` / `client = OpenAI()` bootstrap.
+ * Only then is a unified diff emitted. No rule matched -> plan-only draft.
  */
 
 const RESPONSE_UNWRAP_PATTERN = /^([A-Za-z_$][\w$]*)\.data$/;
+const PYTHON_FILE = /\.py$/;
+const OPENAI_CLIENT_IMPORT = /^from\s+openai\s+import\s+/m;
+const OPENAI_CLIENT_CONSTRUCTION = /=\s*OpenAI\(/;
+
+/** True when a suggestion rewrites a module call onto the v1 client variable. */
+function isPythonClientRename(replacement: string): boolean {
+  return replacement.startsWith("client.");
+}
+
+function lastTopLevelImportLine(lines: string[]): number {
+  const limit = Math.min(lines.length, 60);
+  let index = -1;
+  for (let i = 0; i < limit; i += 1) {
+    if (/^(import\s|from\s)/.test(lines[i] ?? "")) index = i;
+  }
+  return index;
+}
+
+/**
+ * Inserts the openai-python v1 client bootstrap (`from openai import OpenAI`,
+ * `client = OpenAI()`) after the module's import block — or at the top when no
+ * import block exists. Idempotent: no-op when a client construction is already
+ * present. The constructor reads OPENAI_API_KEY, which the human reviewer must
+ * confirm matches how the legacy code supplied credentials.
+ */
+export function applyPythonClientBootstrap(content: string): string {
+  if (OPENAI_CLIENT_CONSTRUCTION.test(content)) return content;
+  const lines = content.split("\n");
+  const parts: string[] = [];
+  if (!OPENAI_CLIENT_IMPORT.test(content)) parts.push("from openai import OpenAI");
+  parts.push("client = OpenAI()");
+  const lastImportIndex = lastTopLevelImportLine(lines);
+  if (lastImportIndex === -1) {
+    return [...parts, "", ...lines].join("\n");
+  }
+  lines.splice(lastImportIndex + 1, 0, "", ...parts.flatMap((part) => [part, ""]));
+  return lines.join("\n");
+}
 
 function applyLineRename(fileText: string, line: number, from: string, to: string): string {
   const lines = fileText.split(/\r?\n/);
@@ -63,7 +104,16 @@ export function reparseCheck(filePath: string, content: string): boolean {
   return diagnostics.length === 0;
 }
 
-export function generatePlan(input: PlanInput): PlanDraft {
+/**
+ * Language-aware patch validation proxy. Python files re-parse through
+ * tree-sitter (syntax only), everything else through the TypeScript compiler.
+ */
+export async function validatePatchSyntax(filePath: string, content: string): Promise<boolean> {
+  if (PYTHON_FILE.test(filePath)) return pythonSyntaxCheck(content);
+  return reparseCheck(filePath, content);
+}
+
+export async function generatePlan(input: PlanInput): Promise<PlanDraft> {
   const {
     fixtureDir,
     repositoryName,
@@ -135,6 +185,7 @@ export function generatePlan(input: PlanInput): PlanDraft {
     }
 
     let patched = original;
+    let bootstrapped = false;
     for (const usage of usages) {
       if (usage.filePath !== filePath) continue;
       const suggestion = renameBySymbol.get(usage.symbol);
@@ -148,6 +199,17 @@ export function generatePlan(input: PlanInput): PlanDraft {
           suggestion.insert.insertText,
         );
       }
+      if (
+        PYTHON_FILE.test(filePath) &&
+        isPythonClientRename(suggestion.replacement) &&
+        !bootstrapped
+      ) {
+        const withBootstrap = applyPythonClientBootstrap(patched);
+        if (withBootstrap !== patched) {
+          patched = withBootstrap;
+          bootstrapped = true;
+        }
+      }
     }
     for (const symbol of unwrapSymbols) {
       patched = applyResponseUnwrap(patched, symbol);
@@ -157,12 +219,18 @@ export function generatePlan(input: PlanInput): PlanDraft {
       skippedFiles.push(filePath);
       continue;
     }
-    if (!reparseCheck(filePath, patched)) {
+    if (!(await validatePatchSyntax(filePath, patched))) {
       skippedFiles.push(filePath);
       continue;
     }
 
     const confidence = Math.min(...edits.map((edit) => edit.confidence));
+    const description = (
+      edits.map((edit) => edit.description).join(" ") +
+      (bootstrapped
+        ? " Ensured the openai-python v1 client bootstrap (`client = OpenAI()`); confirm credentials."
+        : "")
+    ).trim();
     patches.push({
       filePath,
       original,
@@ -172,7 +240,7 @@ export function generatePlan(input: PlanInput): PlanDraft {
       patchedHash: sha256Hex(patched),
       generationMethod: GenerationMethod.RULE_BASED,
       confidence,
-      description: edits.map((edit) => edit.description).join(" "),
+      description,
     });
     appliedConfidences.push(confidence);
     for (const edit of edits) {

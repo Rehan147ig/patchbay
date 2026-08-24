@@ -24,6 +24,8 @@ interface TsNode {
   type: string;
   text: string;
   startPosition: { row: number; column: number };
+  /** True when this node or a descendant contains an ERROR/MISSING construct. */
+  hasError?: boolean;
   childForFieldName(name: string): TsNode | null;
   namedChildren: TsNode[];
 }
@@ -337,4 +339,16 @@ export async function extractPythonUsages(
   walk(tree.rootNode);
   usages.sort((a, b) => a.line - b.line || a.column - b.column);
   return usages;
+}
+
+/**
+ * Syntax-level validity check for patched Python content: true only when the
+ * source parses without ERROR/MISSING nodes. Used by the remediation engine as
+ * the Python counterpart of the TypeScript re-parse check; it is a syntax
+ * proxy, not a semantic guarantee.
+ */
+export async function pythonSyntaxCheck(source: string): Promise<boolean> {
+  const parser = await loadParser();
+  const rootNode = parser.parse(source).rootNode;
+  return rootNode.hasError !== true;
 }

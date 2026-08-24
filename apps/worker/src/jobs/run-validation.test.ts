@@ -86,6 +86,7 @@ describe("processRunValidation", () => {
   it("throws error if remediation plan is not found", async () => {
     vi.mocked(prisma.validationRun.findUnique).mockResolvedValueOnce({
       id: "val-1",
+      remediationPlanId: "plan-1",
       commands: ["pnpm install --frozen-lockfile"],
     } as never);
     vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValueOnce(null);
@@ -98,6 +99,7 @@ describe("processRunValidation", () => {
   it("throws error if command is not on the allowlist", async () => {
     vi.mocked(prisma.validationRun.findUnique).mockResolvedValueOnce({
       id: "val-1",
+      remediationPlanId: "plan-1",
       commands: ["rm -rf /"],
     } as never);
     vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValueOnce({
@@ -127,6 +129,7 @@ describe("processRunValidation", () => {
   it("executes validation commands and updates status to PASSED when all commands succeed", async () => {
     vi.mocked(prisma.validationRun.findUnique).mockResolvedValueOnce({
       id: "val-1",
+      remediationPlanId: "plan-1",
       commands: ["pnpm install --frozen-lockfile"],
     } as never);
     vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValueOnce({
@@ -201,6 +204,7 @@ describe("processRunValidation", () => {
     vi.mocked(resolveSandboxValidationMode).mockReturnValue("github-checks-only");
     vi.mocked(prisma.validationRun.findUnique).mockResolvedValueOnce({
       id: "val-1",
+      remediationPlanId: "plan-1",
       commands: ["pnpm install --frozen-lockfile"],
     } as never);
     vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValueOnce({

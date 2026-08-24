@@ -7,8 +7,15 @@ import type { ZodType } from "zod";
 
 export const CORRELATION_HEADER = "x-correlation-id";
 
+/** Client-supplied correlation ids must match this grammar or are replaced. */
+const CORRELATION_ID_PATTERN = /^[A-Za-z0-9._-]{8,128}$/;
+
 export function getCorrelationId(request: NextRequest): string {
-  return request.headers.get(CORRELATION_HEADER) ?? crypto.randomUUID();
+  const provided = request.headers.get(CORRELATION_HEADER);
+  // Unvalidated ids would be echoed into responses and persisted into WORM
+  // audit rows forever; only accept well-formed values, else mint our own.
+  if (provided !== null && CORRELATION_ID_PATTERN.test(provided)) return provided;
+  return crypto.randomUUID();
 }
 
 export interface ApiOkResponse<T> {
@@ -66,11 +73,24 @@ export function jsonError(error: unknown, correlationId: string): Response {
   });
 }
 
-export async function parseBody<T>(request: NextRequest, schema: ZodType<T>): Promise<T> {
+/** Default hard cap for JSON request bodies parsed via parseBody (256 KiB). */
+export const DEFAULT_BODY_MAX_BYTES = 256 * 1024;
+
+/**
+ * Parses a JSON request body through the schema. The body is read through the
+ * streamed byte cap (not Content-Length), so every route using this helper is
+ * DoS-bounded by default; pass a larger maxBytes only with a reason.
+ */
+export async function parseBody<T>(
+  request: NextRequest,
+  schema: ZodType<T>,
+  maxBytes: number = DEFAULT_BODY_MAX_BYTES,
+): Promise<T> {
   let raw: unknown;
   try {
-    raw = await request.json();
-  } catch {
+    raw = JSON.parse(await readBoundedBody(request, maxBytes));
+  } catch (error) {
+    if (error instanceof PatchbayError) throw error;
     throw new PatchbayError("Request body must be valid JSON", {
       statusCode: 400,
       code: "BAD_REQUEST",

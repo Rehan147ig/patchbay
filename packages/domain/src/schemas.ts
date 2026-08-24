@@ -23,6 +23,28 @@ export const loginRequestSchema = z.object({
 });
 export type LoginRequest = z.infer<typeof loginRequestSchema>;
 
+/**
+ * Tenant-writable repository metadata is a trust boundary: the worker reads
+ * `fixture`/`installationId` from here to decide whose source gets checked
+ * out, so only known keys with strict shapes are accepted (no passthrough
+ * record). Commit SHAs are deliberately NOT settable here — they are always
+ * resolved through the GitHub API at job time.
+ */
+export const repositoryMetadataSchema = z
+  .object({
+    fixture: z
+      .string()
+      .regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/)
+      .optional(),
+    installationId: z.number().int().positive().optional(),
+    externalId: z.string().min(1).max(255).optional(),
+    provider: z.string().min(1).max(50).optional(),
+    demo: z.boolean().optional(),
+    note: z.string().max(500).optional(),
+  })
+  .strict();
+export type RepositoryMetadata = z.infer<typeof repositoryMetadataSchema>;
+
 export const repositoryCreateSchema = z.object({
   name: z.string().min(1).max(100),
   fullName: z.string().min(1).max(255),
@@ -31,7 +53,7 @@ export const repositoryCreateSchema = z.object({
     .enum([RepositoryProvider.GITHUB, RepositoryProvider.LOCAL])
     .default(RepositoryProvider.LOCAL),
   defaultBranch: z.string().min(1).max(100).default("main"),
-  metadata: z.record(z.string(), z.unknown()).optional(),
+  metadata: repositoryMetadataSchema.optional(),
 });
 export type RepositoryCreateRequest = z.infer<typeof repositoryCreateSchema>;
 

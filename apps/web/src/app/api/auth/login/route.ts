@@ -18,27 +18,35 @@ export async function POST(request: NextRequest) {
     if (env.NODE_ENV === "production") {
       throw notFound("This endpoint is not available");
     }
-    // Brute-force protection: keyed by client IP. Do NOT trust
-    // x-forwarded-for blindly — it is client-spoofable unless set by a
-    // trusted proxy. Prefer x-real-ip (set by most reverse proxies) and
-    // treat anything else as an unidentifiable client that shares the
-    // global bucket, so spoofing the header cannot bypass the limit.
-    const clientIp =
-      request.headers.get("x-real-ip")?.trim() ||
-      (isTrustedProxyIp(request.headers.get("x-forwarded-for"))
-        ? request.headers.get("x-forwarded-for")!.split(",")[0]!.trim()
-        : null) ||
-      "unknown";
+    // Brute-force protection: two independent fixed-window buckets.
+    // 1) Per-client bucket. The key is ONLY derived from x-forwarded-for when
+    //    TRUSTED_PROXY_CIDRS is configured, walking the chain RIGHT to LEFT:
+    //    entries appended by trusted proxies are skipped until the first
+    //    untrusted address (the real client as seen by our ingress). Anything
+    //    an attacker prepends sits left of the proxy-appended tail and can
+    //    never influence the key. No trusted proxy configured -> every client
+    //    shares the "unknown" bucket, so spoofed headers gain nothing.
+    //    x-real-ip is never consulted: Next.js route handlers cannot see the
+    //    socket peer, so that header is indistinguishable from a spoof.
+    // 2) Per-account bucket (below, after body parse) so rotating IPs cannot
+    //    distribute guesses for one identity. The global burst cap still bounds
+    //    total load.
     const globalRate = await checkGlobalRateLimit();
     if (!globalRate.allowed) {
       return tooManyRequestsResponse(globalRate.retryAfterMs, correlationId);
     }
-    const { allowed, retryAfterMs } = await checkRateLimit(`login:${clientIp}`);
+    const clientKey = loginClientBucket(request);
+    const { allowed, retryAfterMs } = await checkRateLimit(clientKey);
     if (!allowed) {
       return tooManyRequestsResponse(retryAfterMs, correlationId);
     }
 
     const input = await parseBody(request, loginRequestSchema);
+
+    const accountRate = await checkRateLimit(`login-acct:${input.email.toLowerCase()}`);
+    if (!accountRate.allowed) {
+      return tooManyRequestsResponse(accountRate.retryAfterMs, correlationId);
+    }
 
     const user = await prisma.user.findUnique({ where: { email: input.email } });
     if (!user) throw unauthorized("Invalid email or password");
@@ -98,18 +106,64 @@ function tooManyRequestsResponse(retryAfterMs: number, correlationId: string): R
   return response;
 }
 
+function loginClientBucket(request: NextRequest): string {
+  const derived = deriveClientIpFromForwardedFor(request.headers.get("x-forwarded-for"));
+  return `login:${derived ?? "unknown"}`;
+}
+
 /**
- * Only trust x-forwarded-for when the request came through a proxy we
- * control. Locally (dev) there is no such proxy, so this returns false and
- * the header is ignored — clients cannot spoof a fresh rate-limit bucket.
+ * Derives the rate-limit identity from x-forwarded-for by trusting only the
+ * proxy-appended tail of the chain: walking right to left, entries covered by
+ * TRUSTED_PROXY_CIDRS are proxies we operate and get skipped; the first
+ * address NOT covered is the client as observed by our ingress. Returns null
+ * (shared bucket) when no trusted proxy is configured or the chain is fully
+ * trusted — a forged left-side entry can therefore never mint fresh buckets.
  */
-function isTrustedProxyIp(forwardedFor: string | null): boolean {
-  if (!forwardedFor) return false;
-  const trustedProxies = env.TRUSTED_PROXY_CIDRS.split(",").map((s) => s.trim());
-  if (trustedProxies.length === 0) return false;
-  const forwardedIp = forwardedFor.split(",")[0]?.trim();
-  if (!forwardedIp) return false;
-  // No CIDR math in the MVP: an empty allowlist means "trust no proxy".
-  // A real deployment sets TRUSTED_PROXY_CIDRS to its ingress ranges.
-  return trustedProxies.some((cidr) => cidr === forwardedIp || cidr === "0.0.0.0/0");
+function deriveClientIpFromForwardedFor(forwardedFor: string | null): string | null {
+  if (!forwardedFor) return null;
+  const chain = forwardedFor
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  if (chain.length === 0) return null;
+  for (let i = chain.length - 1; i >= 0; i -= 1) {
+    const candidate = chain[i]!;
+    if (!isIpInTrustedProxyCidrs(candidate)) return candidate;
+  }
+  return null;
+}
+
+function isIpInTrustedProxyCidrs(ip: string): boolean {
+  const cidrs = env.TRUSTED_PROXY_CIDRS.split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (cidrs.length === 0) return false;
+  return cidrs.some((cidr) => cidrContainsIp(cidr, ip));
+}
+
+/** IPv4 CIDR matching; non-IPv4 addresses compare as exact strings. */
+function cidrContainsIp(cidr: string, ip: string): boolean {
+  if (ip.includes(":") || cidr.includes(":")) return cidr === ip;
+  const [range, bitsRaw] = cidr.split("/");
+  if (!range || !bitsRaw) return false;
+  const bits = Number(bitsRaw);
+  if (!Number.isInteger(bits) || bits < 0 || bits > 32) return false;
+  const rangeValue = ipv4ToNumber(range);
+  const ipValue = ipv4ToNumber(ip);
+  if (rangeValue === null || ipValue === null) return false;
+  if (bits === 0) return true;
+  const mask = (0xffffffff << (32 - bits)) >>> 0;
+  return (rangeValue & mask) === (ipValue & mask);
+}
+
+function ipv4ToNumber(ip: string): number | null {
+  const parts = ip.split(".");
+  if (parts.length !== 4) return null;
+  let value = 0;
+  for (const part of parts) {
+    const octet = Number(part);
+    if (!/^\d+$/.test(part) || !Number.isInteger(octet) || octet < 0 || octet > 255) return null;
+    value = ((value << 8) | octet) >>> 0;
+  }
+  return value;
 }

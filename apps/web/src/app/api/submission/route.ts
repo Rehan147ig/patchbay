@@ -28,6 +28,7 @@ export async function POST(request: NextRequest) {
     const deadline = input.deadline ? new Date(input.deadline) : undefined;
 
     const result = await submitTaskParameter({
+      organizationId: user.organizationId,
       taskId: input.taskId,
       type: input.type,
       domain: input.domain,

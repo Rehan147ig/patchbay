@@ -14,7 +14,8 @@ const HEALTH_WINDOW = 20;
 export async function GET(request: NextRequest) {
   const correlationId = getCorrelationId(request);
   try {
-    await requireRole("VIEWER");
+    // Platform-global detector telemetry is operational data: ADMIN only.
+    await requireRole("ADMIN");
 
     const adapters = getWatchtowerAdapters();
 

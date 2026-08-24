@@ -8,11 +8,16 @@ const NONCE_HEADER = "x-nonce";
 
 const PUBLIC_PATHS = ["/", "/login", "/api/health"];
 
+/** Client-supplied correlation ids must match this grammar or are replaced. */
+const CORRELATION_ID_PATTERN = /^[A-Za-z0-9._-]{8,128}$/;
+
 export async function middleware(request: NextRequest): Promise<NextResponse> {
+  const providedCorrelationId =
+    request.headers.get(CORRELATION_HEADER) ?? request.headers.get("x-vercel-id");
   const correlationId =
-    request.headers.get(CORRELATION_HEADER) ??
-    request.headers.get("x-vercel-id") ??
-    crypto.randomUUID();
+    providedCorrelationId !== null && CORRELATION_ID_PATTERN.test(providedCorrelationId)
+      ? providedCorrelationId
+      : crypto.randomUUID();
 
   const nonce = crypto.randomUUID();
   const securityHeaders = buildSecurityHeaders({

@@ -1,4 +1,4 @@
-import { prisma, type Prisma } from "@patchbay/db";
+import { prisma, Prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import {
   ActorType,
@@ -50,10 +50,22 @@ export async function POST(
     const providedKey = authorization?.startsWith("Bearer ") ? authorization.slice(7) : null;
     if (!providedKey) throw unauthorized("Agent API key required (Authorization: Bearer <key>)");
 
+    // Rate limits run BEFORE argon2id verification: hashing is deliberately
+    // expensive (32 MiB, cost 3), so an unauthenticated flood must be rejected
+    // by the cheap counters first, never by burning CPU/memory on verify.
+    const globalRate = await checkGlobalRateLimit();
+    if (!globalRate.allowed) {
+      throw tooManyRequests("Agent rate limit exceeded");
+    }
+
     const vendor = await prisma.vendor.findUnique({ where: { slug } });
     if (!vendor) throw notFound(`Vendor "${slug}" is not in the catalog`);
     if (!vendor.organizationId || !vendor.agentKeyHash) {
       throw unauthorized(`Agent mode is not enabled for vendor "${slug}"`);
+    }
+    const rate = await checkRateLimit(`agent:${vendor.organizationId}:${slug}`);
+    if (!rate.allowed) {
+      throw tooManyRequests("Agent rate limit exceeded");
     }
     const keyValid =
       (await verifyAgentKey(providedKey, vendor.agentKeyHash)) ||
@@ -62,14 +74,6 @@ export async function POST(
         : false);
     if (!keyValid) {
       throw unauthorized("Invalid agent API key");
-    }
-    const globalRate = await checkGlobalRateLimit();
-    if (!globalRate.allowed) {
-      throw tooManyRequests("Agent rate limit exceeded");
-    }
-    const rate = await checkRateLimit(`agent:${vendor.organizationId}:${slug}`);
-    if (!rate.allowed) {
-      throw tooManyRequests("Agent rate limit exceeded");
     }
 
     const input = await parseBodyBounded(request, agentIngestSchema, MAX_AGENT_BODY_BYTES);
@@ -94,19 +98,49 @@ export async function POST(
       );
     }
 
-    const event = await prisma.vendorChangeEvent.create({
-      data: {
-        vendorId: vendor.id,
-        organizationId: vendor.organizationId ?? undefined,
-        externalReference: input.externalReference,
-        sourceType: input.sourceType,
-        sourceUrl: input.sourceUrl,
-        title: `${vendor.name} agent change: ${drafts.map((d) => d.changeType).join(", ")}`,
-        severity: input.severity,
-        status: "DETECTED",
-        rawPayload: rawPayload as Prisma.InputJsonValue,
-      },
-    });
+    // Ingest idempotency: (organizationId, vendorId, externalReference) is
+    // unique. A retried/replayed delivery with the same external reference
+    // returns the original event instead of creating duplicates.
+    let event;
+    try {
+      event = await prisma.vendorChangeEvent.create({
+        data: {
+          vendorId: vendor.id,
+          organizationId: vendor.organizationId ?? undefined,
+          externalReference: input.externalReference,
+          sourceType: input.sourceType,
+          sourceUrl: input.sourceUrl,
+          title: `${vendor.name} agent change: ${drafts.map((d) => d.changeType).join(", ")}`,
+          severity: input.severity,
+          status: "DETECTED",
+          rawPayload: rawPayload as Prisma.InputJsonValue,
+        },
+      });
+    } catch (error) {
+      if (
+        !(error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") ||
+        !input.externalReference
+      ) {
+        throw error;
+      }
+      const existing = await prisma.vendorChangeEvent.findFirst({
+        where: {
+          organizationId: vendor.organizationId,
+          vendorId: vendor.id,
+          externalReference: input.externalReference,
+        },
+        select: { id: true, status: true },
+      });
+      return jsonOk(
+        {
+          changeEventId: existing?.id ?? null,
+          status: "DUPLICATE",
+          normalizations: 0,
+        },
+        correlationId,
+        200,
+      );
+    }
 
     for (const draft of drafts) {
       await prisma.normalizedChange.create({

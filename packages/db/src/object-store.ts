@@ -17,6 +17,14 @@ import { join, resolve } from "node:path";
 
 const DEFAULT_STORE_DIR = resolve(process.cwd(), "data", "evidence");
 
+/**
+ * Hard cap on a single evidence object. Watchtower evidence is release
+ * metadata (packuments, release notes, spec summaries), never tenant source;
+ * anything larger than this is rejected instead of silently growing the
+ * store (zero-source-at-rest hygiene + disk-exhaustion bound).
+ */
+export const MAX_EVIDENCE_PAYLOAD_BYTES = 512 * 1024;
+
 export function evidenceStoreDir(): string {
   return process.env.EVIDENCE_STORE_DIR?.trim()
     ? resolve(process.env.EVIDENCE_STORE_DIR)
@@ -53,6 +61,11 @@ export interface EvidenceObjectWrite {
  * (same hash), nothing is written and `written` is false.
  */
 export async function storeRawEvidence(payload: string): Promise<EvidenceObjectWrite> {
+  if (Buffer.byteLength(payload, "utf8") > MAX_EVIDENCE_PAYLOAD_BYTES) {
+    throw new Error(
+      `evidence payload exceeds the ${MAX_EVIDENCE_PAYLOAD_BYTES} byte cap; refusing to store`,
+    );
+  }
   const hash = contentHashOf(payload);
   const key = objectKeyForHash(hash);
   const dir = evidenceStoreDir();

@@ -1,6 +1,7 @@
 import { resolveFixtureDir } from "@patchbay/repo-analysis";
 import { createGitHubAppProviderFromStore } from "@patchbay/git-provider";
 import { getSecretStore } from "@patchbay/env";
+import { prisma } from "@patchbay/db";
 
 /**
  * Resolves where a repository's source lives before analysis:
@@ -17,11 +18,33 @@ export type RepositorySource =
       rootDir: string;
     };
 
+/**
+ * Tenant boundary for installation checkouts: an installation id found in
+ * repository metadata is only usable when it is bound to the SAME organization
+ * as the repository row. Prevents a member from pointing their repository at
+ * another tenant's installation id to exfiltrate private source.
+ */
+export async function assertInstallationBelongsToOrganization(
+  installationId: number,
+  organizationId: string,
+): Promise<void> {
+  const installation = await prisma.gitHubInstallation.findUnique({
+    where: { installationId },
+    select: { organizationId: true },
+  });
+  if (!installation || installation.organizationId !== organizationId) {
+    throw new Error(
+      `installation ${installationId} is not bound to organization ${organizationId}`,
+    );
+  }
+}
+
 export async function resolveRepositorySource(repository: {
   id: string;
   provider: string;
   fullName: string | null;
   defaultBranch: string | null;
+  organizationId: string;
   metadata: unknown;
 }): Promise<RepositorySource> {
   const fixture = fixtureOf(repository.metadata);
@@ -34,6 +57,7 @@ export async function resolveRepositorySource(repository: {
     if (!repository.fullName) {
       throw new Error(`repository ${repository.id} has no fullName for GitHub checkout`);
     }
+    await assertInstallationBelongsToOrganization(installationId, repository.organizationId);
     const provider = await createGitHubAppProviderFromStore(
       { installationId, repositoryFullName: repository.fullName },
       getSecretStore(),

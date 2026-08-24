@@ -11,6 +11,16 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { RepositoryProvider, PullRequestStatus } from "@patchbay/domain";
+import { assertSafeRepoFullName, assertSafeSha, runGit } from "./git-safe";
+
+/** Resolves `filePath` inside `workspaceAbs`, rejecting absolute paths and traversal. */
+export function resolveInsideWorkspace(workspaceAbs: string, filePath: string): string {
+  const target = path.resolve(workspaceAbs, filePath);
+  if (target !== workspaceAbs && !target.startsWith(workspaceAbs + path.sep)) {
+    throw new Error(`patch file path escapes the workspace: ${filePath}`);
+  }
+  return target;
+}
 
 export interface CreateBranchInput {
   repositoryDir: string;
@@ -51,6 +61,11 @@ export interface GitProvider {
    * always removed on success, failure, cancellation, or stale job recovery.
    */
   checkout(input: CheckoutInput): Promise<CheckoutResult>;
+  /**
+   * Resolves the HEAD commit SHA of a branch through the provider API, so
+   * callers never take a commit sha from tenant-writable metadata.
+   */
+  resolveHeadSha(baseBranch?: string): Promise<string>;
 }
 
 export interface CheckoutInput {
@@ -94,6 +109,7 @@ export class LocalGitProvider implements GitProvider {
     const { repositoryName, fixtureDir, branchName, title, body, patches } = input;
 
     const workspace = mkdtempSync(path.join(tmpdir(), `patchbay-pr-${repositoryName}-`));
+    const workspaceAbs = path.resolve(workspace);
 
     try {
       cpSync(fixtureDir, workspace, {
@@ -102,7 +118,7 @@ export class LocalGitProvider implements GitProvider {
       });
 
       for (const patch of patches) {
-        const target = path.join(workspace, patch.filePath);
+        const target = resolveInsideWorkspace(workspaceAbs, patch.filePath);
         mkdirSync(path.dirname(target), { recursive: true });
         writeFileSync(target, patch.patchedContent, "utf8");
       }
@@ -126,6 +142,15 @@ export class LocalGitProvider implements GitProvider {
       }
       throw error;
     }
+  }
+
+  /**
+   * The local provider has no remote to resolve a HEAD from: fixture-mode
+   * checkouts always carry an explicit sha, and the demo copy path uses the
+   * workspace as-is. Never called on the validation path (github-only).
+   */
+  async resolveHeadSha(_baseBranch?: string): Promise<string> {
+    throw new Error("LocalGitProvider cannot resolve a remote HEAD sha");
   }
 
   async checkout(input: CheckoutInput): Promise<CheckoutResult> {
@@ -166,24 +191,34 @@ export class LocalGitProvider implements GitProvider {
     if (!sha) {
       throw new Error("LocalGitProvider.checkout requires an exact commit sha in fixture mode");
     }
+    const safeSha = assertSafeSha(sha);
+    if (!repositoryFullName) {
+      throw new Error("LocalGitProvider.checkout requires a repository full name in fixture mode");
+    }
+    assertSafeRepoFullName(repositoryFullName);
 
     const workspace = mkdtempSync(path.join(tmpdir(), `patchbay-checkout-`));
     try {
-      const { execSync } = await import("node:child_process");
-      execSync(
-        `git clone --depth 1 https://x-access-token:${installationId}@github.com/${repositoryFullName}.git ${workspace}`,
-        { stdio: "ignore" },
+      runGit(
+        [
+          "clone",
+          "--depth",
+          "1",
+          `https://x-access-token:${installationId ?? 0}@github.com/${repositoryFullName}.git`,
+          workspace,
+        ],
+        { cwd: workspace },
       );
-      execSync(`git checkout --no-detach ${sha}`, { cwd: workspace, stdio: "ignore" });
-      const headSha = execSync(`git rev-parse HEAD`, { cwd: workspace, encoding: "utf8" }).trim();
-      if (headSha !== sha) {
+      runGit(["checkout", "--no-detach", safeSha], { cwd: workspace });
+      const headSha = runGit(["rev-parse", "HEAD"], { cwd: workspace, capture: true }) ?? "";
+      if (headSha !== safeSha) {
         throw new Error(
-          `Local fixture checkout HEAD ${headSha} does not match expected SHA ${sha}`,
+          `Local fixture checkout HEAD ${headSha} does not match expected SHA ${safeSha}`,
         );
       }
-      const treeHash = execSync(`git write-tree`, { cwd: workspace, encoding: "utf8" }).trim();
+      const treeHash = runGit(["write-tree"], { cwd: workspace, capture: true }) ?? "";
       const sourceHash = createHash("sha256")
-        .update(`${sha}:${treeHash}`)
+        .update(`${safeSha}:${treeHash}`)
         .digest("hex")
         .slice(0, 16);
 

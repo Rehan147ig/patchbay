@@ -11,6 +11,7 @@ vi.mock("@patchbay/db", () => ({
     integrationUsage: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
     repositoryDependency: { createMany: vi.fn() },
     graphIndexJob: { create: vi.fn() },
+    gitHubInstallation: { findUnique: vi.fn() },
     $transaction: vi.fn(),
   },
   createNotification: vi.fn(),
@@ -32,6 +33,7 @@ vi.mock("@patchbay/repo-analysis", () => ({
 vi.mock("@patchbay/queue", () => ({
   JobType: { GRAPH_INDEX: "graph-index" },
   enqueue: vi.fn(),
+  assertJobPayloadSize: vi.fn(),
 }));
 
 vi.mock("@patchbay/git-provider", () => ({
@@ -133,6 +135,9 @@ describe("processScanRepository", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(resolveFixtureDir).mockReturnValue("C:/fixtures/openai-node-legacy");
+    vi.mocked(prisma.gitHubInstallation.findUnique).mockResolvedValue({
+      organizationId: "org-1",
+    } as never);
   });
 
   it("scans a fixture repository and chains the graph-index job", async () => {

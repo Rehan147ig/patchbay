@@ -330,7 +330,9 @@ export class ProcessSandboxRunner implements SandboxRunner {
               "-Command",
               `Get-CimInstance Win32_Process | Where-Object { $_.ParentProcessId -eq ${rootPid} } | Select-Object -ExpandProperty ProcessId`,
             ],
-            { windowsHide: true, stdio: ["ignore", "pipe", "ignore"] },
+            // Same minimal-env principle as validated commands: trusted
+            // binaries, integer-interpolated pid, no worker secrets inherited.
+            { windowsHide: true, stdio: ["ignore", "pipe", "ignore"], env: minimalChildEnv() },
           );
           let out = "";
           ps.stdout.on("data", (chunk: Buffer) => (out += chunk.toString("utf8")));
@@ -357,6 +359,7 @@ export class ProcessSandboxRunner implements SandboxRunner {
           const killer = spawn("taskkill", ["/pid", String(pid), "/F"], {
             windowsHide: true,
             stdio: "ignore",
+            env: minimalChildEnv(),
           });
           killer.on("close", () => resolveKill());
           killer.on("error", () => resolveKill());
@@ -879,7 +882,13 @@ export function createSandboxRunner(runtime?: SandboxRuntime): SandboxRunner {
         "verify the container runtime is available",
     );
   }
-  if (selected === "container") return new ContainerSandboxRunner();
+  if (selected === "container") {
+    return new ContainerSandboxRunner({
+      // SANDBOX_NPM_CACHE mounts a read-only dependency cache into the
+      // container so allowlisted installs resolve offline (--network none).
+      cacheDir: process.env.SANDBOX_NPM_CACHE?.trim() || undefined,
+    });
+  }
   if (selected === "microvm") return new MicroVmSandboxRunner();
   return new ProcessSandboxRunner();
 }

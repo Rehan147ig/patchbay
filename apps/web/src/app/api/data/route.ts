@@ -10,11 +10,15 @@ import { assertCsrfToken } from "@/lib/csrf-server";
  * DELETE /api/data
  * Admin-only organization data deletion (WP10). Removes every operational
  * record of the caller's organization (cases, plans, PRs, outcomes,
- * validations, agent runs, graph data, scans, usages, deliveries). Keeps the
- * organization, its users, repositories, vendors, releases, and subscriptions.
+ * validations, agent runs, graph data, scans, usages, deliveries) inside a
+ * single transaction, so a partial wipe can never leave the tenant in a
+ * half-deleted state. Keeps the organization, its users, repositories,
+ * vendors, releases, and subscriptions.
  *
- * The single DATA_DELETED audit event is written before deletion and survives
- * it, so there is an immutable proof of deletion for compliance.
+ * Audit history is intentionally OUT of erasure scope: the WORM trigger on
+ * AuditEvent rejects any UPDATE/DELETE at the database level, so the trail
+ * (including the DATA_DELETED marker written before the transaction) is
+ * immutable proof of what was deleted, when, and by whom.
  */
 export async function DELETE(request: NextRequest) {
   const correlationId = getCorrelationId(request);
@@ -34,38 +38,36 @@ export async function DELETE(request: NextRequest) {
       after: { scope: "operational records" },
     });
 
-    const deletes = await Promise.all([
-      prisma.prOutcome.deleteMany({ where: { organizationId: orgId } }),
-      prisma.capabilityGate.deleteMany({ where: { organizationId: orgId } }),
-      prisma.approval.deleteMany({ where: { organizationId: orgId } }),
-      prisma.pullRequest.deleteMany({ where: { organizationId: orgId } }),
-      prisma.patchArtifact.deleteMany({ where: { organizationId: orgId } }),
-      prisma.validationRun.deleteMany({ where: { organizationId: orgId } }),
-      prisma.remediationCaseEvent.deleteMany({ where: { organizationId: orgId } }),
-      prisma.remediationCase.deleteMany({ where: { organizationId: orgId } }),
-      prisma.remediationPlan.deleteMany({ where: { organizationId: orgId } }),
-      prisma.impactAssessmentUsage.deleteMany({ where: { organizationId: orgId } }),
-      prisma.impactAssessment.deleteMany({ where: { organizationId: orgId } }),
-      prisma.agentStep.deleteMany({ where: { organizationId: orgId } }),
-      prisma.agentRun.deleteMany({ where: { organizationId: orgId } }),
-      prisma.graphSourceEvidence.deleteMany({ where: { organizationId: orgId } }),
-      prisma.graphEdge.deleteMany({ where: { organizationId: orgId } }),
-      prisma.graphNode.deleteMany({ where: { organizationId: orgId } }),
-      prisma.graphIndexJob.deleteMany({ where: { organizationId: orgId } }),
-      prisma.graphSnapshot.deleteMany({ where: { organizationId: orgId } }),
-      prisma.integrationUsage.deleteMany({ where: { organizationId: orgId } }),
-      prisma.repositoryScan.deleteMany({ where: { organizationId: orgId } }),
-      prisma.releaseRepositoryMatch.deleteMany({ where: { organizationId: orgId } }),
-      prisma.webhookDelivery.deleteMany({ where: { organizationId: orgId } }),
-      prisma.vendorChangeEvent.deleteMany({ where: { organizationId: orgId } }),
-    ]);
-
-    // The DATA_DELETED marker is the only audit row that remains.
-    await prisma.auditEvent.deleteMany({
-      where: { organizationId: orgId, action: { not: AuditAction.DATA_DELETED } },
+    const deleted = await prisma.$transaction(async (tx) => {
+      const results = await Promise.all([
+        tx.prOutcome.deleteMany({ where: { organizationId: orgId } }),
+        tx.capabilityGate.deleteMany({ where: { organizationId: orgId } }),
+        tx.approval.deleteMany({ where: { organizationId: orgId } }),
+        tx.pullRequest.deleteMany({ where: { organizationId: orgId } }),
+        tx.patchArtifact.deleteMany({ where: { organizationId: orgId } }),
+        tx.validationRun.deleteMany({ where: { organizationId: orgId } }),
+        tx.remediationCaseEvent.deleteMany({ where: { organizationId: orgId } }),
+        tx.remediationCase.deleteMany({ where: { organizationId: orgId } }),
+        tx.remediationPlan.deleteMany({ where: { organizationId: orgId } }),
+        tx.impactAssessmentUsage.deleteMany({ where: { organizationId: orgId } }),
+        tx.impactAssessment.deleteMany({ where: { organizationId: orgId } }),
+        tx.agentStep.deleteMany({ where: { organizationId: orgId } }),
+        tx.agentRun.deleteMany({ where: { organizationId: orgId } }),
+        tx.graphSourceEvidence.deleteMany({ where: { organizationId: orgId } }),
+        tx.graphEdge.deleteMany({ where: { organizationId: orgId } }),
+        tx.graphNode.deleteMany({ where: { organizationId: orgId } }),
+        tx.graphIndexJob.deleteMany({ where: { organizationId: orgId } }),
+        tx.graphSnapshot.deleteMany({ where: { organizationId: orgId } }),
+        tx.integrationUsage.deleteMany({ where: { organizationId: orgId } }),
+        tx.repositoryScan.deleteMany({ where: { organizationId: orgId } }),
+        tx.releaseRepositoryMatch.deleteMany({ where: { organizationId: orgId } }),
+        tx.webhookDelivery.deleteMany({ where: { organizationId: orgId } }),
+        tx.vendorChangeEvent.deleteMany({ where: { organizationId: orgId } }),
+      ]);
+      return results.reduce((sum, r) => sum + r.count, 0);
     });
 
-    return jsonOk({ deleted: deletes.reduce((sum, r) => sum + r.count, 0) }, correlationId);
+    return jsonOk({ deleted }, correlationId);
   } catch (error) {
     return jsonError(error, correlationId);
   }

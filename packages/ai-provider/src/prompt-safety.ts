@@ -6,11 +6,14 @@
  * override the system prompt ("ignore previous instructions..."). We never
  * filter instructions out of untrusted text by deletion alone (an attacker
  * can rephrase); instead every untrusted field is (1) stripped of control
- * characters, (2) syntax-neutralized so it cannot close or spoof the
- * boundary markers, and (3) wrapped in explicit data-only markers that the
- * system prompt tells the model to treat as data, never instructions.
+ * characters, (2) credential-redacted so hardcoded secrets in customer source
+ * never reach the model vendor, (3) syntax-neutralized so it cannot close or
+ * spoof the boundary markers, and (4) wrapped in explicit data-only markers
+ * that the system prompt tells the model to treat as data, never instructions.
  * Output is still Zod-validated before it can affect state.
  */
+
+import { sanitizeText } from "@patchbay/audit";
 
 export const UNTRUSTED_OPEN = "<<<UNTRUSTED-DATA-START>>>";
 export const UNTRUSTED_CLOSE = "<<<UNTRUSTED-DATA-END>>>";
@@ -31,7 +34,9 @@ const INSTRUCTION_PATTERNS = [
  * marker) rather than deleted, so analysis still sees it as content.
  */
 export function sanitizeUntrustedText(text: string): string {
-  let cleaned = text.replace(CONTROL_CHARS, " ").trim();
+  // Credential patterns first: sk_live_/PEM/etc. must never leave the process,
+  // even inside otherwise-harmless-looking content.
+  let cleaned = sanitizeText(text.replace(CONTROL_CHARS, " ").trim());
   for (const pattern of INSTRUCTION_PATTERNS) {
     cleaned = cleaned.replace(pattern, "[instruction-like content neutralized]");
   }

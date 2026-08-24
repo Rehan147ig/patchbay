@@ -20,6 +20,7 @@ import { createGitProviderFromEnv } from "@patchbay/git-provider";
 import { evaluatePolicy } from "@patchbay/policy-engine";
 import type { Job } from "bullmq";
 import { writeAuditEvent } from "../lib/audit";
+import { assertInstallationBelongsToOrganization } from "../lib/repository-source";
 
 export const CreatePRJobDataSchema = z.object({
   remediationPlanId: z.string().min(1),
@@ -155,6 +156,11 @@ async function createDraftPR(
   const repository = plan.impactAssessment.repository;
   const fixtureName = fixtureOf(repository.metadata);
   const installationId = installationIdOf(repository.metadata);
+  if (installationId) {
+    // Tenant boundary: metadata installation ids are only usable when bound to
+    // the repository's own organization (prevents cross-tenant PR creation).
+    await assertInstallationBelongsToOrganization(installationId, repository.organizationId);
+  }
   const fixtureDir = fixtureName ? resolveFixtureDir(fixtureName) : "";
   const branchName = `patchbay/remediation-${plan.id.slice(0, 8)}`;
   const title = `[Patch] ${plan.impactAssessment.changeEvent.title}`;

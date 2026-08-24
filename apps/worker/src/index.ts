@@ -146,13 +146,31 @@ async function main(): Promise<void> {
     clearInterval(sweepTimer);
     clearInterval(retentionTimer);
     clearInterval(capabilitySweepTimer);
-    await worker.close();
-    await queue.close();
-    connection.disconnect();
+    // Deadline-bounded shutdown: a hung worker.close() must never stall the
+    // process forever (in-flight jobs retry via BullMQ on restart).
+    const SHUTDOWN_DEADLINE_MS = 30_000;
+    await Promise.race([
+      (async () => {
+        await worker.close();
+        await queue.close();
+        connection.disconnect();
+      })(),
+      new Promise((resolve) => setTimeout(resolve, SHUTDOWN_DEADLINE_MS).unref()),
+    ]);
     process.exit(0);
   };
   process.on("SIGINT", () => void shutdown("SIGINT"));
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  // On Node >= 15 an unhandled rejection crashes the process mid-job without
+  // running cleanup; log loudly and exit non-zero so orchestrators restart us.
+  process.on("unhandledRejection", (reason) => {
+    logger.error("worker unhandled rejection", { error: String(reason) });
+    process.exitCode = 1;
+  });
+  process.on("uncaughtException", (error) => {
+    logger.error("worker uncaught exception", { error: String(error) });
+    process.exit(1);
+  });
 }
 
 main().catch((error) => {

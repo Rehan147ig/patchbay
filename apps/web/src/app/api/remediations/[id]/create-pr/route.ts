@@ -20,8 +20,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const user = await requireRole("MEMBER");
     const { id } = await params;
 
-    const plan = await prisma.remediationPlan.findUnique({
-      where: { id },
+    // Org scoping lives INSIDE the query (not a post-hoc check).
+    const plan = await prisma.remediationPlan.findFirst({
+      where: {
+        id,
+        impactAssessment: { repository: { organizationId: user.organizationId } },
+      },
       include: {
         impactAssessment: {
           include: {
@@ -37,9 +41,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     });
 
     if (!plan) throw validationFailed("Remediation plan not found");
-    if (plan.impactAssessment.repository.organizationId !== user.organizationId) {
-      throw validationFailed("Remediation plan not found");
-    }
 
     // Idempotency check: Return existing PR if already created
     if (plan.pullRequests.length > 0) {

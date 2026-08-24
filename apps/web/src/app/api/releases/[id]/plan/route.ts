@@ -1,11 +1,16 @@
 import { prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import { CASE_TERMINAL_STATUSES, CaseStatus, validationFailed } from "@patchbay/domain";
+import { z } from "zod";
 import { enqueue, JobType } from "@patchbay/queue";
 import type { NextRequest } from "next/server";
-import { getCorrelationId, jsonError, jsonOk, writeAuditEvent } from "@/lib/api";
+import { getCorrelationId, jsonError, jsonOk, parseBodyBounded, writeAuditEvent } from "@/lib/api";
 import { requireRole } from "@/lib/auth";
 import { assertCsrfToken } from "@/lib/csrf-server";
+
+const releasePlanRequestSchema = z.object({
+  matchId: z.string().min(1).max(64),
+});
 
 /**
  * POST /api/releases/[id]/plan
@@ -32,10 +37,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       throw validationFailed("Release not found");
     }
 
-    const body = (await request.json().catch(() => ({}))) as { matchId?: unknown };
-    const matchId = typeof body.matchId === "string" ? body.matchId : "";
+    const body = await parseBodyBounded(request, releasePlanRequestSchema, 16 * 1024);
     const match = await prisma.releaseRepositoryMatch.findFirst({
-      where: { id: matchId, releaseRecordId: release.id, organizationId: user.organizationId },
+      where: { id: body.matchId, releaseRecordId: release.id, organizationId: user.organizationId },
       select: { id: true, repositoryId: true, dependencyId: true },
     });
     if (!match) {

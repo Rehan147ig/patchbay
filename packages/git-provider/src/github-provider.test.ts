@@ -211,23 +211,24 @@ describe("createGitProviderFromEnv", () => {
     expect(provider).toBeInstanceOf(GitHubAppProvider);
   });
 
-  it("falls back to PAT when a target is given but the App is unconfigured", () => {
-    const provider = createGitProviderFromEnv(
-      { installationId: 42, repositoryFullName: "acme/app" },
-      {
+  it("refuses the global PAT fallback when a target is given but the App is unconfigured", () => {
+    // Routing every org's PRs to one globally-configured PAT repository would
+    // be a cross-tenant write; it must fail loudly instead.
+    expect(() =>
+      createGitProviderFromEnv({ installationId: 42, repositoryFullName: "acme/app" }, {
         GITHUB_TOKEN: "ghp_x",
         GITHUB_REPOSITORY: "acme/app",
-      } as NodeJS.ProcessEnv,
-    );
-    expect(provider).toBeInstanceOf(GitHubProvider);
+      } as NodeJS.ProcessEnv),
+    ).toThrow(/refusing the global PAT fallback/);
   });
 
-  it("falls back to the local provider when a target is given but no credentials exist", () => {
-    const provider = createGitProviderFromEnv(
-      { installationId: 42, repositoryFullName: "acme/app" },
-      {} as NodeJS.ProcessEnv,
-    );
-    expect(provider).toBeInstanceOf(LocalGitProvider);
+  it("refuses a target when no credentials exist at all", () => {
+    expect(() =>
+      createGitProviderFromEnv(
+        { installationId: 42, repositoryFullName: "acme/app" },
+        {} as NodeJS.ProcessEnv,
+      ),
+    ).toThrow(/refusing the global PAT fallback/);
   });
 
   it("falls back to the local provider without credentials", () => {

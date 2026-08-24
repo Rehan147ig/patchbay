@@ -18,6 +18,9 @@ coverage/
 playwright-report/
 test-results/
 
+# tenant-bypassing dev helpers (write rows directly, skip API authz)
+apps/worker/scripts/e2e-*.mts
+
 # logs
 *.log
 npm-debug.log*

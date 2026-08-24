@@ -47,6 +47,10 @@ ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=web-build /app /app
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN chmod +x /entrypoint.sh \
+  # The web/worker processes must not run as root: any RCE in the process
+  # then owns only what the "node" user owns, never the container root FS.
+  && chown -R node:node /app
+USER node
 EXPOSE 3000
 CMD ["sh", "/entrypoint.sh"]

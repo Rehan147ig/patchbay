@@ -13,6 +13,9 @@ export interface RetentionPrisma {
     findMany(args: unknown): Promise<Array<Record<string, unknown>>>;
     update(args: unknown): Promise<Record<string, unknown>>;
   };
+  validationRun: {
+    updateMany(args: unknown): Promise<{ count: number }>;
+  };
   auditEvent: {
     create(args: unknown): Promise<Record<string, unknown>>;
   };
@@ -80,5 +83,16 @@ export async function purgeExpiredAgentRuns(
     });
   }
 
-  return { eligible: eligible.length, purged };
+  // Validation stdout/stderr can embed build-output source snippets; retire
+  // them on the same window so command output does not persist indefinitely.
+  const validations = await prisma.validationRun.updateMany({
+    where: {
+      ...(input.organizationId ? { organizationId: input.organizationId } : {}),
+      createdAt: { lt: cutoff },
+      OR: [{ stdout: { not: null } }, { stderr: { not: null } }],
+    },
+    data: { stdout: null, stderr: null },
+  });
+
+  return { eligible: eligible.length, purged: purged + validations.count };
 }

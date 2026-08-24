@@ -48,6 +48,7 @@ describe("POST /api/submission", () => {
     vi.mocked(submitTaskParameter).mockResolvedValue({
       taskParameter: {
         id: "tp-1",
+        organizationId: "org-acme",
         taskId: submissionBody.taskId,
         type: submissionBody.type,
         domain: "NPM",
@@ -78,6 +79,7 @@ describe("POST /api/submission", () => {
     expect(body.data.queued).toBe(true);
 
     expect(submitTaskParameter).toHaveBeenCalledWith({
+      organizationId: "org-acme",
       taskId: submissionBody.taskId,
       type: submissionBody.type,
       domain: "NPM",
@@ -97,6 +99,7 @@ describe("POST /api/submission", () => {
     vi.mocked(submitTaskParameter).mockResolvedValueOnce({
       taskParameter: {
         id: "tp-1",
+        organizationId: "org-acme",
         taskId: submissionBody.taskId,
         type: submissionBody.type,
         domain: "NPM",
@@ -130,6 +133,7 @@ describe("POST /api/submission", () => {
     vi.mocked(submitTaskParameter).mockResolvedValueOnce({
       taskParameter: {
         id: "tp-1",
+        organizationId: "org-acme",
         taskId: submissionBody.taskId,
         type: submissionBody.type,
         domain: "NPM",

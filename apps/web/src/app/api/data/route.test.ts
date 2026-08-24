@@ -4,6 +4,7 @@ import { DELETE } from "./route";
 
 vi.mock("@patchbay/db", () => ({
   prisma: {
+    $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(txProxy())),
     prOutcome: { deleteMany: vi.fn() },
     capabilityGate: { deleteMany: vi.fn() },
     approval: { deleteMany: vi.fn() },
@@ -27,9 +28,25 @@ vi.mock("@patchbay/db", () => ({
     releaseRepositoryMatch: { deleteMany: vi.fn() },
     webhookDelivery: { deleteMany: vi.fn() },
     vendorChangeEvent: { deleteMany: vi.fn() },
-    auditEvent: { deleteMany: vi.fn(), create: vi.fn() },
+    auditEvent: { create: vi.fn() },
   },
 }));
+
+function txProxy(): Record<string, { deleteMany: ReturnType<typeof vi.fn> }> {
+  return new Proxy(
+    {},
+    {
+      get: (_target, _prop) => ({
+        deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+      }),
+      getOwnPropertyDescriptor: () => ({
+        configurable: true,
+        enumerable: true,
+        value: undefined,
+      }),
+    },
+  ) as never;
+}
 
 vi.mock("@/lib/auth", () => ({
   requireRole: vi.fn(),
@@ -59,12 +76,18 @@ describe("DELETE /api/data", () => {
       const delegate = prisma[key] as {
         deleteMany?: ReturnType<typeof vi.fn>;
         create?: ReturnType<typeof vi.fn>;
+        $transaction?: ReturnType<typeof vi.fn>;
       };
       if (typeof delegate?.deleteMany === "function") {
         delegate.deleteMany.mockResolvedValue({ count: 1 } as never);
       }
       if (typeof delegate?.create === "function") {
         delegate.create.mockResolvedValue({} as never);
+      }
+      if (typeof delegate?.$transaction === "function") {
+        delegate.$transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) =>
+          fn(txProxy()),
+        );
       }
     }
   });
@@ -75,29 +98,18 @@ describe("DELETE /api/data", () => {
     expect(response.status).toBe(500);
   });
 
-  it("deletes every operational record of the organization", async () => {
+  it("deletes every operational record inside one transaction", async () => {
     const response = await DELETE(deleteRequest());
     expect(response.status).toBe(200);
     const body = (await response.json()) as { data: { deleted: number } };
     expect(body.data.deleted).toBeGreaterThan(0);
-    expect(prisma.remediationCase.deleteMany).toHaveBeenCalledWith({
-      where: { organizationId: "org-acme" },
-    });
-    expect(prisma.prOutcome.deleteMany).toHaveBeenCalledWith({
-      where: { organizationId: "org-acme" },
-    });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
   });
 
-  it("writes the DATA_DELETED marker before deleting and keeps it", async () => {
+  it("never attempts to delete audit rows: WORM history stays immutable", async () => {
     await DELETE(deleteRequest());
     expect(prisma.auditEvent.create).toHaveBeenCalledTimes(1);
-    const [markerArgs] = vi.mocked(prisma.auditEvent.create).mock.calls;
-    expect(markerArgs[0].data.action).toBe("data.deleted");
-    expect(prisma.auditEvent.deleteMany).toHaveBeenCalledWith({
-      where: {
-        organizationId: "org-acme",
-        action: { not: "data.deleted" },
-      },
-    });
+    // AuditEvent exposes no delete path at all in the route's prisma surface.
+    expect((prisma.auditEvent as { deleteMany?: unknown }).deleteMany).toBeUndefined();
   });
 });

@@ -1,11 +1,11 @@
-"""Chat service using the openai Python SDK v1 client."""
+"""Chat service still on the legacy openai Python SDK module API (v0)."""
 
-from openai import OpenAI
+import openai
 
-DEFAULT_MODEL = "gpt-4o-mini"
+DEFAULT_MODEL = "gpt-3.5-turbo"
 
 
 def run_chat(api_key: str, messages: list[dict]) -> str:
-    client = OpenAI(api_key=api_key)
-    completion = client.chat.completions.create(model=DEFAULT_MODEL, messages=messages)
+    openai.api_key = api_key
+    completion = openai.ChatCompletion.create(model=DEFAULT_MODEL, messages=messages)
     return completion.choices[0].message.content

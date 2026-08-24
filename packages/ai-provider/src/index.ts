@@ -31,7 +31,36 @@ export type { AiPlanDraft } from "@patchbay/domain";
  *   legacy REST client, same envs minus the AI_* tuning vars.
  * - Anything else returns the deterministic MockAiProvider (no network).
  */
+/**
+ * Process-wide provider cache. The circuit breaker lives on the provider
+ * instance; without caching, every job/request would construct a fresh
+ * provider and the breaker could never accumulate failures (making the
+ * fail-fast/cost-control intent unenforceable). Cache is bypassed when an
+ * injectable fetchImpl is supplied (tests).
+ */
+let cachedProvider: { key: string; provider: AiProvider } | null = null;
+
 export function createAiProvider(
+  env: NodeJS.ProcessEnv,
+  overrides?: { fetchImpl?: typeof fetch },
+): AiProvider {
+  const cacheKey = JSON.stringify([
+    env.AI_PROVIDER,
+    env.OPENAI_API_KEY,
+    env.OPENAI_MODEL,
+    env.OPENAI_BASE_URL,
+    env.AI_ALLOWED_MODELS,
+    env.AI_ALLOWED_BASE_URL_HOSTS,
+  ]);
+  if (!overrides?.fetchImpl && cachedProvider?.key === cacheKey) {
+    return cachedProvider.provider;
+  }
+  const provider = buildAiProvider(env, overrides);
+  if (!overrides?.fetchImpl) cachedProvider = { key: cacheKey, provider };
+  return provider;
+}
+
+function buildAiProvider(
   env: NodeJS.ProcessEnv,
   overrides?: { fetchImpl?: typeof fetch },
 ): AiProvider {
@@ -64,6 +93,8 @@ export function createAiProvider(
       model: env.OPENAI_MODEL,
       baseUrl: env.OPENAI_BASE_URL,
       fetchImpl: overrides?.fetchImpl,
+      // Host allowlist parity with the ai-sdk provider (SSRF defense).
+      allowedBaseUrlHosts: csvEnv(env.AI_ALLOWED_BASE_URL_HOSTS),
     });
   }
   return new MockAiProvider();

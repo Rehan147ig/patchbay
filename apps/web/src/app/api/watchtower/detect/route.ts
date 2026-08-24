@@ -1,8 +1,13 @@
+import { z } from "zod";
 import { enqueue, JobType } from "@patchbay/queue";
 import type { NextRequest } from "next/server";
-import { getCorrelationId, jsonError, jsonOk, writeAuditEvent } from "@/lib/api";
+import { getCorrelationId, jsonError, jsonOk, parseBodyBounded, writeAuditEvent } from "@/lib/api";
 import { requireRole } from "@/lib/auth";
 import { assertCsrfToken } from "@/lib/csrf-server";
+
+const detectRequestSchema = z.object({
+  adapterSlugs: z.array(z.string().min(1).max(64)).max(32).optional(),
+});
 
 /**
  * POST /api/watchtower/detect
@@ -15,8 +20,8 @@ export async function POST(request: NextRequest) {
     assertCsrfToken(request);
     const user = await requireRole("ADMIN");
 
-    const body = (await request.json().catch(() => ({}))) as { adapterSlugs?: string[] };
-    const adapterSlugs = Array.isArray(body.adapterSlugs) ? body.adapterSlugs : undefined;
+    const body = await parseBodyBounded(request, detectRequestSchema, 16 * 1024);
+    const adapterSlugs = body.adapterSlugs;
 
     await enqueue(JobType.DETECT_RELEASES, {
       adapterSlugs,

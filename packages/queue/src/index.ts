@@ -8,6 +8,8 @@ import { Queue, type Job, type JobsOptions } from "bullmq";
 import { Redis } from "ioredis";
 import { assertJobPayloadSize, parseRedisUrl } from "./url";
 
+export { assertJobPayloadSize, MAX_JOB_PAYLOAD_BYTES, parseRedisUrl } from "./url";
+
 export const QUEUE_NAME = "remediation";
 
 export const JobType = {

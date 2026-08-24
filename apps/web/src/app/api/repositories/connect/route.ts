@@ -1,13 +1,21 @@
 import { NextRequest } from "next/server";
+import { z } from "zod";
 import { prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import { ActorType, RepositoryProvider, validationFailed } from "@patchbay/domain";
 import { createGitHubAppProviderFromStore } from "@patchbay/git-provider";
 import { getSecretStore } from "@patchbay/env";
-import { getCorrelationId, jsonError, jsonOk, writeAuditEvent } from "@/lib/api";
+import { getCorrelationId, jsonError, jsonOk, parseBodyBounded, writeAuditEvent } from "@/lib/api";
 import { requireRole } from "@/lib/auth";
 import { assertCsrfToken } from "@/lib/csrf-server";
 import { assertRepositoryCapacity, countActiveRepositories } from "@/lib/billing";
+
+const connectRepositorySchema = z.object({
+  installationId: z.number().int().positive(),
+  repositoryFullName: z
+    .string()
+    .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/, "expected 'owner/repo'"),
+});
 
 /**
  * POST /api/repositories/connect
@@ -18,22 +26,9 @@ export async function POST(request: NextRequest) {
   try {
     assertCsrfToken(request);
     const user = await requireRole("MEMBER");
-    const body = (await request.json().catch(() => ({}))) as {
-      installationId?: number;
-      repositoryFullName?: string;
-    };
+    const body = await parseBodyBounded(request, connectRepositorySchema, 16 * 1024);
 
     const { installationId, repositoryFullName } = body;
-    if (!installationId || typeof installationId !== "number" || !repositoryFullName) {
-      throw validationFailed(
-        "installationId (number) and repositoryFullName ('owner/repo') are required",
-      );
-    }
-
-    const [owner, repoName] = repositoryFullName.split("/");
-    if (!owner || !repoName) {
-      throw validationFailed("Invalid repositoryFullName format, expected 'owner/repo'");
-    }
 
     // Verify this installation belongs to the user's organization
     const installation = await prisma.gitHubInstallation.findFirst({

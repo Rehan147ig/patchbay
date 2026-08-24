@@ -1,10 +1,11 @@
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, realpathSync, rmSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { prisma, Prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import { ActorType, PlanStatus, ValidationStatus, logger } from "@patchbay/domain";
 import { resolveFixtureDir } from "@patchbay/repo-analysis";
+import { assertJobPayloadSize } from "@patchbay/queue";
 import {
   createSandboxRunner,
   isAllowedCommand,
@@ -14,6 +15,7 @@ import {
 } from "@patchbay/sandbox-runner";
 import type { Job } from "bullmq";
 import { writeAuditEvent } from "../lib/audit";
+import { assertInstallationBelongsToOrganization } from "../lib/repository-source";
 import { createGitProviderFromEnv } from "@patchbay/git-provider";
 
 /**
@@ -78,6 +80,11 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
   }
   const { validationRunId, remediationPlanId, organizationId, correlationId } = parsed.data;
 
+  // Consumer-side payload re-assertion: the enqueue path enforces the cap, but
+  // a direct Redis writer must not be able to fetch oversized payloads into
+  // worker memory before schema rejection.
+  assertJobPayloadSize(job.data);
+
   const validationRun = await prisma.validationRun.findUnique({
     where: { id: validationRunId },
   });
@@ -98,6 +105,14 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
   });
   if (!plan) {
     throw new Error(`remediation plan not found: ${remediationPlanId}`);
+  }
+
+  // Integrity: the validation run must belong to THIS plan. A mismatched
+  // enqueue would otherwise write this plan's results onto another plan's row.
+  if (validationRun.remediationPlanId !== remediationPlanId) {
+    throw new Error(
+      `validation run ${validationRunId} does not belong to plan ${remediationPlanId}`,
+    );
   }
 
   // Tenant boundary: only the owning org may run validation on this plan.
@@ -176,35 +191,58 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
   const repository = plan.impactAssessment.repository;
   const installationId = installationIdOf(repository.metadata);
   const fixtureDir = fixtureOf(repository.metadata);
-  const provider =
-    repository.provider === "GITHUB" && installationId
-      ? createGitProviderFromEnv({
-          installationId,
-          repositoryFullName: repository.fullName,
-          baseBranch: repository.defaultBranch ?? undefined,
-        })
-      : createGitProviderFromEnv();
+  const isGitHubCheckout = repository.provider === "GITHUB" && Boolean(installationId);
+  if (installationId) {
+    // Tenant boundary: metadata installation ids are only usable when bound to
+    // the repository's own organization (prevents cross-tenant source access).
+    await assertInstallationBelongsToOrganization(
+      installationId,
+      plan.impactAssessment.repository.organizationId,
+    );
+  }
+  const provider = isGitHubCheckout
+    ? createGitProviderFromEnv({
+        // Narrowed by isGitHubCheckout (installation id is a positive integer there).
+        installationId: installationId as number,
+        repositoryFullName: repository.fullName,
+        baseBranch: repository.defaultBranch ?? undefined,
+      })
+    : createGitProviderFromEnv();
 
-  // Checkout repository to a disposable workspace
+  // Checkout repository to a disposable workspace. The commit SHA always comes
+  // from the GitHub API (resolveHeadSha), never from repository metadata.
+  const sha = isGitHubCheckout
+    ? await provider.resolveHeadSha(repository.defaultBranch ?? undefined)
+    : undefined;
   const checkoutResult = await provider.checkout({
     ...(fixtureDir ? { repositoryDir: resolveFixtureDir(fixtureDir) } : {}),
     ...(installationId ? { installationId } : {}),
-    ...(headShaOf(repository.metadata) ? { sha: headShaOf(repository.metadata)! } : {}),
+    ...(sha ? { sha } : {}),
     baseBranch: repository.defaultBranch,
   });
   const workspace = checkoutResult.workspaceDir;
 
   try {
+    // Symlink-hardened workspace boundary: resolve the real workspace path once
+    // (checkout dirs are not symlinks themselves), then verify each patch's
+    // parent directory through realpath so a repo-controlled symlink cannot
+    // redirect writes outside the disposable workspace.
+    const workspaceReal = realpathSync(workspace);
     for (const patch of plan.patches) {
       // Path traversal guard: patch.filePath is derived from repository
       // analysis but treat it as untrusted. Absolute paths and `..`
       // traversal must never escape the disposable workspace.
-      const workspaceAbs = path.resolve(workspace);
-      const target = path.resolve(workspace, patch.filePath);
-      if (target !== workspaceAbs && !target.startsWith(workspaceAbs + path.sep)) {
+      const target = path.resolve(workspaceReal, patch.filePath);
+      if (target !== workspaceReal && !target.startsWith(workspaceReal + path.sep)) {
         throw new Error(`patch file path escapes the validation workspace: ${patch.filePath}`);
       }
       mkdirSync(path.dirname(target), { recursive: true });
+      const parentReal = realpathSync(path.dirname(target));
+      if (parentReal !== workspaceReal && !parentReal.startsWith(workspaceReal + path.sep)) {
+        throw new Error(
+          `patch target resolves outside the validation workspace via symlink: ${patch.filePath}`,
+        );
+      }
       writeFileSync(target, patch.patchedContent, "utf8");
     }
 
@@ -353,10 +391,4 @@ function installationIdOf(metadata: unknown): number | null {
   if (typeof metadata !== "object" || metadata === null) return null;
   const value = (metadata as { installationId?: unknown }).installationId;
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
-}
-
-function headShaOf(metadata: unknown): string | null {
-  if (typeof metadata !== "object" || metadata === null) return null;
-  const value = (metadata as { headSha?: unknown }).headSha;
-  return typeof value === "string" && value.length > 0 ? value : null;
 }

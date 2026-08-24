@@ -88,11 +88,12 @@ async function executeTaskParameter(
   type: string,
   context: ExecuteContext,
 ): Promise<void> {
-  const claimed = await claimTaskParameter(taskId, type);
+  const scope = { organizationId: context.organizationId, taskId, type };
+  const claimed = await claimTaskParameter(scope);
   if (!claimed) return;
 
   const parameter = await prisma.taskParameter.findUnique({
-    where: { taskId_type: { taskId, type } },
+    where: { organizationId_taskId_type: scope },
   });
   if (!parameter) return;
 
@@ -115,7 +116,7 @@ async function executeTaskParameter(
     }
     const input = (parameter.inputJson ?? {}) as Record<string, unknown>;
     const output = await runNpmObservation({ ...input, taskId });
-    await completeTaskParameter(taskId, type, output as never);
+    await completeTaskParameter(scope, output as never);
 
     await writeAuditEvent({
       organizationId: context.organizationId,
@@ -135,7 +136,7 @@ async function executeTaskParameter(
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await failTaskParameter(taskId, type, message);
+    await failTaskParameter(scope, message);
 
     await writeAuditEvent({
       organizationId: context.organizationId,

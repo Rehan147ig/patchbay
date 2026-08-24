@@ -4,7 +4,7 @@ import { prisma, createNotification, NotificationType } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import { ActorType, ScanStatus, logger } from "@patchbay/domain";
 import { analyzeRepository } from "@patchbay/repo-analysis";
-import { enqueue, JobType } from "@patchbay/queue";
+import { assertJobPayloadSize, enqueue, JobType } from "@patchbay/queue";
 import type { Job } from "bullmq";
 import { writeAuditEvent } from "../lib/audit";
 import { resolveRepositorySource } from "../lib/repository-source";
@@ -42,6 +42,9 @@ export interface ScanRepositoryResult {
 }
 
 export async function processScanRepository(job: Job): Promise<ScanRepositoryResult> {
+  // Consumer-side payload re-assertion (enqueue path enforces this too; a
+  // direct Redis writer must not smuggle oversized payloads into memory).
+  assertJobPayloadSize(job.data);
   const parsed = ScanRepositoryJobDataSchema.safeParse(job.data);
   if (!parsed.success) {
     throw new Error(`invalid scan-repository job data: ${parsed.error.message}`);

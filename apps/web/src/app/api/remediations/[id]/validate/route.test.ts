@@ -4,7 +4,7 @@ import { POST } from "./route";
 
 vi.mock("@patchbay/db", () => ({
   prisma: {
-    remediationPlan: { findUnique: vi.fn() },
+    remediationPlan: { findFirst: vi.fn() },
     validationRun: { create: vi.fn() },
     auditEvent: { create: vi.fn() },
     capabilityGate: { findUnique: vi.fn() },
@@ -63,7 +63,7 @@ describe("POST /api/remediations/[id]/validate (WP9 certification gate)", () => 
   });
 
   it("blocks validation when the connector is not certified for VALIDATE", async () => {
-    vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValue(planFor("auth0") as never);
+    vi.mocked(prisma.remediationPlan.findFirst).mockResolvedValue(planFor("auth0") as never);
     const response = await POST(requestWithCsrf(), { params: Promise.resolve({ id: "p-1" }) });
     expect(response.status).toBe(422);
     const body = (await response.json()) as { error: { message: string } };
@@ -73,7 +73,7 @@ describe("POST /api/remediations/[id]/validate (WP9 certification gate)", () => 
   });
 
   it("queues validation for a certified connector", async () => {
-    vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValue(planFor("openai") as never);
+    vi.mocked(prisma.remediationPlan.findFirst).mockResolvedValue(planFor("openai") as never);
     const response = await POST(requestWithCsrf(), { params: Promise.resolve({ id: "p-1" }) });
     expect(response.status).toBe(202);
     expect(prisma.validationRun.create).toHaveBeenCalledWith(
@@ -93,15 +93,10 @@ describe("POST /api/remediations/[id]/validate (WP9 certification gate)", () => 
     });
   });
 
-  it("returns 400 for plans from another organization", async () => {
-    vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValue(
-      planFor("openai", {
-        impactAssessment: {
-          repository: { organizationId: "org-other" },
-          changeEvent: { vendor: { slug: "openai" } },
-        },
-      }) as never,
-    );
+  it("returns 404-style validation failure for plans from another organization", async () => {
+    // Org scoping lives inside the query now, so a foreign plan is simply
+    // never returned by the mocked delegate.
+    vi.mocked(prisma.remediationPlan.findFirst).mockResolvedValue(null as never);
     const response = await POST(requestWithCsrf(), { params: Promise.resolve({ id: "p-1" }) });
     expect(response.status).toBe(422);
     expect(enqueue).not.toHaveBeenCalled();
@@ -109,7 +104,7 @@ describe("POST /api/remediations/[id]/validate (WP9 certification gate)", () => 
 
   it("records SKIPPED and does not enqueue in github-checks-only mode", async () => {
     vi.stubEnv("SANDBOX_VALIDATION_MODE", "github-checks-only");
-    vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValue(planFor("openai") as never);
+    vi.mocked(prisma.remediationPlan.findFirst).mockResolvedValue(planFor("openai") as never);
     vi.mocked(prisma.validationRun.create).mockResolvedValue({
       id: "vr-skipped",
       remediationPlanId: "p-1",

@@ -106,13 +106,20 @@ async function seedTaskParameters(): Promise<void> {
   ];
   for (const product of products) {
     await prisma.taskParameter.upsert({
-      where: { taskId_type: { taskId: product.taskId, type: "PRODUCT_UPDATE" } },
+      where: {
+        organizationId_taskId_type: {
+          organizationId: ORG_ID,
+          taskId: product.taskId,
+          type: "PRODUCT_UPDATE",
+        },
+      },
       update: {
         domain: "NPM",
         status: "PENDING",
         inputJson: { packageName: product.packageName, organizationId: ORG_ID },
       },
       create: {
+        organizationId: ORG_ID,
         taskId: product.taskId,
         type: "PRODUCT_UPDATE",
         domain: "NPM",

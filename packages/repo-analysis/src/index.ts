@@ -15,6 +15,7 @@ export {
   parsePythonManifest,
   parsePyProjectToml,
   parseRequirementsTxt,
+  pythonSyntaxCheck,
 } from "./python";
 export { analyzeSource, collectBindings, rootIdentifier } from "./ast";
 export { collectModuleExports, makeRelativeResolver, resolveRelativeTarget } from "./exports";

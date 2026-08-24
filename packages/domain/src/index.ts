@@ -74,6 +74,7 @@ export type { DependencyFacts, ReleaseMatchOutcome } from "./matching";
 export {
   loginRequestSchema,
   repositoryCreateSchema,
+  repositoryMetadataSchema,
   repositoryScanRequestSchema,
   vendorChangeCreateSchema,
   agentIngestSchema,
@@ -107,6 +108,7 @@ export type { JsonValue as GuardedJsonValue } from "./json-guard";
 export type {
   LoginRequest,
   RepositoryCreateRequest,
+  RepositoryMetadata,
   RepositoryScanRequest,
   VendorChangeCreateRequest,
   AgentIngestRequest,

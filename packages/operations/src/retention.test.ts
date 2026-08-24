@@ -7,6 +7,9 @@ function makePrisma(overrides: Record<string, unknown> = {}) {
       findMany: vi.fn().mockResolvedValue([] as never),
       update: vi.fn().mockResolvedValue({} as never),
     },
+    validationRun: {
+      updateMany: vi.fn().mockResolvedValue({ count: 0 } as never),
+    },
     auditEvent: {
       create: vi.fn().mockResolvedValue({} as never),
     },
@@ -63,5 +66,16 @@ describe("purgeExpiredAgentRuns", () => {
     expect(result).toEqual({ eligible: 0, purged: 0 });
     expect(prisma.agentRun.update).not.toHaveBeenCalled();
     expect(prisma.auditEvent.create).not.toHaveBeenCalled();
+  });
+
+  it("also retires stale validation stdout/stderr on the same window", async () => {
+    const prisma = makePrisma({
+      validationRun: {
+        updateMany: vi.fn().mockResolvedValue({ count: 3 } as never),
+      },
+    });
+    const result = await purgeExpiredAgentRuns(prisma, INPUT);
+    expect(prisma.validationRun.updateMany).toHaveBeenCalledTimes(1);
+    expect(result.purged).toBe(3);
   });
 });

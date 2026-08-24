@@ -42,7 +42,7 @@ describe("connector capability registry", () => {
     }
   });
 
-  it("openai/stripe/twilio/anthropic/aws-sdk/supabase are certified DRAFT_PR; auth0 is PLAN; the rest are ASSESS", () => {
+  it("openai/stripe/twilio/anthropic/aws-sdk/supabase/openai-python are certified DRAFT_PR; auth0 is PLAN; the rest are ASSESS", () => {
     const levelOf = (slug: string): string => getCapability(slug)?.level ?? "none";
     expect(levelOf("openai")).toBe("DRAFT_PR");
     expect(levelOf("stripe")).toBe("DRAFT_PR");
@@ -50,9 +50,11 @@ describe("connector capability registry", () => {
     expect(levelOf("anthropic")).toBe("DRAFT_PR");
     expect(levelOf("aws-sdk")).toBe("DRAFT_PR");
     expect(levelOf("supabase")).toBe("DRAFT_PR");
+    expect(levelOf("openai-python")).toBe("DRAFT_PR");
     expect(levelOf("auth0")).toBe("PLAN");
     const certified = new Set([
       "openai",
+      "openai-python",
       "stripe",
       "twilio",
       "anthropic",
@@ -65,6 +67,18 @@ describe("connector capability registry", () => {
         expect(levelOf(slug), slug).toBe("ASSESS");
       }
     }
+  });
+
+  it("certifies the openai-python kit against the pypi ecosystem and the tree-sitter profile", () => {
+    const entry = getCapability("openai-python");
+    expect(entry).not.toBeNull();
+    expect(entry?.ecosystem).toBe("pypi");
+    expect(entry?.language).toBe("python");
+    expect(entry?.package).toBe("openai");
+    expect(entry?.level).toBe("DRAFT_PR");
+    expect(entry?.validationProfile).toContain("python-tree-sitter-reparse");
+    expect(requireCertified("openai-python", "DRAFT_PR").ok).toBe(true);
+    expect(capabilityAtLeast("openai-python", "VALIDATE")).toBe(true);
   });
 
   it("DRAFT_PR certification requires a sandbox profile and approval policy", () => {
@@ -94,6 +108,7 @@ describe("connector capability registry", () => {
       "anthropic",
       "aws-sdk",
       "openai",
+      "openai-python",
       "stripe",
       "supabase",
       "twilio",
@@ -104,6 +119,7 @@ describe("connector capability registry", () => {
       "auth0",
       "aws-sdk",
       "openai",
+      "openai-python",
       "stripe",
       "supabase",
       "twilio",

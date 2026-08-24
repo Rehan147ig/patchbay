@@ -164,20 +164,17 @@ describe("openai-python-legacy fixture", () => {
     expect(Object.keys(manifest?.dependencies ?? {})).toEqual(
       expect.arrayContaining(["openai", "stripe", "twilio"]),
     );
+    // Legacy repo: openai is pinned below the v1 rewrite.
+    expect(manifest?.dependencies.openai).toBe("openai>=0.27.0,<1.0.0");
 
     const openaiUsages = analysis.usages.filter((u) => u.packageName === "openai");
     expect(openaiUsages.length).toBeGreaterThan(0);
     expect(openaiUsages.some((u) => u.usageType === UsageType.IMPORT)).toBe(true);
-    expect(
-      openaiUsages.some((u) => u.usageType === UsageType.INITIALIZATION && u.symbol === "OpenAI"),
-    ).toBe(true);
-    expect(
-      openaiUsages.some(
-        (u) =>
-          u.usageType === UsageType.METHOD_CALL && u.symbol.includes("chat.completions.create"),
-      ),
-    ).toBe(true);
     expect(openaiUsages.every((u) => u.filePath === "src/chat.py")).toBe(true);
+    // v0 module API: the full attribute chain is indexed as a METHOD_CALL symbol.
+    const legacyCall = openaiUsages.find((u) => u.usageType === UsageType.METHOD_CALL);
+    expect(legacyCall?.symbol).toBe("openai.ChatCompletion.create");
+    expect(legacyCall?.line).toBe(10);
 
     expect(
       analysis.usages.some(

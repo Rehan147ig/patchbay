@@ -23,7 +23,7 @@ It is NOT a generic chatbot, changelog summarizer, or OpenAPI diff dashboard.
 - `packages/billing` - subscription plans/caps, SDK-free Stripe REST client, webhook signature verification
 - `packages/ui` - accessible UI primitives
 - `packages/vendor-connectors` - Stripe/OpenAI/Twilio/Anthropic/AWS SDK/Supabase/Auth0/Generic OpenAPI adapters, connector certification registry
-- `packages/repo-analysis` - TypeScript AST indexing (TS compiler API), Python L1 (web-tree-sitter WASM), graph extractor, integration usage inventory, impact scoring. Python support is detect+assess (L1/L2) only; certified remediations remain Node/TS.
+- `packages/repo-analysis` - TypeScript AST indexing (TS compiler API), Python L1 (web-tree-sitter WASM), graph extractor, integration usage inventory, impact scoring. Python support is detect+assess (L1/L2) plus the certified openai-python draft-PR kit (module-call -> v1-client rewrites with tree-sitter re-parse); all other Python remediation stays plan-only.
 - `packages/remediation-engine` - migration rules, patch generation, remediation plans
 - `packages/policy-engine` - JSON policy definitions, confidence gates, risk classification
 - `packages/git-provider` - GitProvider interface, LocalGitProvider, GitHubProvider (PAT), GitHubAppProvider (App JWT + installation tokens)

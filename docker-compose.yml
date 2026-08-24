@@ -20,16 +20,21 @@ services:
   redis:
     image: redis:7-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
     container_name: patchbay-redis
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-patchbay_dev_only}"]
     ports:
       # 6380 on the host to avoid clashes with other local stacks (6379 is commonly taken).
-      - "6380:6379"
+      # Loopback-only: an unauthenticated queue must never be reachable from the LAN
+      # (a writable queue is a job-injection vector into the worker).
+      - "127.0.0.1:6380:6379"
     volumes:
       - patchbay_redisdata:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", 'redis-cli -a "$$REDIS_PASSWORD" ping | grep PONG']
       interval: 5s
       timeout: 3s
       retries: 10
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-patchbay_dev_only}
 
 volumes:
   patchbay_pgdata:

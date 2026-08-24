@@ -83,7 +83,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         excerpt: usageExcerpt(usage),
       }));
 
-      const result = generatePlan({
+      const result = await generatePlan({
         fixtureDir: resolveFixtureDir(fixture),
         repositoryName: assessment.repository.name,
         usages,

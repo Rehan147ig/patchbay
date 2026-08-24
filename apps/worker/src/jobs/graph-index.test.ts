@@ -19,6 +19,7 @@ vi.mock("@patchbay/db", async () => {
       graphEdge: { findMany: vi.fn(), createMany: vi.fn() },
       graphSourceEvidence: { findMany: vi.fn(), createMany: vi.fn() },
       vendor: { findMany: vi.fn() },
+      gitHubInstallation: { findUnique: vi.fn() },
       $transaction: vi.fn(),
     },
     pruneGraphSnapshots: vi.fn(),
@@ -414,6 +415,13 @@ describe("processGraphIndex incremental wiring (WP5)", () => {
       defaultBranch: "main",
       metadata: { installationId: 42, externalId: "github:1" },
     } as never);
+    vi.mocked(
+      (
+        prisma as unknown as {
+          gitHubInstallation: { findUnique: (args: unknown) => Promise<unknown> };
+        }
+      ).gitHubInstallation.findUnique,
+    ).mockResolvedValue({ organizationId: "org-1" } as never);
     vi.mocked(prisma.graphIndexJob.findUnique).mockResolvedValue({
       id: "job-1",
       repositoryId: "repo-1",

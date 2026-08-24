@@ -84,7 +84,7 @@ describe("H2 fixture corpus (replay CI gate)", () => {
       const connector = getConnector(entry.vendor);
       if (!connector) throw new Error(`no connector registered for corpus vendor ${entry.vendor}`);
       const suggestions = suggestionsFor(connector, entry.payload);
-      const plan = generatePlan({
+      const plan = await generatePlan({
         fixtureDir: path.resolve(OPENAI_FIXTURE, "..", entry.fixture),
         repositoryName: entry.fixture,
         usages: analysis.usages as AnalyzedUsage[],

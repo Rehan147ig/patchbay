@@ -5,7 +5,7 @@ import { GET, POST } from "./route";
 
 vi.mock("@patchbay/db", () => ({
   prisma: {
-    capabilityGate: { findMany: vi.fn(), upsert: vi.fn() },
+    capabilityGate: { findMany: vi.fn(), findUnique: vi.fn(), upsert: vi.fn() },
     auditEvent: { create: vi.fn() },
   },
   withOrgContext: (client: never) => client,
@@ -37,6 +37,8 @@ describe("POST /api/capability-gates", () => {
       id: "u-admin",
       organizationId: "org-acme",
     } as never);
+    // No prior gate row: every write below is a real transition.
+    vi.mocked(prisma.capabilityGate.findUnique).mockResolvedValue(null as never);
     vi.mocked(prisma.capabilityGate.upsert).mockResolvedValue({
       id: "gate-1",
       status: "SUSPENDED",

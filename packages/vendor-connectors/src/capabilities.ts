@@ -26,7 +26,7 @@ export const CAPABILITY_LEVEL_INDEX: Record<CapabilityLevel, number> = {
   DRAFT_PR: 4,
 };
 
-export type CapabilityEcosystem = "npm" | "openapi" | "github-releases";
+export type CapabilityEcosystem = "npm" | "pypi" | "openapi" | "github-releases";
 export type PolicyClass = "PLAN_ONLY" | "APPROVAL_REQUIRED" | "REVIEW_REQUIRED";
 
 /** Corpus metrics proving the certified level (WP9 certification kit). */
@@ -105,7 +105,14 @@ const H8_CORPUS: EvalCorpusRef = {
 };
 
 /** Certified L3 connectors and their full kit. */
-function certified(slug: string, pkg: string, level: CapabilityLevel): ConnectorCapability {
+function certified(
+  slug: string,
+  pkg: string,
+  level: CapabilityLevel,
+  overrides: Partial<
+    Pick<ConnectorCapability, "ecosystem" | "language" | "validationProfile">
+  > = {},
+): ConnectorCapability {
   return {
     vendorSlug: slug,
     ecosystem: "npm",
@@ -118,6 +125,7 @@ function certified(slug: string, pkg: string, level: CapabilityLevel): Connector
     requiredPolicyClass: "APPROVAL_REQUIRED",
     corpus: H8_CORPUS,
     certifiedAt: CERTIFIED_AT,
+    ...overrides,
   };
 }
 
@@ -127,6 +135,11 @@ function certified(slug: string, pkg: string, level: CapabilityLevel): Connector
  */
 export const CAPABILITY_REGISTRY: readonly ConnectorCapability[] = [
   certified("openai", "openai", "DRAFT_PR"),
+  certified("openai-python", "openai", "DRAFT_PR", {
+    ecosystem: "pypi",
+    language: "python",
+    validationProfile: "python-tree-sitter-reparse + container-sandbox",
+  }),
   certified("stripe", "stripe", "DRAFT_PR"),
   certified("twilio", "twilio", "DRAFT_PR"),
   certified("anthropic", "@anthropic-ai/sdk", "DRAFT_PR"),

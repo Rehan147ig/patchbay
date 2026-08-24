@@ -83,7 +83,16 @@ describe("H8 per-entry cases", () => {
   it("an unmixed set of vendors exercises connectors end to end", async () => {
     const vendors = new Set(EVAL_CORPUS.map((entry) => entry.vendor));
     expect(vendors).toEqual(
-      new Set(["openai", "stripe", "twilio", "auth0", "anthropic", "aws-sdk", "supabase"]),
+      new Set([
+        "openai",
+        "openai-python",
+        "stripe",
+        "twilio",
+        "auth0",
+        "anthropic",
+        "aws-sdk",
+        "supabase",
+      ]),
     );
   });
 
@@ -129,7 +138,15 @@ describe("certified DRAFT_PR patch coverage gate (CI)", () => {
     const checks = await checkCertifiedPatchCoverage();
     const draftPr = checks.filter((check) => check.certifiedDraftPr);
     expect(draftPr.map((check) => check.connector)).toEqual(
-      expect.arrayContaining(["openai", "stripe", "twilio", "anthropic", "aws-sdk", "supabase"]),
+      expect.arrayContaining([
+        "openai",
+        "openai-python",
+        "stripe",
+        "twilio",
+        "anthropic",
+        "aws-sdk",
+        "supabase",
+      ]),
     );
     expect(draftPr.length).toBeGreaterThan(0);
     for (const check of draftPr) {

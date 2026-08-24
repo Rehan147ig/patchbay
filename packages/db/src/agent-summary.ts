@@ -50,6 +50,21 @@ export function agentVerdictFromRun(outputJson: unknown): AgentVerdictSummary | 
   return { editCount, approved, confidence, reviewSummary };
 }
 
+/**
+ * Neutralizes markdown structure from model-authored text before it is
+ * embedded in a PR body: headings, lists, links, and images from an injected
+ * summary must not render as trusted content.
+ */
+function escapeMarkdown(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => line.replace(/^[>#*\-+]+\s*/, ""))
+    .join("\n")
+    .replace(/\[/g, "\\[")
+    .replace(/\]/g, "\\]")
+    .replace(/</g, "&lt;");
+}
+
 /** Markdown block appended to a draft PR body when an agent verdict exists. */
 export function agentBodySection(verdict: AgentVerdictSummary): string {
   const lines: string[] = ["", "## Agent review"];
@@ -62,6 +77,8 @@ export function agentBodySection(verdict: AgentVerdictSummary): string {
       `- Independent agent review ${verdict.approved ? "approved" : "did not approve"}${confidence}.`,
     );
   }
-  if (verdict.reviewSummary !== null) lines.push(`- ${verdict.reviewSummary}`);
+  if (verdict.reviewSummary !== null) {
+    lines.push(`- ${escapeMarkdown(verdict.reviewSummary)}`);
+  }
   return lines.join("\n");
 }

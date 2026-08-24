@@ -34,7 +34,7 @@ import {
   getConnector,
   type CapabilityLevel,
 } from "@patchbay/vendor-connectors";
-import { generatePlan, reparseCheck } from "./engine";
+import { generatePlan, validatePatchSyntax } from "./engine";
 import type { PlanDraft } from "./types";
 
 export interface EvalCorpusEntry {
@@ -141,6 +141,41 @@ export const EVAL_CORPUS: EvalCorpusEntry[] = [
     releaseVersion: "4.0.0",
     previousVersion: "3.3.0",
     payload: { fromVersion: "3.x", toVersion: "4.x" },
+    expectedMatched: false,
+    expectedFiles: [],
+    facts: { breaking: false, requiresHumanReview: false, riskTags: [] },
+    expectedDecision: PolicyDecision.ALLOW_PLAN_ONLY,
+  },
+  {
+    id: "openai-python-0.28.1",
+    vendor: "openai-python",
+    fixture: "openai-python-legacy",
+    packageName: "openai",
+    releaseVersion: "0.28.1",
+    previousVersion: "0.28.0",
+    payload: {
+      sdk: "openai-python",
+      fromVersion: "0.x",
+      toVersion: "1.x",
+      migration: {
+        methodRenames: [
+          { from: "openai.ChatCompletion.create", to: "client.chat.completions.create" },
+        ],
+      },
+    },
+    expectedMatched: true,
+    expectedFiles: ["src/chat.py"],
+    facts: { breaking: true, requiresHumanReview: true, riskTags: [] },
+    expectedDecision: PolicyDecision.REQUIRE_APPROVAL,
+  },
+  {
+    id: "openai-python-1.0.0",
+    vendor: "openai-python",
+    fixture: "openai-python-legacy",
+    packageName: "openai",
+    releaseVersion: "1.0.0",
+    previousVersion: "0.28.1",
+    payload: { sdk: "openai-python", fromVersion: "0.x", toVersion: "1.x" },
     expectedMatched: false,
     expectedFiles: [],
     facts: { breaking: false, requiresHumanReview: false, riskTags: [] },
@@ -304,15 +339,40 @@ export const EVAL_CORPUS: EvalCorpusEntry[] = [
   },
 ];
 
+/**
+ * Extracts a semver-admissible range from a stored dependency value. npm
+ * manifests hold bare ranges ("^3.3.0"); python manifests keep the raw PEP 508
+ * requirement ("openai>=0.27.0,<1.0.0", extras/markers included), so the
+ * package-name prefix, extras, and environment markers are stripped here.
+ */
+function declaredRangeOf(raw: string | undefined, packageName: string): string | null {
+  if (raw === undefined) return null;
+  let value = raw.split(";")[0]?.trim() ?? "";
+  if (value.startsWith(packageName)) {
+    value = value
+      .slice(packageName.length)
+      .replace(/^\s*\[[^\]]*\]/, "")
+      .trim();
+  }
+  // PEP 508 composes clauses with commas; the semver helper expects AND via spaces.
+  value = value.replace(/,/g, " ").trim();
+  return value.length > 0 ? value : null;
+}
+
 function fixturedDependency(
   analysis: RepositoryAnalysis,
   packageName: string,
 ): { declaredRange: string | null; resolvedVersion: string } {
   const primaryManifest = [...analysis.manifests].sort((a, b) => a.path.localeCompare(b.path))[0];
+  const primaryPythonManifest = [...analysis.pythonManifests].sort((a, b) =>
+    a.path.localeCompare(b.path),
+  )[0];
   const declaredRange =
-    primaryManifest?.dependencies[packageName] ??
-    primaryManifest?.devDependencies[packageName] ??
-    null;
+    declaredRangeOf(primaryManifest?.dependencies[packageName], packageName) ??
+    declaredRangeOf(primaryManifest?.devDependencies[packageName], packageName) ??
+    // Python-only fixtures carry no package.json; fall back to pyproject/requirements.
+    declaredRangeOf(primaryPythonManifest?.dependencies[packageName], packageName) ??
+    declaredRangeOf(primaryPythonManifest?.devDependencies[packageName], packageName);
   return { declaredRange, resolvedVersion: analysis.lockfileVersions[packageName] ?? "" };
 }
 
@@ -337,7 +397,7 @@ export async function runEvalCase(entry: EvalCorpusEntry): Promise<EvalCaseResul
   });
   const suggestions = connector.buildPatchSuggestions(normalizations);
 
-  const plan: PlanDraft = generatePlan({
+  const plan: PlanDraft = await generatePlan({
     fixtureDir: resolveFixtureDir(entry.fixture),
     repositoryName: entry.fixture,
     usages: analysis.usages,
@@ -347,7 +407,7 @@ export async function runEvalCase(entry: EvalCorpusEntry): Promise<EvalCaseResul
   });
 
   const validationPassed = plan.patches.every((patch) =>
-    reparseCheck(patch.filePath, patch.patched),
+    validatePatchSyntax(patch.filePath, patch.patched),
   );
 
   const decision = evaluatePolicy({

@@ -12,7 +12,7 @@ import {
   unauthorized,
 } from "@patchbay/domain";
 import { getSecretStore } from "@patchbay/env";
-import { getCorrelationId, jsonError, jsonOk, writeAuditEvent } from "@/lib/api";
+import { getCorrelationId, jsonError, jsonOk, readBoundedBody, writeAuditEvent } from "@/lib/api";
 import { verifyGitHubWebhookSignature } from "@/lib/github-webhook";
 import { isAllowedPullRequestTransition, resolveNextPullRequestStatus } from "@/lib/pr-status";
 import { enqueue, JobType } from "@patchbay/queue";
@@ -62,15 +62,17 @@ const PushPayloadSchema = z.object({
   ),
 });
 
-/** Replays of an identical payload inside this window are dropped. */
-const REPLAY_WINDOW_MS = 10 * 60 * 1000;
+/** Replays of an identical payload are dropped atomically via the unique payloadHash. */
+const MAX_WEBHOOK_BODY_BYTES = 5 * 1024 * 1024;
 
 export async function POST(request: NextRequest): Promise<Response> {
   const correlationId = getCorrelationId(request);
   const deliveryId = request.headers.get("x-github-delivery") ?? "";
   const event = request.headers.get("x-github-event") ?? "";
   const signature = request.headers.get("x-hub-signature-256") ?? "";
-  const payload = await request.text();
+  // Hard streamed byte cap BEFORE buffering/HMAC: this endpoint is
+  // unauthenticated, so an oversized body must never be fully read.
+  const payload = await readBoundedBody(request, MAX_WEBHOOK_BODY_BYTES);
 
   const secret = (await getSecretStore().get("GITHUB_APP_WEBHOOK_SECRET")) ?? "";
   if (!verifyGitHubWebhookSignature(payload, signature, secret)) {
@@ -84,20 +86,9 @@ export async function POST(request: NextRequest): Promise<Response> {
 
   const payloadHash = createHash("sha256").update(payload).digest("hex");
 
-  // Replay window: GitHub retries an event with a NEW delivery ID, so the
-  // unique deliveryId alone cannot catch replays. Drop identical payloads
-  // processed within the window (an attacker replaying a captured delivery
-  // would have to do so inside the window AND with a fresh signature).
-  const recentReplay = await prisma.webhookDelivery.findFirst({
-    where: {
-      payloadHash,
-      receivedAt: { gt: new Date(Date.now() - REPLAY_WINDOW_MS) },
-    },
-    select: { id: true },
-  });
-  if (recentReplay) {
-    return jsonOk({ received: true, deliveryId, event, duplicate: true }, correlationId);
-  }
+  // Replay dedupe is atomic insert-first: the unique deliveryId and the unique
+  // payloadHash constraints each reject replays (a replay reuses one or both),
+  // so concurrent duplicates cannot slip through a find-then-create race.
 
   const receipt = await prisma.webhookDelivery
     .create({

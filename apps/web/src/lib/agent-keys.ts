@@ -15,6 +15,13 @@ const ARGON2_OPTIONS = {
   parallelism: 1,
 };
 
+/**
+ * Legacy sha256 verification has a hard deadline: after this date a legacy
+ * hash no longer authenticates anything and the vendor MUST be re-keyed by an
+ * ADMIN. Fast-offline-crackable hashes cannot stay valid forever.
+ */
+export const LEGACY_AGENT_KEY_HASH_CUTOFF = new Date("2026-12-31T23:59:59Z");
+
 export async function hashAgentKey(key: string): Promise<string> {
   return argon2Hash(key, ARGON2_OPTIONS);
 }
@@ -23,9 +30,16 @@ export function generateAgentKey(): string {
   return `pb_agent_${randomBytes(24).toString("base64url")}`;
 }
 
-export async function verifyAgentKey(provided: string, storedHash: string): Promise<boolean> {
+export async function verifyAgentKey(
+  provided: string,
+  storedHash: string,
+  options: { now?: Date } = {},
+): Promise<boolean> {
   if (storedHash.startsWith("$argon2id$")) {
     return argon2Verify(storedHash, provided);
+  }
+  if ((options.now ?? new Date()).getTime() > LEGACY_AGENT_KEY_HASH_CUTOFF.getTime()) {
+    return false;
   }
   return verifyLegacySha256(provided, storedHash);
 }

@@ -17,6 +17,9 @@ vi.mock("@patchbay/db", () => ({
     agentRun: {
       findFirst: vi.fn(),
     },
+    gitHubInstallation: {
+      findUnique: vi.fn(),
+    },
     remediationCase: {
       update: vi.fn(),
     },
@@ -60,6 +63,9 @@ vi.mock("@patchbay/repo-analysis", () => ({
 describe("processCreatePR", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(prisma.gitHubInstallation.findUnique).mockResolvedValue({
+      organizationId: "org-1",
+    } as never);
   });
 
   const validJobData: CreatePRJobData = {

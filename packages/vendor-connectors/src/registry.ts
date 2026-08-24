@@ -32,6 +32,7 @@ import { nextAuthConnector } from "./connectors/next-auth";
 import { nextConnector } from "./connectors/next";
 import { oktaConnector } from "./connectors/okta";
 import { openaiConnector } from "./connectors/openai";
+import { openaiPythonConnector } from "./connectors/openai-python";
 import { passportConnector } from "./connectors/passport";
 import { paypalConnector } from "./connectors/paypal";
 import { plaidConnector } from "./connectors/plaid";
@@ -61,6 +62,7 @@ import type { VendorConnector } from "./types";
 export const connectors: readonly VendorConnector[] = [
   // Core (original)
   openaiConnector,
+  openaiPythonConnector,
   stripeConnector,
   auth0Connector,
   twilioConnector,
