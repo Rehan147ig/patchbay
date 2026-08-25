@@ -2,8 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import { ActorType } from "@patchbay/domain";
+import { countActiveRepositories, getEffectivePlan } from "@/lib/billing";
+import { repositoryCapacity } from "@patchbay/billing";
+import { enqueue, JobType } from "@patchbay/queue";
 import { requireUser } from "@/lib/auth";
-import { fetchGitHubInstallationInfoFromStore } from "@patchbay/git-provider";
+import {
+  fetchGitHubInstallationInfoFromStore,
+  listInstallationRepositoriesFromStore,
+} from "@patchbay/git-provider";
 import { getSecretStore } from "@patchbay/env";
 import { writeAuditEvent } from "@/lib/api";
 import { GITHUB_INSTALL_STATE_COOKIE, verifyGitHubInstallState } from "@/lib/github-install-state";
@@ -16,8 +22,13 @@ import { GITHUB_INSTALL_STATE_COOKIE, verifyGitHubInstallState } from "@/lib/git
  * it is created (never re-bound) atomically and audited. A concurrent admin of
  * a different org completing the same NEW installation loses the race cleanly
  * via the unique constraint instead of stealing the binding through upsert.
+ *
+ * PLG activation (#7): on FIRST binding, auto-registers every repository the
+ * installation can access (respecting plan capacity) and enqueues an initial
+ * scan for each — the dashboard is already working when the user lands.
  */
 export async function GET(request: NextRequest) {
+  const correlationId = crypto.randomUUID();
   try {
     const user = await requireUser();
     const installationIdStr = request.nextUrl.searchParams.get("installation_id");
@@ -55,6 +66,7 @@ export async function GET(request: NextRequest) {
     }
     const info = await fetchGitHubInstallationInfoFromStore(installationId, getSecretStore());
 
+    let registeredCount = 0;
     if (!existing) {
       try {
         await prisma.gitHubInstallation.create({
@@ -81,13 +93,80 @@ export async function GET(request: NextRequest) {
         action: AuditAction.GITHUB_INSTALLATION_SYNCED,
         entityType: "gitHubInstallation",
         entityId: String(installationId),
-        correlationId: crypto.randomUUID(),
+        correlationId,
         after: {
           accountLogin: info.accountLogin,
           repositorySelection: info.repositorySelection,
           bound: true,
         },
       });
+
+      // PLG activation: auto-register accessible repos (capacity-respecting)
+      // and enqueue initial scans so the dashboard is alive immediately.
+      const plan = await getEffectivePlan(user.organizationId);
+      const activeCount = await countActiveRepositories(user.organizationId);
+      const capacityResult = repositoryCapacity(plan.tier, activeCount);
+      const remaining = capacityResult.remaining ?? 0;
+      if (remaining > 0) {
+        try {
+          const repos = await listInstallationRepositoriesFromStore(
+            installationId,
+            getSecretStore(),
+          );
+          for (const repo of repos.slice(0, remaining)) {
+            const created = await prisma.repository.upsert({
+              where: {
+                organizationId_externalId: {
+                  organizationId: user.organizationId,
+                  externalId: repo.externalId,
+                },
+              },
+              update: { metadata: { installationId, provider: "GITHUB" } },
+              create: {
+                organizationId: user.organizationId,
+                externalId: repo.externalId,
+                name: repo.fullName.split("/")[1] ?? repo.fullName,
+                fullName: repo.fullName,
+                provider: "GITHUB",
+                status: "ACTIVE",
+                defaultBranch: repo.defaultBranch || "main",
+                languageProfile: { typescript: true },
+                metadata: { installationId, provider: "GITHUB" },
+              },
+            });
+            const scan = await prisma.repositoryScan.create({
+              data: {
+                organizationId: user.organizationId,
+                repositoryId: created.id,
+                commitSha: "pending",
+                status: "QUEUED",
+              },
+            });
+            await enqueue(JobType.SCAN_REPOSITORY, {
+              repositoryId: created.id,
+              scanId: scan.id,
+              correlationId,
+            });
+            registeredCount += 1;
+          }
+          await writeAuditEvent({
+            organizationId: user.organizationId,
+            actorType: ActorType.USER,
+            actorId: user.id,
+            action: AuditAction.GITHUB_INSTALLATION_SYNCED,
+            entityType: "gitHubInstallation",
+            entityId: String(installationId),
+            correlationId,
+            after: {
+              autoRegistered: registeredCount,
+              availableRepos: repos.length,
+              capacityCap: capacityResult.cap,
+            },
+          });
+        } catch {
+          // Best-effort activation: manual connect remains available.
+        }
+      }
     } else {
       await prisma.gitHubInstallation.update({
         where: { installationId },

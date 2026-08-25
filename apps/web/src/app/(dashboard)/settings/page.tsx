@@ -33,6 +33,7 @@ import { getEffectivePlan } from "@/lib/billing";
 import { isLegacyAgentKeyHash } from "@/lib/agent-keys";
 import { BillingActions } from "@/components/billing-actions";
 import { CapabilityGateControl } from "@/components/capability-gate-control";
+import { PrivateVendorForm } from "@/components/private-vendor-form";
 import { VendorAgentKeyControl } from "@/components/vendor-agent-key-control";
 import { formatDate, GATE_STATUS_TONE } from "@/lib/format";
 
@@ -57,7 +58,10 @@ export default async function SettingsPage({
   const user = await requireUser();
   const [organization, vendors, plan, activeRepositories, capabilityGates] = await Promise.all([
     prisma.organization.findUnique({ where: { id: user.organizationId } }),
-    prisma.vendor.findMany({ orderBy: { name: "asc" } }),
+    prisma.vendor.findMany({
+      where: { OR: [{ organizationId: null }, { organizationId: user.organizationId }] },
+      orderBy: [{ organizationId: "asc" }, { name: "asc" }],
+    }),
     getEffectivePlan(user.organizationId),
     prisma.repository.count({ where: { organizationId: user.organizationId, status: "ACTIVE" } }),
     prisma.capabilityGate.findMany({
@@ -144,18 +148,27 @@ export default async function SettingsPage({
               </button>
             </form>
             <p className="mb-3 text-xs text-ink-400">
-              Catalog membership ≠ auto-PR. DRAFT_PR requires a live certification kit.
+              Catalog membership ≠ auto-PR. DRAFT_PR requires a live certification kit. Entries with
+              a{" "}
+              <Badge tone="purple" className="mx-0.5">
+                private
+              </Badge>{" "}
+              badge are your organization&apos;s internal SDKs — invisible to other tenants.
             </p>
             <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {visibleVendors.map((vendor) => {
                 const capability = getCapability(vendor.slug);
+                const isPrivate = vendor.organizationId !== null;
                 return (
                   <li
                     key={vendor.id}
                     className="flex items-center justify-between rounded-xl border border-ink-700 bg-ink-800/50 p-4 transition-all hover:border-ink-600"
                   >
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-white">{vendor.name}</p>
+                      <p className="flex items-center gap-2 truncate text-sm font-medium text-white">
+                        {vendor.name}
+                        {isPrivate ? <Badge tone="purple">private</Badge> : null}
+                      </p>
                       <p className="text-xs text-ink-400">{vendor.category}</p>
                     </div>
                     <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
@@ -192,6 +205,18 @@ export default async function SettingsPage({
                 <li className="py-2 text-sm text-ink-400">No vendors certified at this level.</li>
               ) : null}
             </ul>
+            {user.role === "ADMIN" ? (
+              <div className="mt-4 rounded-xl border border-dashed border-ink-700 bg-ink-800/30 p-4">
+                <p className="mb-1 text-sm font-semibold text-gray-100">
+                  Register internal SDK (private vendor)
+                </p>
+                <p className="mb-3 text-xs text-ink-400">
+                  Private vendors are visible only inside your organization and can ingest change
+                  events through their own agent key.
+                </p>
+                <PrivateVendorForm />
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       </div>

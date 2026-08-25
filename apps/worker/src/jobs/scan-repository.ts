@@ -92,7 +92,13 @@ export async function processScanRepository(job: Job): Promise<ScanRepositoryRes
     const source = await resolveRepositorySource(repository);
     try {
       const rootDir = source.rootDir;
-      const vendors = await prisma.vendor.findMany({ where: { enabled: true } });
+      const vendors = await prisma.vendor.findMany({
+        where: {
+          enabled: true,
+          // Shared catalog entries + THIS organization's private SDK vendors.
+          OR: [{ organizationId: null }, { organizationId: organizationId }],
+        },
+      });
       const vendorIdByPackage = new Map<string, string>();
       for (const vendor of vendors) {
         vendorIdByPackage.set(vendor.slug, vendor.id);

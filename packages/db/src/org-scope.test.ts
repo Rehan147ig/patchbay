@@ -40,10 +40,18 @@ describe("org-scope drift guard", () => {
   });
 
   it("exempts exactly the models that must not be auto-scoped", () => {
-    const expected = modelsWithOrganizationId.filter(
-      (name) => !(ORG_SCOPED_MODELS as readonly string[]).includes(name),
-    );
-    expect([...ORG_SCOPE_EXEMPT_MODELS].sort()).toEqual(expected.sort());
+    // Vendor is intentionally exempt: it is a MIXED model (shared catalog +
+    // per-org private SDKs) and cannot be blanket-scoped without hiding the
+    // shared catalog. All vendor queries scope explicitly at their call sites.
+    const expected = [...ORG_SCOPE_EXEMPT_MODELS].sort();
+    expect(expected).toEqual(["User", "Vendor", "WebhookDelivery"]);
+    // Every exempt model must actually have organizationId in the schema.
+    for (const name of expected) {
+      expect(
+        modelsWithOrganizationId.includes(name),
+        `${name} is exempt but has no organizationId column`,
+      ).toBe(true);
+    }
   });
 });
 

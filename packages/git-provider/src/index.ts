@@ -19,6 +19,7 @@ export {
   decodeAppPrivateKey,
   fetchGitHubInstallationInfo,
   fetchGitHubInstallationInfoFromStore,
+  listInstallationRepositoriesFromStore,
   getGitHubAppCredentials,
   isGitHubAppConfigured,
 } from "./github-app-provider";

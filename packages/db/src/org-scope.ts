@@ -53,7 +53,13 @@ export type OrgScopedModel = (typeof ORG_SCOPED_MODELS)[number];
  * auto-scoped: User identity is bound by the session, not tenant queries;
  * WebhookDelivery is a global receiver whose org is resolved per delivery.
  */
-export const ORG_SCOPE_EXEMPT_MODELS = ["User", "WebhookDelivery"] as const;
+/**
+ * Vendor is a MIXED model: shared catalog rows (organizationId = NULL) plus
+ * per-organization private SDK registrations. Auto-scoping would hide the
+ * global catalog from every tenant, so Vendor is exempt and all vendor reads
+ * explicitly filter `organizationId IN {NULL, caller-org}` at their call sites.
+ */
+export const ORG_SCOPE_EXEMPT_MODELS = ["User", "WebhookDelivery", "Vendor"] as const;
 
 /** Prisma delegate property names are lower-camel (auditEvent), model names PascalCase. */
 function delegateKeyOf(model: string): string {

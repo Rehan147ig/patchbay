@@ -322,6 +322,7 @@ model Organization {
   capabilityGates        CapabilityGate[]
   notifications          Notification[]
   taskParameters         TaskParameter[]
+  vendors                Vendor[]
   subscription           Subscription?
 }
 
@@ -494,13 +495,18 @@ model RepositoryScan {
 
 model Vendor {
   id String @id @default(uuid())
+  /// Globally unique across catalog + private vendors today. Cross-org
+  /// duplicate private slugs are a documented deferral (partial-index split).
   slug    String  @unique
   name    String
   category String
   docsUrl String?
   enabled Boolean @default(true)
-  /** Owning organization; required once provider-agent mode is enabled. */
+  /** Owning organization; required once provider-agent mode is enabled. Null = shared catalog entry. */
   organizationId String?
+  /// Private-vendor owner (null for shared catalog entries). Cascade: an
+  /// organization's internal SDK registrations die with the organization.
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   /**
    * argon2id hash of the current agent API key (legacy sha256 hex hashes are
    * verified during the migration window until the key is rotated).
