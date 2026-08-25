@@ -50,7 +50,7 @@ describe("validateAdapterCursor", () => {
     expect(validateAdapterCursor("npm:openai", ["etag"])).toContain("cursor must be a JSON object");
   });
 
-  it("validates npm cursor shape", () => {
+  it("validates npm cursor shape (missing fields allowed, wrong types rejected)", () => {
     expect(
       validateAdapterCursor("npm:openai", {
         etag: '"x"',
@@ -58,11 +58,10 @@ describe("validateAdapterCursor", () => {
         seenVersions: ["4.8.1"],
       }),
     ).toEqual([]);
+    // Missing fields are fine: adapters normalize with safe defaults.
+    expect(validateAdapterCursor("npm:openai", { etag: '"x"' })).toEqual([]);
     expect(validateAdapterCursor("npm:openai", { etag: 42, latestVersion: "4.8.1" })).toEqual(
-      expect.arrayContaining([
-        "npm cursor requires string etag",
-        "npm cursor requires seenVersions (string[])",
-      ]),
+      expect.arrayContaining(["npm cursor etag must be a string|null when present"]),
     );
   });
 
@@ -74,9 +73,12 @@ describe("validateAdapterCursor", () => {
         latestPublishedAt: "2026-08-01T00:00:00Z",
       }),
     ).toEqual([]);
-    expect(validateAdapterCursor("github-releases:stripe", { etag: null })).toContain(
-      "github cursor requires string etag",
+    expect(validateAdapterCursor("github-releases:stripe", { etag: null })).toEqual([]);
+    expect(validateAdapterCursor("github-releases:stripe", { etag: 42 })).toContain(
+      "github cursor etag must be a string|null when present",
     );
+    // Legacy-cursor tolerance regression: missing fields must never violate.
+    expect(validateAdapterCursor("github-releases:stripe", { etag: '"legacy"' })).toEqual([]);
   });
 
   it("validates openapi cursor shape", () => {
@@ -88,7 +90,8 @@ describe("validateAdapterCursor", () => {
       }),
     ).toEqual([]);
     expect(validateAdapterCursor("openapi:stripe", { etag: '"x"', lastContentHash: 7 })).toContain(
-      "openapi cursor requires lastContentHash (string|null)",
+      "openapi cursor lastContentHash must be string|null when present",
     );
+    expect(validateAdapterCursor("openapi:stripe", { etag: '"legacy"' })).toEqual([]);
   });
 });

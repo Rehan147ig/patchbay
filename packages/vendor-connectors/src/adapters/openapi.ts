@@ -146,9 +146,11 @@ export function createOpenAPIAdapter(vendorSlug: string, specUrl: string): Watch
 export function createOpenAPIAdapters(): WatchtowerAdapter[] {
   // Stripe publishes its canonical spec in the stripe/openapi repo; the
   // api.stripe.com/openapi path does not exist (404). JSON variant chosen so
-  // JSON.parse works without a YAML dependency.
+  // JSON.parse works without a YAML dependency. /HEAD/ resolves to the
+  // default branch without a redirect (raw 302s are hard-rejected by the
+  // trust profile), so branch renames like master->main cannot break polls.
   const specs: Record<string, string> = {
-    stripe: "https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.json",
+    stripe: "https://raw.githubusercontent.com/stripe/openapi/HEAD/openapi/spec3.json",
   };
   return Object.entries(specs).map(([vendor, url]) => createOpenAPIAdapter(vendor, url));
 }

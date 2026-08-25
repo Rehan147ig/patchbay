@@ -138,14 +138,23 @@ function cloneRepository(repositoryId: string, rawUrl: string): RepositorySource
   if (parsed.protocol !== "https:" || parsed.hostname !== "github.com") {
     throw new Error(`repository ${repositoryId} cloneUrl must be an https://github.com URL`);
   }
+  // Non-default ports would send the clone to whatever listens on
+  // github.com:<port>; only the standard HTTPS port is acceptable.
+  if (parsed.port !== "" && parsed.port !== "443") {
+    throw new Error(`repository ${repositoryId} cloneUrl must use the default https port`);
+  }
   if (parsed.username !== "" || parsed.password !== "") {
     throw new Error(`repository ${repositoryId} cloneUrl must not embed credentials`);
   }
   assertSafeRepoFullName(parsed.pathname.replace(/^\//, "").replace(/\.git$/, ""));
 
+  // Canonicalize: origin + pathname drops query strings, fragments, and any
+  // userinfo/port surprises, so git only ever sees a clean repo URL.
+  const canonicalUrl = `${parsed.origin}${parsed.pathname}`;
+
   const workspace = mkdtempSync(path.join(tmpdir(), "patchbay-clone-"));
   try {
-    runGit(["clone", "--depth", "1", "--single-branch", rawUrl, workspace], {});
+    runGit(["clone", "--depth", "1", "--single-branch", canonicalUrl, workspace], {});
   } catch (error) {
     try {
       rmSync(workspace, { recursive: true, force: true });
@@ -156,7 +165,7 @@ function cloneRepository(repositoryId: string, rawUrl: string): RepositorySource
   }
   return {
     kind: "clone",
-    cloneUrl: rawUrl,
+    cloneUrl: canonicalUrl,
     rootDir: workspace,
     cleanup() {
       rmSync(workspace, { recursive: true, force: true });

@@ -1,12 +1,13 @@
 import { z } from "zod";
 import { prisma, Prisma, storeRawEvidence } from "@patchbay/db";
 import { logger, ActorType } from "@patchbay/domain";
-import { AuditAction } from "@patchbay/audit";
+import { AuditAction, sanitizeText } from "@patchbay/audit";
 import type { Job } from "bullmq";
 import {
   authenticityForSource,
   getWatchtowerAdapters,
   TrustViolationError,
+  trustProfileFor,
   validateAdapterCursor,
   type AdapterCursor,
   type WatchtowerAdapter,
@@ -119,9 +120,24 @@ async function pollAdapter(adapter: WatchtowerAdapter, options: PollOptions): Pr
     const poll = await adapter.fetch(lastCursor ?? {});
     const evidence = poll.evidence.slice(0, options.batchSize);
     let observedCount = 0;
+    let failedEvidenceCount = 0;
+    let lastEvidenceError: string | null = null;
     for (const ev of evidence) {
-      await observeEvidence(ev, correlationId);
-      observedCount += 1;
+      // Per-evidence isolation: one bad item (oversized payload, malformed
+      // manifest) must not fail the whole run and roll back already-observed
+      // evidence. Failures are counted and surfaced in the run record.
+      try {
+        await observeEvidence(ev, correlationId, trustProfileFor(adapter.slug).maxResponseBytes);
+        observedCount += 1;
+      } catch (error) {
+        failedEvidenceCount += 1;
+        lastEvidenceError = describeError(error);
+        logger.warn("evidence observation failed; continuing", {
+          adapter: adapter.slug,
+          externalId: ev.externalId,
+          error: lastEvidenceError,
+        });
+      }
     }
 
     const latencyMs = Date.now() - startedAt;
@@ -133,6 +149,9 @@ async function pollAdapter(adapter: WatchtowerAdapter, options: PollOptions): Pr
         observedCount,
         latencyMs,
         cursor: poll.cursor as Prisma.InputJsonValue,
+        ...(failedEvidenceCount > 0
+          ? { error: `${failedEvidenceCount} evidence item(s) failed; last: ${lastEvidenceError}` }
+          : {}),
       },
     });
 
@@ -243,7 +262,7 @@ async function rejectRun(
   logger.warn("detection poll rejected", { adapter, runId: run.id, reason, error: message });
 }
 
-async function observeEvidence(ev: WatchtowerEvidence, correlationId: string) {
+async function observeEvidence(ev: WatchtowerEvidence, correlationId: string, maxBytes?: number) {
   // Check if we already hold this release globally (content hash dedupe).
   const existingRelease = await prisma.releaseRecord.findFirst({
     where: {
@@ -267,7 +286,7 @@ async function observeEvidence(ev: WatchtowerEvidence, correlationId: string) {
   // content hash. Same content -> same key -> no duplicate writes.
   let objectStorageKey: string;
   if (ev.rawPayload !== undefined) {
-    const stored = await storeRawEvidence(ev.rawPayload);
+    const stored = await storeRawEvidence(ev.rawPayload, { maxBytes });
     objectStorageKey = stored.key;
   } else {
     objectStorageKey = `evidence/${ev.externalId}.json`;
@@ -375,10 +394,11 @@ export function describeError(error: unknown): string {
         typeof (cursor as NodeJS.ErrnoException).code === "string"
           ? ` [${(cursor as NodeJS.ErrnoException).code}]`
           : "";
-      parts.push(`${cursor.name}${code}: ${cursor.message}`);
+      // Redact BEFORE truncation so a split token cannot remain sensitive.
+      parts.push(sanitizeText(`${cursor.name}${code}: ${cursor.message}`));
       cursor = cursor.cause;
     } else {
-      parts.push(String(cursor));
+      parts.push(sanitizeText(String(cursor)));
       break;
     }
   }

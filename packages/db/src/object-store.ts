@@ -61,11 +61,15 @@ export interface EvidenceObjectWrite {
  * Store a raw evidence payload. Idempotent: when the object already exists
  * (same hash), nothing is written and `written` is false.
  */
-export async function storeRawEvidence(payload: string): Promise<EvidenceObjectWrite> {
-  if (Buffer.byteLength(payload, "utf8") > MAX_EVIDENCE_PAYLOAD_BYTES) {
-    throw new Error(
-      `evidence payload exceeds the ${MAX_EVIDENCE_PAYLOAD_BYTES} byte cap; refusing to store`,
-    );
+export async function storeRawEvidence(
+  payload: string,
+  options: { maxBytes?: number } = {},
+): Promise<EvidenceObjectWrite> {
+  // Callers may raise the cap to match their fetch profile (e.g. the OpenAPI
+  // watchtower allows 16 MB responses); the default stays conservative.
+  const maxBytes = options.maxBytes ?? MAX_EVIDENCE_PAYLOAD_BYTES;
+  if (Buffer.byteLength(payload, "utf8") > maxBytes) {
+    throw new Error(`evidence payload exceeds the ${maxBytes} byte cap; refusing to store`);
   }
   const hash = contentHashOf(payload);
   const key = objectKeyForHash(hash);

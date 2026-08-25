@@ -363,7 +363,11 @@ function fixturedDependency(
   analysis: RepositoryAnalysis,
   packageName: string,
 ): { declaredRange: string | null; resolvedVersion: string } {
-  const primaryManifest = [...analysis.manifests].sort((a, b) => a.path.localeCompare(b.path))[0];
+  // npm manifests only for the primary slot: Java/Gradle manifests can now
+  // share the manifests array and must never hijack an npm fixture's range.
+  const primaryManifest = analysis.manifests
+    .filter((manifest) => manifest.path.endsWith("package.json"))
+    .sort((a, b) => a.path.localeCompare(b.path))[0];
   const primaryPythonManifest = [...analysis.pythonManifests].sort((a, b) =>
     a.path.localeCompare(b.path),
   )[0];

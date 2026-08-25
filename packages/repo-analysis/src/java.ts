@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import { readFile } from "node:fs/promises";
 import { UsageType } from "@patchbay/domain";
+import { extractDependencyBlocks } from "./lockfile";
 import type { AnalyzedUsage } from "./types";
 
 /**
@@ -84,9 +85,7 @@ export function parseJavaManifest(
     manifest.name = artifactId;
     manifest.version = rawVersion !== null && !rawVersion.startsWith("${") ? rawVersion : null;
 
-    const dependencyBlock = /<dependency>([\s\S]*?)<\/dependency>/g;
-    for (const blockMatch of source.matchAll(dependencyBlock)) {
-      const block = blockMatch[1] ?? "";
+    for (const block of extractDependencyBlocks(source)) {
       const tag = (tag: string): string | null =>
         new RegExp(`<${tag}>([^<]+)</${tag}>`).exec(block)?.[1]?.trim() ?? null;
       const groupId = tag("groupId");
@@ -138,9 +137,12 @@ export async function extractJavaUsages(
 
   // Local variables bound to tracked constructors -> package name.
   const bindings = new Map<string, string>();
+  // Split lines once per file (excerptAt is called per usage; re-splitting the
+  // whole source each time is O(n²) on large files).
+  const sourceLines = source.split("\n");
 
   const excerptAt = (node: TsNode): string => {
-    const line = source.split("\n")[node.startPosition.row] ?? "";
+    const line = sourceLines[node.startPosition.row] ?? "";
     return line.trim().slice(0, 120);
   };
 
@@ -268,24 +270,24 @@ export async function extractJavaUsages(
   walk(tree.rootNode);
   usages.sort((a, b) => a.line - b.line || a.column - b.column);
 
-  // De-duplicate nested method invocations: keep the outermost full chain per line.
-  const seenLines = new Map<number, string>();
+  // De-duplicate nested method invocations: keep the outermost (longest-chain)
+  // usage per line via a single map pass — no O(n²) findIndex rescan.
+  const methodByLine = new Map<number, AnalyzedUsage>();
   const deduped: AnalyzedUsage[] = [];
   for (const usage of usages) {
     if (usage.usageType === UsageType.METHOD_CALL) {
-      const existing = seenLines.get(usage.line);
-      if (existing !== undefined && existing.length >= usage.symbol.length) continue;
-      seenLines.set(usage.line, usage.symbol);
-      const index = deduped.findIndex(
-        (u) => u.line === usage.line && u.usageType === usage.usageType,
-      );
-      if (index >= 0) deduped[index] = usage;
-      else deduped.push(usage);
+      const existing = methodByLine.get(usage.line);
+      if (existing === undefined || usage.symbol.length > existing.symbol.length) {
+        methodByLine.set(usage.line, usage);
+      }
       continue;
     }
     deduped.push(usage);
   }
-  return deduped;
+  const methodCalls = [...methodByLine.values()].sort(
+    (a, b) => a.line - b.line || a.column - b.column,
+  );
+  return [...deduped, ...methodCalls];
 }
 
 /**

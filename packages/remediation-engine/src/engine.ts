@@ -21,7 +21,7 @@ import type { PatchDraft, PlanDraft, PlanInput } from "./types";
 
 const RESPONSE_UNWRAP_PATTERN = /^([A-Za-z_$][\w$]*)\.data$/;
 const PYTHON_FILE = /\.py$/;
-const JAVA_FILE = /\.java$/;
+const JAVA_FILE = /\.java$/i;
 const OPENAI_CLIENT_IMPORT = /^from\s+openai\s+import\s+/m;
 const OPENAI_CLIENT_CONSTRUCTION = /=\s*OpenAI\(/;
 

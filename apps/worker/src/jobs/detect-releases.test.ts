@@ -111,7 +111,9 @@ describe("processDetectReleases", () => {
       expect.objectContaining({ data: expect.objectContaining({ adapter: "npm:openai" }) }),
     );
     // Raw payload is content-addressed before the release row is written.
-    expect(storeRawEvidence).toHaveBeenCalledWith(NPM_EVIDENCE.rawPayload);
+    expect(storeRawEvidence).toHaveBeenCalledWith(NPM_EVIDENCE.rawPayload, {
+      maxBytes: expect.any(Number),
+    });
     expect(prisma.releaseRecord.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({

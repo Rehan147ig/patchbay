@@ -17,6 +17,12 @@ export interface TrustProfile {
   sources: ReleaseSource[];
   /** Exact hostnames the adapter may talk to. Redirects off this list are rejected. */
   allowedDomains: string[];
+  /**
+   * Optional path prefixes on the allowed hostnames (checked against
+   * url.pathname). When set, a URL on an allowed domain with a non-matching
+   * path is rejected — narrows domain-wide trust to the intended content root.
+   */
+  allowedPathPrefixes?: string[];
   /** Whether 3xx responses are permitted; when false they are rejected. */
   allowRedirects: boolean;
   /** Maximum response body size in bytes. */
@@ -72,6 +78,9 @@ export const OPENAPI_TRUST_PROFILE: TrustProfile = {
   adapterPrefix: "openapi:",
   sources: ["OPENAPI"],
   allowedDomains: ["raw.githubusercontent.com"],
+  // Domain-wide raw access would let any future openapi:* adapter URL land on
+  // any org/repo; pin to the intended content roots.
+  allowedPathPrefixes: ["/stripe/openapi/"],
   allowRedirects: false,
   // Real vendor specs are large (stripe spec3.json ~8 MB decompressed); the
   // cap must fit them or every poll of that adapter fails.
@@ -123,6 +132,11 @@ export function authenticityForSource(source: ReleaseSource): TrustProfile["evid
  * replayed into the adapter's next poll, so a malformed cursor (bad JSON from
  * a previous run, DB corruption, or tampering) must fail the run and be
  * audited instead of crashing the worker or polluting adapter state.
+ *
+ * MISSING fields are allowed: adapters normalize their own cursors with safe
+ * defaults (normalizeCursor), which is how genuinely legacy cursors from older
+ * adapter versions self-heal instead of producing a permanent rejection loop.
+ * Only PRESENT-but-wrong-typed fields are violations.
  */
 export function validateAdapterCursor(adapterSlug: string, cursor: unknown): string[] {
   const violations: string[] = [];
@@ -132,38 +146,36 @@ export function validateAdapterCursor(adapterSlug: string, cursor: unknown): str
     return violations;
   }
   const entry = cursor as Record<string, unknown>;
+  const isStringOrNull = (value: unknown): boolean => value === null || typeof value === "string";
   if (adapterSlug.startsWith("npm:")) {
-    if (!("etag" in entry) || typeof entry.etag !== "string") {
-      violations.push("npm cursor requires string etag");
+    if ("etag" in entry && typeof entry.etag !== "string" && entry.etag !== null) {
+      violations.push("npm cursor etag must be a string|null when present");
     }
-    if (
-      !("latestVersion" in entry) ||
-      (entry.latestVersion !== null && typeof entry.latestVersion !== "string")
-    ) {
-      violations.push("npm cursor requires latestVersion (string|null)");
+    if ("latestVersion" in entry && !isStringOrNull(entry.latestVersion)) {
+      violations.push("npm cursor latestVersion must be string|null when present");
     }
-    if (!("seenVersions" in entry) || !Array.isArray(entry.seenVersions)) {
-      violations.push("npm cursor requires seenVersions (string[])");
+    if ("seenVersions" in entry && !Array.isArray(entry.seenVersions)) {
+      violations.push("npm cursor seenVersions must be an array when present");
     }
   } else if (adapterSlug.startsWith("github-releases:")) {
-    if (!("etag" in entry) || typeof entry.etag !== "string") {
-      violations.push("github cursor requires string etag");
+    if ("etag" in entry && typeof entry.etag !== "string" && entry.etag !== null) {
+      violations.push("github cursor etag must be a string|null when present");
     }
-    if (
-      !("latestTag" in entry) ||
-      (entry.latestTag !== null && typeof entry.latestTag !== "string")
-    ) {
-      violations.push("github cursor requires latestTag (string|null)");
+    if ("latestTag" in entry && !isStringOrNull(entry.latestTag)) {
+      violations.push("github cursor latestTag must be string|null when present");
+    }
+    if ("latestPublishedAt" in entry && !isStringOrNull(entry.latestPublishedAt)) {
+      violations.push("github cursor latestPublishedAt must be string|null when present");
     }
   } else if (adapterSlug.startsWith("openapi:")) {
-    if (!("etag" in entry) || typeof entry.etag !== "string") {
-      violations.push("openapi cursor requires string etag");
+    if ("etag" in entry && typeof entry.etag !== "string" && entry.etag !== null) {
+      violations.push("openapi cursor etag must be a string|null when present");
     }
-    if (
-      !("lastContentHash" in entry) ||
-      (entry.lastContentHash !== null && typeof entry.lastContentHash !== "string")
-    ) {
-      violations.push("openapi cursor requires lastContentHash (string|null)");
+    if ("lastContentHash" in entry && !isStringOrNull(entry.lastContentHash)) {
+      violations.push("openapi cursor lastContentHash must be string|null when present");
+    }
+    if ("lastSpec" in entry && entry.lastSpec !== null && typeof entry.lastSpec !== "object") {
+      violations.push("openapi cursor lastSpec must be an object|null when present");
     }
   }
   return violations;

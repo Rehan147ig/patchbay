@@ -50,6 +50,15 @@ function assertAllowedDomain(url: URL, profile: TrustProfile): void {
       `domain ${url.hostname} is not in the trust profile allowlist for ${profile.adapterPrefix || "unknown adapter"}`,
     );
   }
+  if (profile.allowedPathPrefixes && profile.allowedPathPrefixes.length > 0) {
+    const matched = profile.allowedPathPrefixes.some((prefix) => url.pathname.startsWith(prefix));
+    if (!matched) {
+      throw new TrustViolationError(
+        "domain_not_allowed",
+        `path ${url.pathname} does not match the allowed path prefixes for ${profile.adapterPrefix || "unknown adapter"}`,
+      );
+    }
+  }
 }
 
 /**

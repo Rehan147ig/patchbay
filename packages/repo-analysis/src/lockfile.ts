@@ -34,6 +34,32 @@ export function packageManagerFor(lockfileName: string | null): PackageManager {
 }
 
 /**
+ * Linear-time extractor for <dependency>…</dependency> blocks.
+ *
+ * Replaces the previous lazy-dot-all regex whose worst case was quadratic on
+ * inputs with many openers and no closers (~30s stall per MB in the worker).
+ * Each indexOf advances monotonically; an unclosed opener terminates the scan
+ * after ONE failed closer lookup instead of rescanning per position.
+ */
+export function extractDependencyBlocks(source: string): string[] {
+  if (!source.includes("<dependency>") || !source.includes("</dependency>")) return [];
+  const OPEN = "<dependency>";
+  const CLOSE = "</dependency>";
+  const blocks: string[] = [];
+  let cursor = 0;
+  for (;;) {
+    const start = source.indexOf(OPEN, cursor);
+    if (start === -1) break;
+    const contentStart = start + OPEN.length;
+    const end = source.indexOf(CLOSE, contentStart);
+    if (end === -1) break;
+    blocks.push(source.slice(contentStart, end));
+    cursor = end + CLOSE.length;
+  }
+  return blocks;
+}
+
+/**
  * Resolves installed package versions from a lockfile or build manifest.
  * Deterministic, no network. Formats:
  * - pnpm: regex over the `packages:` section keys (e.g. `stripe@16.12.0:`).
@@ -83,13 +109,11 @@ export async function resolveLockfileVersions(rootDir: string): Promise<{
     }
   } else if (lockfileName === "pom.xml") {
     // <dependency><groupId>g</groupId><artifactId>a</artifactId><version>v</version></dependency>
-    const dependencyBlock = /<dependency>([\s\S]*?)<\/dependency>/g;
     const tagValue = (block: string, tag: string): string | null => {
       const match = new RegExp(`<${tag}>([^<]+)</${tag}>`).exec(block);
       return match?.[1]?.trim() ?? null;
     };
-    for (const blockMatch of raw.matchAll(dependencyBlock)) {
-      const block = blockMatch[1] ?? "";
+    for (const block of extractDependencyBlocks(raw)) {
       const groupId = tagValue(block, "groupId");
       const artifactId = tagValue(block, "artifactId");
       const version = tagValue(block, "version");

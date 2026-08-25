@@ -428,7 +428,7 @@ async function collectFiles(rootDir: string): Promise<CollectedFiles> {
       if (/\.(ts|tsx|mts|cts)$/.test(entry.name)) tsFiles.push(rel);
       if (/\.json$/.test(entry.name)) jsonFiles.push(rel);
       if (/\.py$/.test(entry.name)) pyFiles.push(rel);
-      if (/\.java$/.test(entry.name)) javaFiles.push(rel);
+      if (/\.java$/i.test(entry.name)) javaFiles.push(rel);
       if (/^(pom\.xml|build\.gradle|build\.gradle\.kts)$/.test(entry.name)) {
         javaManifestFiles.push(rel);
       }
