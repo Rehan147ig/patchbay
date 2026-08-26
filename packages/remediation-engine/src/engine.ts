@@ -280,7 +280,6 @@ export async function generatePlan(input: PlanInput): Promise<PlanDraft> {
 
     if (!gate.ok) {
       const badFiles = new Set(gate.newErrors.map((e) => e.filePath));
-      const surviving = tsPatches.filter((p) => !badFiles.has(p.filePath));
       const rejected = tsPatches.filter((p) => badFiles.has(p.filePath));
       for (const p of rejected) {
         skippedFiles.push(p.filePath);

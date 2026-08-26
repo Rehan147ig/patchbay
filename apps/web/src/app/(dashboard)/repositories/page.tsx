@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
   EmptyState,
+  PageHeader,
   StatusPill,
   Table,
   TableBody,
@@ -23,6 +24,7 @@ import {
   ConnectRepositoryForm,
   type ConnectInstallation,
 } from "@/components/connect-repository-form";
+import { GitBranch, Plus, ArrowRight } from "lucide-react";
 
 export const metadata: Metadata = {
   title: "Repositories",
@@ -50,18 +52,39 @@ export default async function RepositoriesPage() {
   const canConnect = user.role === "ADMIN" || user.role === "MEMBER";
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-xl font-semibold text-white">Repositories</h1>
-        <p className="text-sm text-slate-500">
-          Connected repositories and their integration usage inventory.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Connected Repositories"
+        description="Source code repositories monitored for upstream SDK breaking changes and integration callsite usages."
+        badge={
+          <Badge tone="blue" dot>
+            {repositories.length} Repositories
+          </Badge>
+        }
+        actions={
+          <Link
+            href="/settings/github"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-ink-700 bg-transparent px-3 py-1.5 text-xs font-medium text-gray-300 hover:bg-ink-800 hover:text-white transition-colors"
+          >
+            <Plus className="size-3.5" />
+            <span>Configure GitHub App</span>
+          </Link>
+        }
+      />
 
       {repositories.length === 0 ? (
         <EmptyState
-          title="No repositories connected"
-          description="Connect a GitHub repository (or run the guided demo) to start monitoring usages."
+          icon={<GitBranch className="size-6 text-accent-400" />}
+          title="No repositories connected yet"
+          description="Connect a GitHub repository or use the demo setup to start indexing AST usages and monitoring releases."
+          action={
+            <Link
+              href="/settings/github"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-accent-400/30 bg-gradient-to-r from-accent-600 to-accent-500 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:from-accent-500 hover:to-accent-400 transition-all"
+            >
+              Install GitHub App
+            </Link>
+          }
         />
       ) : (
         <Table>
@@ -69,31 +92,35 @@ export default async function RepositoriesPage() {
             <TableRow>
               <TableHeaderCell>Repository</TableHeaderCell>
               <TableHeaderCell>Provider</TableHeaderCell>
-              <TableHeaderCell>Usages</TableHeaderCell>
-              <TableHeaderCell>Latest scan</TableHeaderCell>
-              <TableHeaderCell>Registered</TableHeaderCell>
+              <TableHeaderCell>Indexed Usages</TableHeaderCell>
+              <TableHeaderCell>Latest Scan Status</TableHeaderCell>
+              <TableHeaderCell>Registered Date</TableHeaderCell>
+              <TableHeaderCell className="w-10"></TableHeaderCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {repositories.map((repository) => {
               const latestScan = repository.scans[0];
               return (
-                <TableRow key={repository.id}>
+                <TableRow key={repository.id} className="group">
                   <TableCell>
                     <Link
                       href={`/repositories/${repository.id}`}
-                      className="font-medium text-accent-400 hover:underline"
+                      className="font-semibold text-accent-400 hover:text-accent-300 hover:underline flex items-center gap-1.5"
                     >
-                      {repository.name}
+                      <span>{repository.name}</span>
                     </Link>
-                    <p className="text-xs text-slate-500">{repository.fullName}</p>
+                    <p className="text-xs text-ink-400 font-mono mt-0.5">{repository.fullName}</p>
                   </TableCell>
                   <TableCell>
-                    <Badge tone={repository.provider === "GITHUB" ? "blue" : "neutral"}>
+                    <Badge tone={repository.provider === "GITHUB" ? "blue" : "neutral"} size="sm">
                       {repository.provider}
                     </Badge>
                   </TableCell>
-                  <TableCell className="tabular-nums">{repository._count.usages}</TableCell>
+                  <TableCell className="tabular-nums font-semibold text-gray-200">
+                    {repository._count.usages}{" "}
+                    <span className="text-xs font-normal text-ink-400">calls</span>
+                  </TableCell>
                   <TableCell>
                     {latestScan ? (
                       <StatusPill
@@ -101,11 +128,19 @@ export default async function RepositoriesPage() {
                         tone={SCAN_STATUS_TONE[latestScan.status]}
                       />
                     ) : (
-                      <span className="text-xs text-slate-400">Never scanned</span>
+                      <span className="text-xs text-ink-500">Never scanned</span>
                     )}
                   </TableCell>
-                  <TableCell className="text-xs text-slate-500">
+                  <TableCell className="text-xs text-ink-400">
                     {formatDate(repository.createdAt)}
+                  </TableCell>
+                  <TableCell>
+                    <Link
+                      href={`/repositories/${repository.id}`}
+                      className="flex size-7 items-center justify-center rounded-lg text-ink-500 opacity-0 transition-all group-hover:opacity-100 group-hover:bg-ink-800 group-hover:text-accent-300"
+                    >
+                      <ArrowRight className="size-3.5" />
+                    </Link>
                   </TableCell>
                 </TableRow>
               );
@@ -119,21 +154,21 @@ export default async function RepositoriesPage() {
           <CardHeader>
             <CardTitle>Connect a GitHub repository</CardTitle>
             <CardDescription>
-              Register a repository from a GitHub App installation, then scan it to index TypeScript
-              and Python call sites.
+              Register a repository from an active GitHub App installation, then scan it to index
+              TypeScript, Python, and Java call sites.
             </CardDescription>
           </CardHeader>
           <CardContent>
             {installations.length === 0 ? (
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-sm text-slate-500">
-                  No GitHub App installations for this workspace yet.
+              <div className="flex flex-wrap items-center justify-between gap-3 p-2">
+                <p className="text-xs text-ink-400">
+                  No GitHub App installations found for this workspace.
                 </p>
                 <Link
                   href="/settings/github"
-                  className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-accent-400/30 bg-gradient-to-r from-accent-600 to-accent-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:from-accent-500 hover:to-accent-400 transition-all"
                 >
-                  Install the GitHub App
+                  Install GitHub App
                 </Link>
               </div>
             ) : (
