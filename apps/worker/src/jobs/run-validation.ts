@@ -19,8 +19,7 @@ import {
   assertInstallationBelongsToOrganization,
   resolveRepositorySource,
 } from "../lib/repository-source";
-import { createGitHubAppProviderFromStore, createGitProviderFromEnv } from "@patchbay/git-provider";
-import { getSecretStore } from "@patchbay/env";
+import { createGitProviderFromEnv } from "@patchbay/git-provider";
 
 /**
  * run-validation processor.
@@ -424,24 +423,4 @@ function cloneUrlOf(metadata: unknown): string | null {
   if (typeof metadata !== "object" || metadata === null) return null;
   const value = (metadata as { cloneUrl?: unknown }).cloneUrl;
   return typeof value === "string" && value.length > 0 ? value : null;
-}
-
-/** Worker binding of the shared resolver (Prisma + App provider + fixtures). */
-function workerRepositorySourceDeps() {
-  return {
-    async findInstallationOrganizationId(installationId: number): Promise<string | null> {
-      const installation = await prisma.gitHubInstallation.findUnique({
-        where: { installationId },
-        select: { organizationId: true },
-      });
-      return installation?.organizationId ?? null;
-    },
-    async createInstallationProvider(input: {
-      installationId: number;
-      repositoryFullName: string;
-    }) {
-      return createGitHubAppProviderFromStore(input, getSecretStore());
-    },
-    resolveFixtureDir,
-  };
 }

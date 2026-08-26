@@ -26,6 +26,7 @@
     "e2e": "playwright test"
   },
   "devDependencies": {
+    "@dodopayments/opencode-plugin": "^0.5.1",
     "@playwright/test": "^1.62.1",
     "@types/node": "^22.15.0",
     "concurrently": "^9.1.2",

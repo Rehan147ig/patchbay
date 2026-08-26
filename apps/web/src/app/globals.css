@@ -173,7 +173,8 @@
 }
 
 body {
-  @apply bg-white text-gray-900 antialiased;
+  @apply bg-ink-950 text-gray-100 antialiased selection:bg-accent-500/30 selection:text-white;
+  color-scheme: dark;
 }
 
 @layer components {

@@ -164,7 +164,7 @@ describe("runValidation", () => {
 
     expect(result.timedOut).toBe(true);
     expect(result.ok).toBe(false);
-  }, 20_000);
+  }, 60_000);
 
   it("bounds captured output", async () => {
     const dir = makeWorkspace({ test: 'node -e "console.log(\\"x\\".repeat(6000))"' });

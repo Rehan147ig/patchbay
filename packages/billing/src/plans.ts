@@ -50,6 +50,11 @@ export interface BillingEnv {
   STRIPE_SECRET_KEY?: string;
   STRIPE_PRICE_PRO_MONTHLY?: string;
   STRIPE_PRICE_TEAM_MONTHLY?: string;
+  DODO_PAYMENTS_API_KEY?: string;
+  DODO_PAYMENTS_ENVIRONMENT?: string;
+  DODO_PAYMENTS_WEBHOOK_KEY?: string;
+  DODO_PRODUCT_PRO_MONTHLY?: string;
+  DODO_PRODUCT_TEAM_MONTHLY?: string;
 }
 
 export function isPlanTier(value: unknown): value is PlanTier {
@@ -72,6 +77,25 @@ export function stripePriceIdForTier(
 ): string | null {
   if (tier === "PRO") return env.STRIPE_PRICE_PRO_MONTHLY ?? null;
   if (tier === "TEAM") return env.STRIPE_PRICE_TEAM_MONTHLY ?? null;
+  return null;
+}
+
+/** Dodo product id for a purchasable tier; null when not configured. */
+export function dodoProductIdForTier(
+  tier: PlanTier,
+  env: BillingEnv = process.env as BillingEnv,
+): string | null {
+  if (tier === "PRO") return env.DODO_PRODUCT_PRO_MONTHLY ?? null;
+  if (tier === "TEAM") return env.DODO_PRODUCT_TEAM_MONTHLY ?? null;
+  return null;
+}
+
+export function planTierFromDodoProductId(
+  productId: string,
+  env: BillingEnv = process.env as BillingEnv,
+): PlanTier | null {
+  if (env.DODO_PRODUCT_PRO_MONTHLY && productId === env.DODO_PRODUCT_PRO_MONTHLY) return "PRO";
+  if (env.DODO_PRODUCT_TEAM_MONTHLY && productId === env.DODO_PRODUCT_TEAM_MONTHLY) return "TEAM";
   return null;
 }
 

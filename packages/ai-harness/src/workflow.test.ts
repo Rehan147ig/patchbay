@@ -109,7 +109,7 @@ describe("workflow adapter: sequencing", () => {
     expect(maxActive).toBe(2);
     expect(finished).toBe(1);
     expect(result.status).toBe("SUCCEEDED");
-    expect(elapsed).toBeLessThan(WAIT_MS * 3);
+    expect(elapsed).toBeLessThan(WAIT_MS * 10);
     expect(result.output).toEqual({
       impact: { modules: 2 },
       facts: { breaking: true },

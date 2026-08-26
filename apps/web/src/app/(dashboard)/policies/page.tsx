@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { prisma } from "@patchbay/db";
 import {
+  Badge,
   Card,
   CardContent,
   CardDescription,
@@ -8,9 +9,11 @@ import {
   CardTitle,
   CodeBlock,
   EmptyState,
+  PageHeader,
 } from "@patchbay/ui";
 import { requireUser } from "@/lib/auth";
 import { PolicyToggle } from "@/components/policy-toggle";
+import { Shield, ChevronDown } from "lucide-react";
 
 export const metadata: Metadata = {
   title: "Policies",
@@ -24,18 +27,26 @@ export default async function PoliciesPage() {
     orderBy: { createdAt: "asc" },
   });
 
+  const activeCount = policies.filter((p) => p.enabled).length;
+
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-white">Policies</h1>
-        <p className="mt-1 text-sm text-ink-400">
-          JSON-defined rules that govern remediation: when plans may be created, validated, or
-          turned into draft pull requests. Toggling a policy records an audit event.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title="Governance Policies"
+        description="Declarative deterministic gate rules evaluated before sandbox execution or draft PR publication. Toggling policies is recorded in the immutable audit trail."
+        badge={
+          <Badge tone="green" dot>
+            {activeCount} of {policies.length} Active
+          </Badge>
+        }
+      />
 
       {policies.length === 0 ? (
-        <EmptyState title="No policies" description="Policy rules will appear here." />
+        <EmptyState
+          icon={<Shield className="size-6 text-accent-400" />}
+          title="No policy rules registered"
+          description="Security and remediation gate policies will appear here."
+        />
       ) : (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {policies.map((policy) => (
@@ -43,27 +54,33 @@ export default async function PoliciesPage() {
               key={policy.id}
               className={
                 policy.enabled
-                  ? "border-l-4 border-l-mint-400 transition-colors"
-                  : "border-l-4 border-l-ink-600"
+                  ? "border-l-2 border-l-mint-400 bg-ink-900/60 transition-all hover:border-mint-400/80"
+                  : "border-l-2 border-l-ink-700 bg-ink-900/30 opacity-75"
               }
             >
-              <CardHeader>
+              <CardHeader className="pb-3">
                 <div className="flex items-center justify-between gap-3">
-                  <CardTitle>{policy.name}</CardTitle>
+                  <div className="flex items-center gap-2">
+                    <CardTitle>{policy.name}</CardTitle>
+                    <Badge tone={policy.enabled ? "green" : "neutral"} size="sm" dot>
+                      {policy.enabled ? "Enforced" : "Disabled"}
+                    </Badge>
+                  </div>
                   <PolicyToggle policyId={policy.id} enabled={policy.enabled} />
                 </div>
-                <CardDescription>
+                <CardDescription className="mt-1">
                   {policy.definitionJson &&
                   typeof policy.definitionJson === "object" &&
                   "description" in policy.definitionJson
                     ? String(policy.definitionJson.description)
-                    : "No description"}
+                    : "No description provided"}
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                <details className="group">
-                  <summary className="cursor-pointer select-none text-xs font-medium text-accent-400 transition-colors hover:text-accent-300">
-                    Show definition
+              <CardContent className="pt-0">
+                <details className="group mt-2">
+                  <summary className="cursor-pointer select-none text-xs font-semibold text-accent-400 transition-colors hover:text-accent-300 flex items-center gap-1">
+                    <span>Inspect policy JSON</span>
+                    <ChevronDown className="size-3 transition-transform group-open:rotate-180" />
                   </summary>
                   <div className="mt-3">
                     <CodeBlock maxHeight="14rem">

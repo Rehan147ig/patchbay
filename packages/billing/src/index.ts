@@ -2,9 +2,11 @@ export {
   PLAN_DEFINITIONS,
   PURCHASABLE_TIERS,
   defaultPlanTier,
+  dodoProductIdForTier,
   formatPrice,
   isPlanTier,
   planLabel,
+  planTierFromDodoProductId,
   planTierFromStripePriceId,
   repositoryCapForTier,
   repositoryCapacity,
@@ -12,6 +14,7 @@ export {
 } from "./plans";
 export type { PlanDefinition, RepositoryCapacityResult } from "./plans";
 export { StripeClient, createStripeClient } from "./stripe";
+export { DodoClient, createDodoClient } from "./dodo";
 export type {
   CheckoutSessionInput,
   CheckoutSessionResult,
@@ -27,4 +30,11 @@ export {
   subscriptionStatusFromStripe,
   verifyStripeWebhookSignature,
 } from "./webhook";
+export {
+  DODO_SIGNATURE_TOLERANCE_MS,
+  dodoEventSchema,
+  subscriptionStatusFromDodo,
+  verifyDodoWebhookSignature,
+} from "./dodo-webhook";
+export type { DodoEvent } from "./dodo-webhook";
 export type { StripeEvent, StripeEventType, SubscriptionStatus } from "./webhook";

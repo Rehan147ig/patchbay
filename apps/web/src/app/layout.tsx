@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       {/* suppressHydrationWarning: browser extensions (e.g. Bing's bis_skin_checked)
           inject attributes on <body> before hydration; that noise is not a real mismatch. */}
       <body className={inter.variable} suppressHydrationWarning>

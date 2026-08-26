@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { NextRequest } from "next/server";
 import { forbidden } from "@patchbay/domain";
-import { POST } from "./route";
+import { DELETE, POST } from "./route";
 import { hashAgentKey, verifyAgentKey } from "@/lib/agent-keys";
 
 vi.mock("@patchbay/db", () => ({
@@ -129,5 +129,115 @@ describe("POST /api/vendors/[slug]/agent-key", () => {
       },
     );
     expect(response.status).toBe(404);
+  });
+});
+
+describe("DELETE /api/vendors/[slug]/agent-key", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(requireRole).mockResolvedValue(adminUser as never);
+    vi.mocked(prisma.vendor.findUnique).mockResolvedValue(mockVendor as never);
+    vi.mocked(prisma.vendor.update).mockResolvedValue(mockVendor as never);
+  });
+
+  it("revokes: clears both hashes, keeps the organization claim, audits", async () => {
+    const legacyHash = (await hashAgentKey("pb_agent_current")).replace("$argon2id$", "$sha256$");
+    vi.mocked(prisma.vendor.findUnique).mockResolvedValueOnce({
+      ...mockVendor,
+      organizationId: "org-acme",
+      agentKeyHash: legacyHash,
+      agentKeyHashPrevious: await hashAgentKey("pb_agent_previous"),
+    } as never);
+
+    const response = await DELETE(
+      new Request("http://localhost/api/vendors/openai/agent-key", {
+        method: "DELETE",
+        headers: csrfHeaders,
+      }) as NextRequest,
+      { params: Promise.resolve({ slug: "openai" }) },
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { data: { status: string; vendorSlug: string } };
+    expect(body.data).toMatchObject({ status: "REVOKED", vendorSlug: "openai" });
+
+    expect(prisma.vendor.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "v-openai" },
+        data: { agentKeyHash: null, agentKeyHashPrevious: null },
+      }),
+    );
+    expect(prisma.auditEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ action: "agent.key_revoked" }),
+      }),
+    );
+  });
+
+  it("is idempotent when agent mode was never enabled", async () => {
+    const response = await DELETE(
+      new Request("http://localhost/api/vendors/openai/agent-key", {
+        method: "DELETE",
+        headers: csrfHeaders,
+      }) as NextRequest,
+      { params: Promise.resolve({ slug: "openai" }) },
+    );
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { data: { status: string } };
+    expect(body.data.status).toBe("ALREADY_DISABLED");
+    expect(prisma.vendor.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-admins", async () => {
+    vi.mocked(requireRole).mockRejectedValueOnce(forbidden("Requires admin role"));
+    const response = await DELETE(
+      new Request("http://localhost/api/vendors/openai/agent-key", {
+        method: "DELETE",
+        headers: csrfHeaders,
+      }) as NextRequest,
+      { params: Promise.resolve({ slug: "openai" }) },
+    );
+    expect(response.status).toBe(403);
+    expect(prisma.vendor.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects vendors owned by another organization", async () => {
+    vi.mocked(prisma.vendor.findUnique).mockResolvedValueOnce({
+      ...mockVendor,
+      organizationId: "org-other",
+      agentKeyHash: "$argon2id$abc",
+    } as never);
+    const response = await DELETE(
+      new Request("http://localhost/api/vendors/openai/agent-key", {
+        method: "DELETE",
+        headers: csrfHeaders,
+      }) as NextRequest,
+      { params: Promise.resolve({ slug: "openai" }) },
+    );
+    expect(response.status).toBe(403);
+    expect(prisma.vendor.update).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 for unknown vendors", async () => {
+    vi.mocked(prisma.vendor.findUnique).mockResolvedValueOnce(null);
+    const response = await DELETE(
+      new Request("http://localhost/api/vendors/openai/agent-key", {
+        method: "DELETE",
+        headers: csrfHeaders,
+      }) as NextRequest,
+      { params: Promise.resolve({ slug: "openai" }) },
+    );
+    expect(response.status).toBe(404);
+  });
+
+  it("requires the CSRF token", async () => {
+    const response = await DELETE(
+      new Request("http://localhost/api/vendors/openai/agent-key", {
+        method: "DELETE",
+      }) as NextRequest,
+      { params: Promise.resolve({ slug: "openai" }) },
+    );
+    expect(response.status).toBe(403);
+    expect(prisma.vendor.update).not.toHaveBeenCalled();
   });
 });

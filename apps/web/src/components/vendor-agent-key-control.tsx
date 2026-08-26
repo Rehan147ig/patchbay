@@ -16,6 +16,11 @@ export interface AgentKeyIssueResult {
   note: string;
 }
 
+export interface AgentKeyRevokeResult {
+  vendorSlug: string;
+  status: string;
+}
+
 /** Response shape the agent-key route returns; guards against malformed replies. */
 export function parseAgentKeyIssue(body: unknown): AgentKeyIssueResult | null {
   if (typeof body !== "object" || body === null) return null;
@@ -28,11 +33,23 @@ export function parseAgentKeyIssue(body: unknown): AgentKeyIssueResult | null {
   return { agentKey, note: typeof note === "string" ? note : "" };
 }
 
+/** Response shape of the revocation route; rejects malformed replies. */
+export function parseAgentKeyRevoke(body: unknown): AgentKeyRevokeResult | null {
+  if (typeof body !== "object" || body === null) return null;
+  const data = (body as { data?: unknown }).data;
+  if (typeof data !== "object" || data === null) return null;
+  const { vendorSlug, status } = data as { vendorSlug?: unknown; status?: unknown };
+  if (typeof vendorSlug !== "string" || vendorSlug.length === 0) return null;
+  if (status !== "REVOKED" && status !== "ALREADY_DISABLED") return null;
+  return { vendorSlug, status };
+}
+
 /**
- * Per-vendor agent key action for the settings page. ADMIN-only on the server
+ * Per-vendor agent key actions for the settings page. ADMIN-only on the server
  * (the route enforces the role); non-admins render nothing. The plaintext key
  * is shown exactly once — Patchbay stores only its hash and never returns it
- * again, so the UI clears it once dismissed.
+ * again, so the UI clears it once dismissed. Revocation clears every stored
+ * hash immediately; issuing again starts a fresh enrollment.
  */
 export function VendorAgentKeyControl({
   entry,
@@ -44,12 +61,15 @@ export function VendorAgentKeyControl({
   const [pending, startTransition] = useTransition();
   const [status, setStatus] = useState<string | null>(null);
   const [issued, setIssued] = useState<AgentKeyIssueResult | null>(null);
+  const [hasKey, setHasKey] = useState(entry.hasKey);
+  const [confirmingRevoke, setConfirmingRevoke] = useState(false);
 
   if (!isAdmin) return null;
 
   function issueKey() {
     setStatus(null);
     setIssued(null);
+    setConfirmingRevoke(false);
     startTransition(async () => {
       const response = await apiFetch(`/api/vendors/${entry.slug}/agent-key`, { method: "POST" });
       if (!response.ok) {
@@ -63,7 +83,31 @@ export function VendorAgentKeyControl({
         return;
       }
       setIssued(parsed);
+      setHasKey(true);
       setStatus(null);
+    });
+  }
+
+  function revokeKey() {
+    setStatus(null);
+    setIssued(null);
+    startTransition(async () => {
+      const response = await apiFetch(`/api/vendors/${entry.slug}/agent-key`, {
+        method: "DELETE",
+      });
+      if (!response.ok) {
+        const body = (await response.json()) as { error?: { message?: string } };
+        setStatus(body.error?.message ?? "Failed to revoke agent key");
+        return;
+      }
+      const parsed = parseAgentKeyRevoke(await response.json());
+      if (!parsed) {
+        setStatus("Unexpected response while revoking");
+        return;
+      }
+      setHasKey(false);
+      setConfirmingRevoke(false);
+      setStatus("Agent mode disabled — all issued keys stopped working.");
     });
   }
 
@@ -95,17 +139,43 @@ export function VendorAgentKeyControl({
         </div>
       ) : (
         <>
-          <Button variant="secondary" size="sm" onClick={issueKey} loading={pending}>
-            {entry.hasKey ? "Rotate key" : "Issue key"}
-          </Button>
-          {entry.legacyKey ? (
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" size="sm" onClick={issueKey} loading={pending}>
+              {hasKey ? "Rotate key" : "Issue key"}
+            </Button>
+            {hasKey ? (
+              confirmingRevoke ? (
+                <>
+                  <Button variant="danger" size="sm" onClick={revokeKey} loading={pending}>
+                    Confirm revoke
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingRevoke(false)}
+                    className="text-[11px] text-slate-500 underline"
+                  >
+                    cancel
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmingRevoke(true)}
+                  className="text-[11px] text-red-600 underline"
+                >
+                  Revoke
+                </button>
+              )
+            ) : null}
+          </div>
+          {hasKey && entry.legacyKey ? (
             <span className="text-[11px] text-amber-700" title="sha256 seed/legacy hash">
               legacy — rotate
             </span>
           ) : null}
         </>
       )}
-      {status ? <span className="text-xs text-red-600">{status}</span> : null}
+      {status ? <span className="text-xs text-slate-600">{status}</span> : null}
     </div>
   );
 }

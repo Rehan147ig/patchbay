@@ -1,6 +1,6 @@
 import "server-only";
 import { prisma, type Subscription } from "@patchbay/db";
-import { StripeClient, createStripeClient } from "@patchbay/billing";
+import { DodoClient, StripeClient, createDodoClient, createStripeClient } from "@patchbay/billing";
 import type { PlanTier } from "@patchbay/domain";
 import { billingUnavailable, notFound, planLimitExceeded } from "@patchbay/domain";
 import { env } from "./env";
@@ -46,6 +46,18 @@ export async function getEffectivePlan(organizationId: string): Promise<Effectiv
 /** Stripe client or a 503 for deployments without billing configured. */
 export function requireStripeClient(): StripeClient {
   const client = createStripeClient(env);
+  if (!client) throw billingUnavailable();
+  return client;
+}
+
+export function getBillingProvider(): "stripe" | "dodo" | null {
+  if ((env as { DODO_PAYMENTS_API_KEY?: string }).DODO_PAYMENTS_API_KEY) return "dodo";
+  if ((env as { STRIPE_SECRET_KEY?: string }).STRIPE_SECRET_KEY) return "stripe";
+  return null;
+}
+
+export function requireDodoClient(): DodoClient {
+  const client = createDodoClient(env as unknown as Parameters<typeof createDodoClient>[0]);
   if (!client) throw billingUnavailable();
   return client;
 }

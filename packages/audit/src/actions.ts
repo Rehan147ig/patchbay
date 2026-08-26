@@ -37,6 +37,7 @@ export const AuditAction = {
   VENDOR_TOGGLED: "vendor.toggled",
   AGENT_EVENT_RECEIVED: "agent.event_received",
   AGENT_KEY_ISSUED: "agent.key_issued",
+  AGENT_KEY_REVOKED: "agent.key_revoked",
   SUBMISSION_RECEIVED: "submission.received",
   SUBMISSION_DEDUPLICATED: "submission.deduplicated",
   TASK_CLAIMED: "task.claimed",

@@ -129,7 +129,9 @@ export class GitHubProvider implements GitProvider {
       });
       runGit(["fetch", "--depth", "1", "origin", sha], { cwd: workspace, env: authEnv });
 
-      const fetched = runGit(["rev-parse", `origin/${sha}`], {
+      // Fetching a raw SHA does not create a remote-tracking ref; verify via
+      // FETCH_HEAD (which git populates with the fetched commit) instead.
+      const fetched = runGit(["rev-parse", "FETCH_HEAD"], {
         cwd: workspace,
         capture: true,
       });

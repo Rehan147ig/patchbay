@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseAgentKeyIssue } from "./vendor-agent-key-control";
+import { parseAgentKeyIssue, parseAgentKeyRevoke } from "./vendor-agent-key-control";
 
 describe("parseAgentKeyIssue", () => {
   it("parses a well-formed issue response", () => {
@@ -29,5 +29,24 @@ describe("parseAgentKeyIssue", () => {
       agentKey: "pb_agent_x",
       note: "",
     });
+  });
+});
+
+describe("parseAgentKeyRevoke", () => {
+  it("parses both revoke outcomes", () => {
+    expect(parseAgentKeyRevoke({ data: { vendorSlug: "openai", status: "REVOKED" } })).toEqual({
+      vendorSlug: "openai",
+      status: "REVOKED",
+    });
+    expect(
+      parseAgentKeyRevoke({ data: { vendorSlug: "openai", status: "ALREADY_DISABLED" } }),
+    ).toEqual({ vendorSlug: "openai", status: "ALREADY_DISABLED" });
+  });
+
+  it("rejects malformed responses", () => {
+    expect(parseAgentKeyRevoke({ data: { vendorSlug: "openai", status: "EXPLODED" } })).toBeNull();
+    expect(parseAgentKeyRevoke({ data: { status: "REVOKED" } })).toBeNull();
+    expect(parseAgentKeyRevoke({ data: {} })).toBeNull();
+    expect(parseAgentKeyRevoke(null)).toBeNull();
   });
 });
