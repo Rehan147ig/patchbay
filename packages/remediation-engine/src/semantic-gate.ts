@@ -65,11 +65,7 @@ function loadCompilerOptions(projectDir: string): {
   if (raw.error) {
     return { options: { ...DEFAULT_COMPILER_OPTIONS }, usedFallback: true };
   }
-  const parsed = ts.parseJsonConfigFileContent(
-    raw.config,
-    ts.sys,
-    path.dirname(configPath),
-  );
+  const parsed = ts.parseJsonConfigFileContent(raw.config, ts.sys, path.dirname(configPath));
   return {
     options: { ...parsed.options, noEmit: true, skipLibCheck: true },
     usedFallback: false,
@@ -118,10 +114,7 @@ function collectErrors(
     host: createOverlayHost(options, overlay),
   });
 
-  const diagnostics = [
-    ...program.getSyntacticDiagnostics(),
-    ...program.getSemanticDiagnostics(),
-  ];
+  const diagnostics = [...program.getSyntacticDiagnostics(), ...program.getSemanticDiagnostics()];
 
   const resolvedProjectDir = path.resolve(projectDir);
   const errors: SemanticError[] = [];
@@ -192,9 +185,7 @@ export function runSemanticGate(input: SemanticGateInput): SemanticGateResult {
       rootNames = parsed.fileNames;
     }
     if (!rootNames || rootNames.length === 0) {
-      rootNames = [...patchedFiles.keys()].map((relative) =>
-        path.resolve(projectDir, relative),
-      );
+      rootNames = [...patchedFiles.keys()].map((relative) => path.resolve(projectDir, relative));
     }
   }
 
@@ -211,9 +202,7 @@ export function runSemanticGate(input: SemanticGateInput): SemanticGateResult {
   const patchedKeys = new Set(patchedErrors.map(fingerprint));
 
   const newErrors = patchedErrors.filter((error) => !baselineKeys.has(fingerprint(error)));
-  const resolvedErrors = baselineErrors.filter(
-    (error) => !patchedKeys.has(fingerprint(error)),
-  );
+  const resolvedErrors = baselineErrors.filter((error) => !patchedKeys.has(fingerprint(error)));
 
   return {
     ok: newErrors.length === 0,
@@ -226,10 +215,7 @@ export function runSemanticGate(input: SemanticGateInput): SemanticGateResult {
 }
 
 /** Convenience wrapper matching the shape of the old boolean check. */
-export function semanticCheck(
-  projectDir: string,
-  patchedFiles: Map<string, string>,
-): boolean {
+export function semanticCheck(projectDir: string, patchedFiles: Map<string, string>): boolean {
   return runSemanticGate({ projectDir, patchedFiles }).ok;
 }
 

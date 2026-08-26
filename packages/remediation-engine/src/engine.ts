@@ -285,9 +285,7 @@ export async function generatePlan(input: PlanInput): Promise<PlanDraft> {
       for (const p of rejected) {
         skippedFiles.push(p.filePath);
       }
-      const kept = patches.filter(
-        (p) => !badFiles.has(p.filePath),
-      );
+      const kept = patches.filter((p) => !badFiles.has(p.filePath));
       const rejectSummary = [...badFiles]
         .map((f) => `${f} (${gate.newErrors.filter((e) => e.filePath === f).length} errors)`)
         .join(", ");
