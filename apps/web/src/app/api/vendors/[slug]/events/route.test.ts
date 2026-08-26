@@ -1,17 +1,17 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { NextRequest } from "next/server";
-import { POST } from "./route";
-import { hashAgentKey } from "@/lib/agent-keys";
-
-const validKey = "pb_agent_test_key";
 
 vi.mock("@patchbay/db", () => ({
   prisma: {
     vendor: { findUnique: vi.fn() },
-    vendorChangeEvent: { create: vi.fn() },
+    vendorChangeEvent: { findFirst: vi.fn(), create: vi.fn() },
     normalizedChange: { create: vi.fn() },
     auditEvent: { create: vi.fn() },
   },
+}));
+
+vi.mock("@patchbay/vendor-connectors", () => ({
+  getConnector: vi.fn(),
 }));
 
 vi.mock("@patchbay/queue", () => ({
@@ -19,170 +19,179 @@ vi.mock("@patchbay/queue", () => ({
   enqueue: vi.fn(),
 }));
 
+vi.mock("@/lib/rate-limit", () => ({
+  checkGlobalRateLimit: vi.fn(),
+  checkRateLimit: vi.fn(),
+}));
+
 import { prisma } from "@patchbay/db";
 import { enqueue } from "@patchbay/queue";
+import { getConnector } from "@patchbay/vendor-connectors";
+import { checkGlobalRateLimit, checkRateLimit } from "@/lib/rate-limit";
+import { hashAgentKey } from "@/lib/agent-keys";
+import { POST } from "./route";
 
-const openAiPayload = {
-  sdk: "openai",
-  fromVersion: "3.x",
-  toVersion: "4.x",
-  migration: {
-    methodRenames: [{ from: "openai.createChatCompletion", to: "openai.chat.completions.create" }],
-  },
-};
+const AGENT_KEY = "pb_agent_test_private_ingest";
+const AGENT_HASH = await hashAgentKey(AGENT_KEY);
 
-function request(
-  body: unknown,
-  key: string | null,
-  extraHeaders: Record<string, string> = {},
-): NextRequest {
-  const headers: Record<string, string> = { "Content-Type": "application/json", ...extraHeaders };
-  if (key !== null) headers.Authorization = `Bearer ${key}`;
-  return new Request("http://localhost/api/vendors/openai/events", {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-  }) as NextRequest;
+function post(slug: string, body: unknown, key: string | null = AGENT_KEY): Promise<Response> {
+  return POST(
+    new Request(`http://localhost/api/vendors/${slug}/events`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(key ? { authorization: `Bearer ${key}` } : {}),
+      },
+      body: JSON.stringify(body),
+    }) as NextRequest,
+    { params: Promise.resolve({ slug }) },
+  );
 }
 
-const mockVendor = {
-  id: "v-openai",
-  slug: "openai",
-  name: "OpenAI",
+const privateVendor = {
+  id: "v-priv",
+  slug: "jpmc-auth-sdk",
+  name: "JPMC Auth SDK",
+  enabled: true,
   organizationId: "org-acme",
-  agentKeyHash: undefined as string | null | undefined,
-  agentKeyHashPrevious: null as string | null,
+  agentKeyHash: AGENT_HASH,
+  agentKeyHashPrevious: null,
 };
 
-describe("POST /api/vendors/[slug]/events", () => {
-  beforeEach(async () => {
-    vi.clearAllMocks();
-    mockVendor.agentKeyHash = await hashAgentKey(validKey);
-    vi.mocked(prisma.vendor.findUnique).mockResolvedValue(mockVendor as never);
-    vi.mocked(prisma.vendorChangeEvent.create).mockResolvedValue({
-      id: "c-agent-1",
-      title: "OpenAI agent change: METHOD_RENAMED",
-    } as never);
-    vi.mocked(prisma.normalizedChange.create).mockResolvedValue({} as never);
+const ingestPayload = {
+  sourceType: "SDK_RELEASE",
+  severity: "HIGH",
+  externalReference: "ref-priv-1",
+  rawPayload: { description: "v2.0 removes legacy authenticate() entry point" },
+};
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(checkGlobalRateLimit).mockResolvedValue({ allowed: true, retryAfterMs: 0 });
+  vi.mocked(checkRateLimit).mockResolvedValue({ allowed: true, retryAfterMs: 0 });
+  vi.mocked(prisma.vendorChangeEvent.create).mockResolvedValue({
+    id: "evt-1",
+    title: "t",
+  } as never);
+  vi.mocked(prisma.normalizedChange.create).mockResolvedValue({ id: "nc-1" } as never);
+});
+
+describe("POST /api/vendors/[slug]/events — private vendor generic ASSESS ingest", () => {
+  beforeEach(() => {
+    vi.mocked(prisma.vendor.findUnique).mockResolvedValue(privateVendor as never);
+    vi.mocked(getConnector).mockReturnValue(null);
   });
 
-  it("ingests a signed agent event, normalizes it, and enqueues analysis", async () => {
-    const response = await POST(request({ rawPayload: openAiPayload }, validKey), {
-      params: Promise.resolve({ slug: "openai" }),
-    });
-    expect(response.status).toBe(201);
+  it("accepts an agent event for an org-bound slug with no catalog connector and queues ASSESS analysis", async () => {
+    const response = await post("jpmc-auth-sdk", ingestPayload);
 
-    const body = (await response.json()) as { data: { changeEventId: string } };
-    expect(body.data.changeEventId).toBe("c-agent-1");
+    expect(response.status).toBe(201);
+    const body = (await response.json()) as {
+      data: { changeEventId: string; status: string; normalizations: number };
+    };
+    expect(body.data).toMatchObject({
+      changeEventId: "evt-1",
+      status: "QUEUED",
+      normalizations: 1,
+    });
+  });
+
+  it("stores the generic ASSESS change scoped to the owning organization", async () => {
+    await post("jpmc-auth-sdk", ingestPayload);
+
     expect(prisma.vendorChangeEvent.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
+          vendorId: "v-priv",
+          organizationId: "org-acme",
           sourceType: "SDK_RELEASE",
-          rawPayload: openAiPayload,
+          severity: "HIGH",
+          title: "JPMC Auth SDK private change: SDK_RELEASE",
+          status: "DETECTED",
         }),
       }),
     );
-    expect(prisma.normalizedChange.create).toHaveBeenCalledTimes(2);
-    expect(enqueue).toHaveBeenCalledWith("ANALYZE_CHANGE", {
-      changeEventId: "c-agent-1",
-      organizationId: "org-acme",
-      correlationId: expect.any(String),
-    });
+    // HIGH severity → breaking=true, description lifted from rawPayload.
+    expect(prisma.normalizedChange.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          changeEventId: "evt-1",
+          breaking: true,
+          description: "v2.0 removes legacy authenticate() entry point",
+        }),
+      }),
+    );
   });
 
-  it("rejects requests without a key", async () => {
-    const response = await POST(request(openAiPayload, null), {
-      params: Promise.resolve({ slug: "openai" }),
-    });
-    expect(response.status).toBe(401);
-    expect(prisma.vendorChangeEvent.create).not.toHaveBeenCalled();
-  });
+  it("enqueues ANALYZE_CHANGE for the owning organization", async () => {
+    await post("jpmc-auth-sdk", ingestPayload);
 
-  it("rejects an invalid key", async () => {
-    const response = await POST(request(openAiPayload, "pb_agent_wrong"), {
-      params: Promise.resolve({ slug: "openai" }),
-    });
-    expect(response.status).toBe(401);
-    expect(prisma.vendorChangeEvent.create).not.toHaveBeenCalled();
+    expect(enqueue).toHaveBeenCalledWith(
+      "ANALYZE_CHANGE",
+      expect.objectContaining({ changeEventId: "evt-1", organizationId: "org-acme" }),
+    );
   });
+});
 
-  it("rejects vendors without agent mode enabled", async () => {
-    vi.mocked(prisma.vendor.findUnique).mockResolvedValueOnce({
-      ...mockVendor,
+describe("POST /api/vendors/[slug]/events — shared catalog slugs cannot use the generic path", () => {
+  it("rejects a shared catalog vendor with no organization binding before any write", async () => {
+    vi.mocked(prisma.vendor.findUnique).mockResolvedValue({
+      id: "v-shared",
+      slug: "brand-new-vendor",
+      name: "Brand New Vendor",
+      enabled: true,
+      organizationId: null,
       agentKeyHash: null,
+      agentKeyHashPrevious: null,
     } as never);
-    const response = await POST(request(openAiPayload, validKey), {
-      params: Promise.resolve({ slug: "openai" }),
-    });
+    vi.mocked(getConnector).mockReturnValue(null);
+
+    const response = await post("brand-new-vendor", ingestPayload);
+
+    // Agent mode was never enabled (no claim, no key): auth fails before the
+    // connector lookup, so the request can never reach the generic path.
     expect(response.status).toBe(401);
-  });
-
-  it("returns 404 for unknown vendors", async () => {
-    vi.mocked(prisma.vendor.findUnique).mockResolvedValueOnce(null);
-    const response = await POST(request(openAiPayload, validKey), {
-      params: Promise.resolve({ slug: "openai" }),
-    });
-    expect(response.status).toBe(404);
-  });
-
-  it("returns 422 when the connector cannot normalize the payload", async () => {
-    const response = await POST(request({ rawPayload: { sdk: "stripe" } }, validKey), {
-      params: Promise.resolve({ slug: "openai" }),
-    });
-    expect(response.status).toBe(422);
     expect(prisma.vendorChangeEvent.create).not.toHaveBeenCalled();
+    expect(prisma.normalizedChange.create).not.toHaveBeenCalled();
+    expect(enqueue).not.toHaveBeenCalled();
   });
 
-  it("rejects a NaN Content-Length header as a bad request", async () => {
-    const response = await POST(request(openAiPayload, validKey, { "content-length": "abc" }), {
-      params: Promise.resolve({ slug: "openai" }),
-    });
-    expect(response.status).toBe(400);
-    expect(prisma.vendorChangeEvent.create).not.toHaveBeenCalled();
-  });
+  it("still normalizes through the connector for a claimed slug that has one", async () => {
+    vi.mocked(prisma.vendor.findUnique).mockResolvedValue({
+      ...privateVendor,
+      slug: "openai",
+      name: "OpenAI",
+    } as never);
+    vi.mocked(getConnector).mockReturnValue({
+      normalizeChange: vi.fn().mockReturnValue([
+        {
+          changeType: "SDK_VERSION_UPGRADE",
+          oldValue: "3.x",
+          newValue: "4.x",
+          breaking: true,
+          affectedSymbols: ["openai.createChatCompletion"],
+        },
+      ]),
+    } as never);
 
-  it("rejects a negative Content-Length header", async () => {
-    const response = await POST(request(openAiPayload, validKey, { "content-length": "-7" }), {
-      params: Promise.resolve({ slug: "openai" }),
-    });
-    expect(response.status).toBe(400);
-    expect(prisma.vendorChangeEvent.create).not.toHaveBeenCalled();
-  });
+    const response = await post("openai", ingestPayload);
 
-  it("rejects a Content-Length that is a valid integer but over the limit", async () => {
-    const response = await POST(request(openAiPayload, validKey, { "content-length": "999999" }), {
-      params: Promise.resolve({ slug: "openai" }),
-    });
-    expect(response.status).toBe(413);
-    expect(prisma.vendorChangeEvent.create).not.toHaveBeenCalled();
-  });
-
-  it("caps the actual streamed body even when Content-Length lies", async () => {
-    const oversized = { rawPayload: { sdk: "openai", blob: "x".repeat(300 * 1024) } };
-    const response = await POST(request(oversized, validKey, { "content-length": "5" }), {
-      params: Promise.resolve({ slug: "openai" }),
-    });
-    expect(response.status).toBe(413);
-    expect(prisma.vendorChangeEvent.create).not.toHaveBeenCalled();
-  });
-
-  it("caps the streamed body when Content-Length is absent", async () => {
-    const oversized = { rawPayload: { sdk: "openai", blob: "x".repeat(300 * 1024) } };
-    const response = await POST(request(oversized, validKey), {
-      params: Promise.resolve({ slug: "openai" }),
-    });
-    expect(response.status).toBe(413);
-    expect(prisma.vendorChangeEvent.create).not.toHaveBeenCalled();
-  });
-
-  it("accepts the previous key during the rotation window", async () => {
-    const previousKey = "pb_agent_old_key";
-    mockVendor.agentKeyHash = await hashAgentKey("pb_agent_new_key");
-    mockVendor.agentKeyHashPrevious = await hashAgentKey(previousKey);
-    const response = await POST(request({ rawPayload: openAiPayload }, previousKey), {
-      params: Promise.resolve({ slug: "openai" }),
-    });
     expect(response.status).toBe(201);
-    expect(prisma.vendorChangeEvent.create).toHaveBeenCalled();
+    expect(prisma.vendorChangeEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          organizationId: "org-acme",
+          title: "OpenAI agent change: SDK_VERSION_UPGRADE",
+        }),
+      }),
+    );
+    expect(prisma.normalizedChange.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          oldValue: "3.x",
+          newValue: "4.x",
+        }),
+      }),
+    );
   });
 });

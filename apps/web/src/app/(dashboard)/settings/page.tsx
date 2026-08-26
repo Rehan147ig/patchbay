@@ -195,6 +195,8 @@ export default async function SettingsPage({
                             {capability.language}
                           </span>
                         </>
+                      ) : isPrivate ? (
+                        <Badge tone="neutral">ASSESS</Badge>
                       ) : null}
                       <Badge tone={vendor.enabled ? "green" : "neutral"}>
                         {vendor.enabled ? "enabled" : "off"}

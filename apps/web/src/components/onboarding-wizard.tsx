@@ -21,9 +21,11 @@ const CONNECT_STATUS = {
 /**
  * First-run onboarding wizard. Guides an admin through installing the GitHub
  * App, registering a repository, and reaching the Watchtower release
- * explorer. Each step is skippable.
+ * explorer. Each step is skippable. When the deployment has not configured
+ * the GitHub App environment, step 1 says so explicitly instead of failing
+ * silently at install time.
  */
-export function OnboardingWizard() {
+export function OnboardingWizard({ appConfigured }: { appConfigured: boolean }) {
   const [step, setStep] = useState(0);
   const [pending, startTransition] = useTransition();
   const [connectStatus, setConnectStatus] = useState<keyof typeof CONNECT_STATUS>("idle");
@@ -114,13 +116,38 @@ export function OnboardingWizard() {
             <code className="text-ink-400">Settings → GitHub</code> when it is done. Requires a
             configured <code className="text-ink-400">GITHUB_APP_SLUG</code> in this deployment.
           </p>
-          <div className="flex items-center gap-3">
-            <a
-              href="/api/github/install"
-              className="rounded-md bg-accent-600 px-4 py-2 text-sm font-medium text-white shadow-[0_0_20px_-6px_rgba(99,102,241,0.6)] hover:bg-accent-500"
+          {appConfigured ? null : (
+            <div
+              role="alert"
+              className="rounded-md border border-amber-400/20 bg-amber-400/10 p-3 text-xs leading-relaxed text-amber-300"
             >
-              Install GitHub App
-            </a>
+              <p className="font-semibold">App not configured.</p>
+              <p className="mt-1">
+                This deployment is missing the GitHub App environment, so the install link would
+                fail. Set <code className="font-mono">GITHUB_APP_SLUG</code> (the App URL slug) plus{" "}
+                <code className="font-mono">GITHUB_APP_ID</code>,{" "}
+                <code className="font-mono">GITHUB_APP_PRIVATE_KEY</code> (base64 PEM), and{" "}
+                <code className="font-mono">GITHUB_APP_WEBHOOK_SECRET</code>, then restart. See{" "}
+                <code className="font-mono">docs/self-host.md</code>.
+              </p>
+            </div>
+          )}
+          <div className="flex items-center gap-3">
+            {appConfigured ? (
+              <a
+                href="/api/github/install"
+                className="rounded-md bg-accent-600 px-4 py-2 text-sm font-medium text-white shadow-[0_0_20px_-6px_rgba(99,102,241,0.6)] hover:bg-accent-500"
+              >
+                Install GitHub App
+              </a>
+            ) : (
+              <span
+                aria-disabled="true"
+                className="cursor-not-allowed rounded-md bg-ink-700 px-4 py-2 text-sm font-medium text-ink-500"
+              >
+                Install GitHub App
+              </span>
+            )}
             <Button variant="secondary" onClick={next}>
               Skip for now
             </Button>
@@ -132,12 +159,11 @@ export function OnboardingWizard() {
         <div className="space-y-4">
           <h2 className="text-lg font-semibold text-white">Connect a repository</h2>
           <p className="text-sm leading-relaxed text-ink-400">
-            Register one TypeScript repository that imports a certified SDK —{" "}
+            Register one TypeScript repository that imports a DRAFT_PR-certified SDK —{" "}
             <code className="text-gray-200">openai</code>,{" "}
             <code className="text-gray-200">stripe</code>,{" "}
             <code className="text-gray-200">twilio</code>,{" "}
-            <code className="text-gray-200">anthropic</code>,{" "}
-            <code className="text-gray-200">aws-sdk</code>, or{" "}
+            <code className="text-gray-200">anthropic</code>, or{" "}
             <code className="text-gray-200">supabase</code> — the fastest path from a release to a
             draft PR. You can connect more later from the Repositories page; your plan determines
             how many active repositories Patch may watch.
@@ -190,8 +216,9 @@ export function OnboardingWizard() {
           <h2 className="text-lg font-semibold text-white">From change to draft PR</h2>
           <p className="text-sm leading-relaxed text-ink-400">
             When a tracked vendor releases a breaking change, Watchtower records it under Changes.
-            Open the change → Generate plan → open the remediation → Draft PR. That is the whole
-            path: Patch opens drafts only and never auto-merges; a human reviews and merges.
+            Open the change → Generate plan → approve if the policy gate requires it → Draft PR on
+            the remediation. That is the whole path: Patch opens drafts only and never auto-merges;
+            agents never hold git tokens; a human reviews and merges.
           </p>
           <p className="rounded-md border border-amber-400/20 bg-amber-400/10 p-3 text-xs leading-relaxed text-amber-300">
             If this deployment runs{" "}
