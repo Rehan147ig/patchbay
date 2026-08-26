@@ -1,18 +1,18 @@
 # Patchbay Changelog — Post-Verification Session Log
 
 Baseline: f99dfed (verified by external reviewer / Cursor agent)
-Current: 643d003 + unstaged WIP on main
+Current: bcaa97a on main (all pushed)
 Scope: everything after the Cursor agent's pass verdict
 
 ---
 
 ## 1. Watchtower Hardening (f99dfed)
 
-| Bug | Fix |
-|---|---|
-| `prev.seenVersions` crash on legacy cursors | Defensive `normalizeCursor()` in npm/github-releases/openapi adapters |
-| auth0 repo mapping wrong (`auth0/auth0-nodejs` = 404) | Corrected to `auth0/node-auth0` |
-| Stripe OpenAPI spec URL was 404 | Moved to raw.githubusercontent.com with path-prefix pinning |
+| Bug                                                   | Fix                                                                   |
+| ----------------------------------------------------- | --------------------------------------------------------------------- |
+| `prev.seenVersions` crash on legacy cursors           | Defensive `normalizeCursor()` in npm/github-releases/openapi adapters |
+| auth0 repo mapping wrong (`auth0/auth0-nodejs` = 404) | Corrected to `auth0/node-auth0`                                       |
+| Stripe OpenAPI spec URL was 404                       | Moved to raw.githubusercontent.com with path-prefix pinning           |
 
 Also: `describeError()` cause-chain serializer, evidence cap 12MB, cursor growth bounded at 50.
 
@@ -57,6 +57,10 @@ New file packages/remediation-engine/src/semantic-gate.ts. Replaces syntax-only 
 
 Kit survival audit result: 5/6 pass. aws-sdk FAILS (renames without imports = TS2304).
 
+Kit survival audit result: 5/6 pass. aws-sdk FAILS (renames without imports = TS2304).
+
+**Status: WIRED INTO ENGINE.** `generatePlan` now runs `runSemanticGate` over the full patched file set after per-file syntax checks. Files with new semantic errors are moved to skippedFiles. Cross-file errors (missing imports) caught because all patched files are checked together as one overlay.
+
 ---
 
 ## 7. Java L1 Support (aeefbb8)
@@ -65,9 +69,19 @@ New packages/repo-analysis/src/java.ts — tree-sitter-java WASM extractor. pom.
 
 ---
 
-## 8. Launch Gate Run
+## 8. Vendor Registration + Agent Key Improvements (bcaa97a)
+
+- **Agent-key route**: proper argon2id rotation semantics documented; issuing a key CLAIMS the vendor for the org (known MVP limitation: shared catalog vendors become org-bound on first key issue)
+- **Agent-key revocation**: DELETE endpoint clears both hashes; WORM audit event written
+- **Anti-enumeration decoy**: burnDecoyVerification runs argon2id on rejected requests so response latency doesn't reveal whether a slug exists
+- **Private vendor generic ASSESS ingest**: when no catalog connector exists for a private vendor slug, events are accepted via a generic normalizer at ASSESS level (no certified patches, no DRAFT_PR path)
+
+---
+
+## 9. Launch Gate Run
 
 Full pipeline executed on Rehan147ig/patch-demo-openai-legacy:
+
 - Scan COMPLETED (4 usages from src/chat-service.ts)
 - Analyze AFFECTED (score 55)
 - Plan 1 patch confidence 90
@@ -79,7 +93,9 @@ Full pipeline executed on Rehan147ig/patch-demo-openai-legacy:
 
 ## Known Remaining Items
 
-- aws-sdk connector ships broken patches (semantic gate catches but not yet wired into engine.ts)
+- aws-sdk connector DEMOTED to PLAN (renames without imports produce TS2304; re-certify only after adding import-aware rules that pass runSemanticGate)
+- openai-python DEMOTED to ASSESS (no certified Python patch kit)
+- Shared catalog agent-key "claim" model: issuing a key sets organizationId on the Vendor row — one org per shared catalog vendor. Proper VendorAgentCredential join table deferred
 - SSO/SAML deferred
 - Helm/VPC packaging deferred
 - Kotlin/Swift/Go extractors not built
