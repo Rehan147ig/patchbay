@@ -1,6 +1,7 @@
 export { openaiConnector } from "./connectors/openai";
 export { OPENAI_PYTHON_CLIENT_VARIABLE, openaiPythonConnector } from "./connectors/openai-python";
 export { connectors, getConnector } from "./registry";
+export { getRegistryRecipe, listRegistryEntries, REGISTRY_PAYLOADS } from "./registry-recipes";
 export {
   CAPABILITY_LEVELS,
   CAPABILITY_LEVEL_INDEX,

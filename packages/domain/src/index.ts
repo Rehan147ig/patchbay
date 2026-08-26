@@ -65,6 +65,8 @@ export {
 export type { ErrorCode, PatchbayErrorOptions } from "./errors";
 export { logger, getCorrelationId, runWithCorrelationId } from "./logger";
 export type { LogLevel, LogFields } from "./logger";
+export { migrationRecipeSchema, recipeListEntrySchema, recipeRuleSchema } from "./recipe";
+export type { MigrationRecipe, RecipeListEntry, RecipeRule } from "./recipe";
 export { compareVersions, parseVersion, satisfiesRange } from "./semver";
 export type { ParsedVersion } from "./semver";
 export { computeBlastRadius, isPlanEligibleLevel } from "./blast-radius";

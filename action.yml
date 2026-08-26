@@ -1,0 +1,37 @@
+name: "Patch Migrate"
+description: "Apply certified Patch codemod recipes inside your own CI runner. Code never leaves your environment."
+branding:
+  icon: "tool"
+  color: "purple"
+inputs:
+  vendor:
+    description: "Vendor slug (e.g. openai, stripe, twilio)"
+    required: true
+  from:
+    description: "Source version (e.g. 3.3.0)"
+    required: false
+    default: ""
+  to:
+    description: "Target version (e.g. 4.0.0)"
+    required: false
+    default: ""
+  registry:
+    description: "Registry base URL (default: https://patch.dev)"
+    required: false
+    default: "https://patch.dev"
+  write:
+    description: "Apply transforms and open a Draft PR (true) or dry-run (false)"
+    required: false
+    default: "false"
+runs:
+  using: "composite"
+  steps:
+    - name: Run Patch codemod
+      shell: bash
+      run: |
+        echo "Running patch-migrate for ${{ inputs.vendor }} via ${{ inputs.registry }}"
+        npx -y @patchbay/cli ${{ inputs.vendor }} --registry "${{ inputs.registry }}" ${{ inputs.write == 'true' && '--write' || '--dry-run' }}
+        echo "Patch migrate completed. Review diff and open a Draft PR if needed."
+permissions:
+  contents: write
+  pull-requests: write
