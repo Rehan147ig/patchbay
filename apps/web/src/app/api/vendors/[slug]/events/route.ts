@@ -2,6 +2,7 @@ import { prisma, Prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import {
   ActorType,
+  ChangeType,
   badRequest,
   notFound,
   payloadTooLarge,
@@ -13,11 +14,28 @@ import { agentIngestSchema, boundRawPayload } from "@patchbay/domain";
 import { getConnector } from "@patchbay/vendor-connectors";
 import { enqueue, JobType } from "@patchbay/queue";
 import type { NextRequest } from "next/server";
+import { randomBytes } from "node:crypto";
 import { getCorrelationId, jsonError, jsonOk, parseBodyBounded, writeAuditEvent } from "@/lib/api";
-import { verifyAgentKey } from "@/lib/agent-keys";
+import { hashAgentKey, verifyAgentKey } from "@/lib/agent-keys";
 import { checkGlobalRateLimit, checkRateLimit } from "@/lib/rate-limit";
 
 const MAX_AGENT_BODY_BYTES = 256 * 1024;
+
+/**
+ * Decoy argon2id verification for requests rejected before key comparison
+ * (unknown slug, agent mode disabled). Hashing is deliberately expensive, so
+ * without this the response latency would reveal whether a slug exists and has
+ * agent mode enabled. The result is always ignored.
+ */
+const DECOY_KEY_VERIFY = hashAgentKey(`pb_agent_decoy_${randomBytes(24).toString("base64url")}`);
+
+async function burnDecoyVerification(providedKey: string): Promise<void> {
+  try {
+    await verifyAgentKey(providedKey, await DECOY_KEY_VERIFY);
+  } catch {
+    // Never surfaces: the outcome is discarded either way.
+  }
+}
 
 /**
  * POST /api/vendors/:slug/events
@@ -59,8 +77,12 @@ export async function POST(
     }
 
     const vendor = await prisma.vendor.findUnique({ where: { slug } });
-    if (!vendor) throw notFound(`Vendor "${slug}" is not in the catalog`);
+    if (!vendor) {
+      await burnDecoyVerification(providedKey);
+      throw notFound(`Vendor "${slug}" is not in the catalog`);
+    }
     if (!vendor.organizationId || !vendor.agentKeyHash) {
+      await burnDecoyVerification(providedKey);
       throw unauthorized(`Agent mode is not enabled for vendor "${slug}"`);
     }
     const rate = await checkRateLimit(`agent:${vendor.organizationId}:${slug}`);
@@ -77,8 +99,6 @@ export async function POST(
     }
 
     const input = await parseBodyBounded(request, agentIngestSchema, MAX_AGENT_BODY_BYTES);
-    const connector = getConnector(slug);
-    if (!connector) throw validationFailed(`No connector is registered for vendor "${slug}"`);
 
     // Bound the untrusted payload before it reaches normalizers or storage:
     // caps nesting depth and serialized size so deep/large JSON cannot blow
@@ -88,15 +108,63 @@ export async function POST(
       throw validationFailed("Payload must be a JSON object");
     }
 
-    const drafts = connector.normalizeChange({
-      rawPayload: rawPayload as Prisma.InputJsonValue,
-      sourceType: input.sourceType,
-    });
+    const connector = getConnector(slug);
+    let drafts: Array<{
+      changeType: ChangeType;
+      oldValue?: string;
+      newValue?: string;
+      description?: string;
+      breaking: boolean;
+      affectedSymbols: string[];
+      evidence?: Record<string, unknown>;
+    }>;
+
+    if (connector) {
+      drafts = connector
+        .normalizeChange({
+          rawPayload: rawPayload as Prisma.InputJsonValue,
+          sourceType: input.sourceType,
+        })
+        .map((d) => ({
+          changeType: d.changeType,
+          oldValue: d.oldValue,
+          newValue: d.newValue,
+          description: d.description,
+          breaking: d.breaking,
+          affectedSymbols: d.affectedSymbols,
+          evidence: d.evidence,
+        }));
+    } else if (vendor.organizationId !== null) {
+      // Private vendor without a catalog connector: accept the payload as a
+      // generic change event at ASSESS level. The event is stored and visible
+      // in the dashboard but cannot produce certified patches (no rule pack).
+      drafts = [
+        {
+          changeType: ChangeType.SDK_VERSION_UPGRADE,
+          description:
+            typeof input.rawPayload === "object" &&
+            input.rawPayload !== null &&
+            "description" in input.rawPayload &&
+            typeof (input.rawPayload as Record<string, unknown>).description === "string"
+              ? ((input.rawPayload as Record<string, unknown>).description as string)
+              : `Private vendor ${vendor.name} reported a change.`,
+          breaking: input.severity === "HIGH" || input.severity === "CRITICAL",
+          affectedSymbols: [],
+        },
+      ];
+    } else {
+      throw validationFailed(`No connector is registered for shared catalog vendor "${slug}"`);
+    }
+
     if (drafts.length === 0) {
       throw validationFailed(
         `Connector "${slug}" could not normalize the submitted payload into a change`,
       );
     }
+
+    const eventTitle = connector
+      ? `${vendor.name} agent change: ${drafts.map((d) => d.changeType).join(", ")}`
+      : `${vendor.name} private change: ${input.sourceType}`;
 
     // Ingest idempotency: (organizationId, vendorId, externalReference) is
     // unique. A retried/replayed delivery with the same external reference
@@ -110,7 +178,7 @@ export async function POST(
           externalReference: input.externalReference,
           sourceType: input.sourceType,
           sourceUrl: input.sourceUrl,
-          title: `${vendor.name} agent change: ${drafts.map((d) => d.changeType).join(", ")}`,
+          title: eventTitle,
           severity: input.severity,
           status: "DETECTED",
           rawPayload: rawPayload as Prisma.InputJsonValue,
