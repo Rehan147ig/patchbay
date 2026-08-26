@@ -164,9 +164,10 @@ export const EVAL_CORPUS: EvalCorpusEntry[] = [
       },
     },
     expectedMatched: true,
-    expectedFiles: ["src/chat.py"],
+    // Demoted to ASSESS: no certified Python patch kit. Zero patches expected.
+    expectedFiles: [],
     facts: { breaking: true, requiresHumanReview: true, riskTags: [] },
-    expectedDecision: PolicyDecision.REQUIRE_APPROVAL,
+    expectedDecision: PolicyDecision.ALLOW_PLAN_ONLY,
   },
   {
     id: "openai-python-1.0.0",
@@ -294,9 +295,10 @@ export const EVAL_CORPUS: EvalCorpusEntry[] = [
     previousVersion: "2.1690.0",
     payload: { sdk: "aws-sdk" },
     expectedMatched: true,
-    expectedFiles: ["src/aws-clients.ts"],
+    // Demoted to PLAN: renames without imports produce TS2304 (semantic gate).
+    expectedFiles: [],
     facts: { breaking: true, requiresHumanReview: true, riskTags: ["INFRASTRUCTURE"] },
-    expectedDecision: PolicyDecision.REQUIRE_APPROVAL,
+    expectedDecision: PolicyDecision.ALLOW_PLAN_ONLY,
   },
   {
     id: "aws-sdk-3.0.0",

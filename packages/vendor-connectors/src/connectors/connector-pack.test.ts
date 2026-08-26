@@ -39,7 +39,7 @@ describe("connector pack", () => {
     expect(cancel?.replacement).toBe("AbortController");
   });
 
-  it("aws-sdk: maps v2 service classes to v3 clients", () => {
+  it("aws-sdk: normalizes v2→v3 but produces no patches (demoted to PLAN)", () => {
     const payload = { sdk: "aws-sdk", fromVersion: "2.x", toVersion: "3.x" };
     expect(awsSdkConnector.supports(payload)).toBe(true);
 
@@ -49,10 +49,9 @@ describe("connector pack", () => {
     });
     expect(normalizations.some((n) => n.affectedSymbols.includes("AWS.S3"))).toBe(true);
 
+    // Demoted: renames without imports produce TS2304 (semantic gate catches).
     const patches = awsSdkConnector.buildPatchSuggestions(normalizations);
-    expect(patches.find((p) => p.symbol === "AWS.S3")?.replacement).toBe("S3Client");
-    expect(patches.find((p) => p.symbol === "AWS.SQS")?.replacement).toBe("SQSClient");
-    expect(patches.find((p) => p.symbol === "AWS.DynamoDB")?.replacement).toBe("DynamoDBClient");
+    expect(patches).toEqual([]);
   });
 
   it("express: catches app.del removal and req.param removal", () => {

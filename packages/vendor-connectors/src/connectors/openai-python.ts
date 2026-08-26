@@ -101,19 +101,11 @@ export const openaiPythonConnector: VendorConnector = {
     return drafts;
   },
 
-  buildPatchSuggestions(normalizations): PatchSuggestion[] {
-    const suggestions: PatchSuggestion[] = [];
-    for (const normalization of normalizations) {
-      if (normalization.changeType !== "METHOD_RENAMED") continue;
-      if (!normalization.oldValue || !normalization.newValue) continue;
-      if (!normalization.affectedSymbols.includes(normalization.oldValue)) continue;
-      suggestions.push({
-        symbol: normalization.oldValue,
-        replacement: normalization.newValue,
-        description: `Rewrite ${normalization.oldValue} to ${normalization.newValue} (openai python v1 client) and ensure the client is constructed.`,
-        confidence: 85,
-      });
-    }
-    return suggestions;
+  // Python is ASSESS-only: no certified patch kit exists yet. This must
+  // return empty so checkCertifiedPatchCoverage does not flag a non-DRAFT_PR
+  // connector producing suggestions. Restore only when rules pass
+  // runSemanticGate + corpus certification.
+  buildPatchSuggestions(): PatchSuggestion[] {
+    return [];
   },
 };

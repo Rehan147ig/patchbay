@@ -135,15 +135,23 @@ function certified(
  */
 export const CAPABILITY_REGISTRY: readonly ConnectorCapability[] = [
   certified("openai", "openai", "DRAFT_PR"),
-  certified("openai-python", "openai", "DRAFT_PR", {
+  {
+    ...baseline("openai-python", "openai"),
     ecosystem: "pypi",
     language: "python",
     validationProfile: "python-tree-sitter-reparse + container-sandbox",
-  }),
+  },
   certified("stripe", "stripe", "DRAFT_PR"),
   certified("twilio", "twilio", "DRAFT_PR"),
   certified("anthropic", "@anthropic-ai/sdk", "DRAFT_PR"),
-  certified("aws-sdk", "aws-sdk", "DRAFT_PR"),
+  {
+    ...baseline("aws-sdk", "aws-sdk"),
+    level: "PLAN",
+    rulePackVersion: RULE_PACK_VERSION,
+    validationProfile: "node-ts-reparse",
+    corpus: H8_CORPUS,
+    certifiedAt: CERTIFIED_AT,
+  },
   certified("supabase", "@supabase/supabase-js", "DRAFT_PR"),
   {
     ...baseline("auth0", "auth0"),

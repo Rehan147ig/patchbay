@@ -181,29 +181,14 @@ describe("python plans (openai-python v0 -> v1)", () => {
     };
   }
 
-  it("rewrites the module call onto the v1 client and inserts the client bootstrap", async () => {
+  it("produces a plan-only draft for Python (ASSESS-only: no certified patch kit)", async () => {
     const plan = await generatePlan(pythonInput());
 
-    expect(plan.patches).toHaveLength(1);
-    const patch = plan.patches[0]!;
-    expect(patch.filePath).toBe("src/chat.py");
-    expect(patch.generationMethod).toBe("RULE_BASED");
-    expect(plan.skippedFiles).toEqual([]);
-
-    expect(patch.patched).toContain("client.chat.completions.create(");
-    expect(patch.patched).not.toContain("openai.ChatCompletion.create");
-    expect(patch.patched).toContain("from openai import OpenAI");
-    expect(patch.patched).toContain("client = OpenAI()");
-    // Bootstrap lands in the import block, never inside run_chat().
-    const constructionLine = patch.patched
-      .split("\n")
-      .findIndex((line) => line.startsWith("client = OpenAI()"));
-    const defLine = patch.patched.split("\n").findIndex((line) => line.startsWith("def run_chat"));
-    expect(constructionLine).toBeGreaterThan(-1);
-    expect(constructionLine).toBeLessThan(defLine);
-    expect(patch.description).toContain("client bootstrap");
-
-    expect(await validatePatchSyntax(patch.filePath, patch.patched)).toBe(true);
+    // Demoted to ASSESS: no patch suggestions → plan-only output.
+    expect(plan.patches).toHaveLength(0);
+    expect(plan.requiresHumanReview).toBe(true);
+    expect(plan.confidence).toBe(60);
+    expect(plan.strategy).toContain("Plan-only");
   });
 
   it("rejects broken python via the tree-sitter syntax check", async () => {

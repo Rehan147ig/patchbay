@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { getConnector } from "../registry";
-import { OPENAI_PYTHON_CLIENT_VARIABLE, openaiPythonConnector } from "./openai-python";
+import { openaiPythonConnector } from "./openai-python";
 
 const MIGRATION_PAYLOAD = {
   sdk: "openai-python",
@@ -54,20 +54,12 @@ describe("openai-python connector", () => {
     });
   });
 
-  it("builds client-based patch suggestions keyed by the legacy usage symbols", () => {
+  it("emits no patch suggestions: Python is ASSESS-only (demoted)", () => {
     const drafts = openaiPythonConnector.normalizeChange({
       rawPayload: MIGRATION_PAYLOAD,
       sourceType: "SDK_RELEASE",
     });
-    const suggestions = openaiPythonConnector.buildPatchSuggestions(drafts);
-    expect(suggestions.map((suggestion) => suggestion.symbol)).toEqual([
-      "openai.ChatCompletion.create",
-      "openai.Completion.create",
-    ]);
-    for (const suggestion of suggestions) {
-      expect(suggestion.replacement.startsWith(`${OPENAI_PYTHON_CLIENT_VARIABLE}.`)).toBe(true);
-      expect(suggestion.confidence).toBe(85);
-    }
+    expect(openaiPythonConnector.buildPatchSuggestions(drafts)).toEqual([]);
   });
 
   it("emits no patch suggestions without migration rules (negative releases stay silent)", () => {

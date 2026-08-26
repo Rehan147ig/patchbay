@@ -42,15 +42,15 @@ describe("connector capability registry", () => {
     }
   });
 
-  it("openai/stripe/twilio/anthropic/aws-sdk/supabase/openai-python are certified DRAFT_PR; auth0 is PLAN; the rest are ASSESS", () => {
+  it("openai/stripe/twilio/anthropic/supabase are certified DRAFT_PR; aws-sdk is PLAN; auth0 is PLAN; the rest are ASSESS", () => {
     const levelOf = (slug: string): string => getCapability(slug)?.level ?? "none";
     expect(levelOf("openai")).toBe("DRAFT_PR");
     expect(levelOf("stripe")).toBe("DRAFT_PR");
     expect(levelOf("twilio")).toBe("DRAFT_PR");
     expect(levelOf("anthropic")).toBe("DRAFT_PR");
-    expect(levelOf("aws-sdk")).toBe("DRAFT_PR");
     expect(levelOf("supabase")).toBe("DRAFT_PR");
-    expect(levelOf("openai-python")).toBe("DRAFT_PR");
+    expect(levelOf("openai-python")).toBe("ASSESS");
+    expect(levelOf("aws-sdk")).toBe("PLAN");
     expect(levelOf("auth0")).toBe("PLAN");
     const certified = new Set([
       "openai",
@@ -69,16 +69,15 @@ describe("connector capability registry", () => {
     }
   });
 
-  it("certifies the openai-python kit against the pypi ecosystem and the tree-sitter profile", () => {
+  it("openai-python is ASSESS (Python patch kit not certified)", () => {
     const entry = getCapability("openai-python");
     expect(entry).not.toBeNull();
     expect(entry?.ecosystem).toBe("pypi");
     expect(entry?.language).toBe("python");
     expect(entry?.package).toBe("openai");
-    expect(entry?.level).toBe("DRAFT_PR");
-    expect(entry?.validationProfile).toContain("python-tree-sitter-reparse");
-    expect(requireCertified("openai-python", "DRAFT_PR").ok).toBe(true);
-    expect(capabilityAtLeast("openai-python", "VALIDATE")).toBe(true);
+    expect(entry?.level).toBe("ASSESS");
+    expect(requireCertified("openai-python", "DRAFT_PR").ok).toBe(false);
+    expect(requireCertified("openai-python", "PLAN").ok).toBe(false);
   });
 
   it("DRAFT_PR certification requires a sandbox profile and approval policy", () => {
@@ -106,9 +105,7 @@ describe("connector capability registry", () => {
     const draftPr = listCapabilitiesByLevel("DRAFT_PR");
     expect(draftPr.map((entry: ConnectorCapability) => entry.vendorSlug).sort()).toEqual([
       "anthropic",
-      "aws-sdk",
       "openai",
-      "openai-python",
       "stripe",
       "supabase",
       "twilio",
@@ -119,7 +116,6 @@ describe("connector capability registry", () => {
       "auth0",
       "aws-sdk",
       "openai",
-      "openai-python",
       "stripe",
       "supabase",
       "twilio",

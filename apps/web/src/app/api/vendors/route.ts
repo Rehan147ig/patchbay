@@ -11,15 +11,15 @@ import { requireRole } from "@/lib/auth";
 
 /**
  * GET /api/vendors
- * Catalog list with agent-mode status (never exposes the key itself) and the
- * capability contract (WP9): certified level, language, ecosystem, package,
- * required policy class, and certification status. Optional `minLevel` query
- * filters to vendors certified at or above a capability level.
+ * Returns the shared catalog plus the caller's own private vendors — never
+ * another org's private SDK registrations. Catalog entries have
+ * `organizationId: null`; private entries carry the caller's org id and are
+ * tagged with `visibility: "private"`.
  */
 export async function GET(request: NextRequest) {
   const correlationId = getCorrelationId(request);
   try {
-    await requireRole("VIEWER");
+    const user = await requireRole("VIEWER");
     const rawMinLevel = request.nextUrl.searchParams.get("minLevel");
     let minLevel: CapabilityLevel | null = null;
     if (rawMinLevel !== null) {
@@ -30,7 +30,10 @@ export async function GET(request: NextRequest) {
     }
 
     const vendors = await prisma.vendor.findMany({
-      orderBy: { name: "asc" },
+      where: {
+        OR: [{ organizationId: null }, { organizationId: user.organizationId }],
+      },
+      orderBy: [{ organizationId: "asc" }, { name: "asc" }],
       select: {
         id: true,
         slug: true,
@@ -39,26 +42,25 @@ export async function GET(request: NextRequest) {
         docsUrl: true,
         enabled: true,
         agentKeyHash: true,
+        organizationId: true,
       },
     });
 
     const filtered = vendors.filter((vendor) => {
-      if (minLevel === null) {
-        return true;
-      }
+      if (minLevel === null) return true;
       const capability = getCapability(vendor.slug);
-      if (!capability) {
-        return false;
-      }
+      if (!capability) return false;
       return CAPABILITY_LEVELS.indexOf(capability.level) >= CAPABILITY_LEVELS.indexOf(minLevel);
     });
 
     return jsonOk(
       {
-        vendors: filtered.map(({ agentKeyHash, ...vendor }) => {
+        vendors: filtered.map(({ agentKeyHash, organizationId, ...vendor }) => {
           const capability = getCapability(vendor.slug);
+          const isPrivate = organizationId !== null;
           return {
             ...vendor,
+            visibility: isPrivate ? ("private" as const) : ("shared" as const),
             agentModeEnabled: agentKeyHash !== null && agentKeyHash !== undefined,
             capability: capability
               ? {

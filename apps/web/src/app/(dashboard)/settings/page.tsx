@@ -19,6 +19,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  PageHeader,
   StatusPill,
   Table,
   TableBody,
@@ -92,23 +93,35 @@ export default async function SettingsPage({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold text-slate-900">Settings</h1>
-        <p className="text-sm text-ink-400">Workspace and integration configuration.</p>
-      </div>
+      <PageHeader
+        title="Workspace Settings"
+        description="Configure tenant profile, vendor catalog integration keys, billing tier, and capability kill switches."
+        badge={
+          <Badge tone="purple" dot>
+            {user.role} Access
+          </Badge>
+        }
+      />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Workspace</CardTitle>
-            <CardDescription>Organization profile (demo).</CardDescription>
+            <CardTitle>Organization Profile</CardTitle>
+            <CardDescription>Tenant workspace identity and session context.</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-1 text-sm">
-            <p className="text-gray-100">{organization?.name ?? "—"}</p>
-            <p className="text-xs text-ink-400">
-              You are signed in as <span className="font-medium">{user.email}</span> with role{" "}
-              <Badge tone={user.role === "ADMIN" ? "purple" : "blue"}>{user.role}</Badge>.
-            </p>
+          <CardContent className="space-y-3 text-sm">
+            <div className="flex items-center justify-between border-b border-ink-800 pb-2">
+              <span className="text-xs text-ink-400">Organization Name</span>
+              <span className="font-semibold text-gray-200">{organization?.name ?? "—"}</span>
+            </div>
+            <div className="flex items-center justify-between border-b border-ink-800 pb-2">
+              <span className="text-xs text-ink-400">Organization ID</span>
+              <span className="font-mono text-xs text-accent-400">{user.organizationId}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-ink-400">Signed-in User</span>
+              <span className="text-xs text-gray-300 font-mono">{user.email}</span>
+            </div>
           </CardContent>
         </Card>
 
@@ -253,12 +266,12 @@ export default async function SettingsPage({
               </span>
               {capacity.remaining !== null ? <span>{capacity.remaining} remaining</span> : null}
             </div>
-            <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-slate-100">
+            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-ink-800 border border-ink-700">
               <div
                 className={
                   capacity.remaining === 0 && capacity.cap !== null
-                    ? "h-full rounded-full bg-red-500"
-                    : "h-full rounded-full bg-slate-900"
+                    ? "h-full rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]"
+                    : "h-full rounded-full bg-gradient-to-r from-accent-600 to-accent-400 shadow-[0_0_8px_rgba(99,102,241,0.6)]"
                 }
                 style={{
                   width:
@@ -269,7 +282,7 @@ export default async function SettingsPage({
               />
             </div>
             {capacity.remaining === 0 && capacity.cap !== null ? (
-              <p className="mt-1 text-xs text-red-600">
+              <p className="mt-1 text-xs text-red-400 font-medium">
                 Repository capacity reached — upgrade to connect more.
               </p>
             ) : null}

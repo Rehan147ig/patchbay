@@ -261,6 +261,49 @@ export async function generatePlan(input: PlanInput): Promise<PlanDraft> {
     };
   }
 
+  // Semantic validation gate: type-check ALL patched files together as an
+  // in-memory overlay over the original project. Cross-file errors (missing
+  // imports, renamed symbols referenced elsewhere) only surface when the full
+  // set is checked together — not file by file. Files whose patches introduce
+  // new errors are rejected; pre-existing errors are ignored.
+  const tsPatches = patches.filter((p) => /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/.test(p.filePath));
+  if (tsPatches.length > 0) {
+    const { runSemanticGate } = await import("./semantic-gate");
+    const overlay = new Map<string, string>();
+    for (const p of tsPatches) {
+      overlay.set(p.filePath, p.patched);
+    }
+    const gate = runSemanticGate({
+      projectDir: fixtureDir,
+      patchedFiles: overlay,
+    });
+
+    if (!gate.ok) {
+      const badFiles = new Set(gate.newErrors.map((e) => e.filePath));
+      const surviving = tsPatches.filter((p) => !badFiles.has(p.filePath));
+      const rejected = tsPatches.filter((p) => badFiles.has(p.filePath));
+      for (const p of rejected) {
+        skippedFiles.push(p.filePath);
+      }
+      const kept = patches.filter(
+        (p) => !badFiles.has(p.filePath),
+      );
+      const rejectSummary = [...badFiles]
+        .map((f) => `${f} (${gate.newErrors.filter((e) => e.filePath === f).length} errors)`)
+        .join(", ");
+      return {
+        strategy: `Rule-based migration for ${repositoryName}: ${kept.length} of ${patches.length} patch(es) passed the semantic gate. Rejected: ${rejectSummary}.`,
+        proposedChanges: kept.flatMap((p) =>
+          proposedChanges.filter((pc) => pc.filePath === p.filePath),
+        ),
+        confidence: Math.min(...kept.map((p) => p.confidence)),
+        requiresHumanReview: true,
+        patches: kept,
+        skippedFiles,
+      };
+    }
+  }
+
   const planConfidence = Math.min(...appliedConfidences);
   return {
     strategy: `Rule-based migration for ${repositoryName}: ${appliedConfidences.length} file(s) patched with deterministic rules (symbol rename, response unwrap, feature adoption), each re-parsed successfully.`,
