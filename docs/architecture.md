@@ -296,6 +296,46 @@ sequenceDiagram
 - Enums are defined once in `packages/domain` (const objects + Zod enums) and mirrored in
   `prisma/schema.prisma`; a drift test fails if they diverge.
 
+### 3.6 Codemod Registry & Dual Entrypoints (CLI + GitHub App)
+
+The registry and CLI share the same deterministic safety engine as the GitHub App sandbox. Safety gates are identical regardless of where the patch executes.
+
+```mermaid
+flowchart TB
+    VENDOR[Vendor pushes OpenAPI diff / migration payload]
+    SIGN[HMAC-SHA256 sign<br/>PATCH_REGISTRY_SIGNING_KEY<br/>Patch platform key]
+    REGISTRY[(Registry<br/>Signed Versioned Recipes<br/>verified in CLI before --write<br/>fail-closed to PLAN on bad signature)]
+
+    VENDOR --> SIGN --> REGISTRY
+
+    CLI[CLI · npx patch-migrate<br/>local machine, code never leaves]
+    APP[GitHub App · draft PR<br/>sandbox clone]
+
+    REGISTRY --> CLI
+    REGISTRY --> APP
+
+    subgraph Safety["Patch Safety Engine — shared, deterministic, fail-closed"]
+        G0[Gate 0 · AST Matcher precision<br/>literal-only findHttpCallsites<br/>>=90% via eval-corpus, bail to PLAN]
+        G1[Gate 1 · Parse<br/>reparseCheck / tree-sitter]
+        G2[Gate 2 · Verifies 0 new type errors<br/>tsc --noEmit, static surfaces only]
+        G3[Gate 3 · Tests<br/>allowlisted commands only]
+        G0 --> G1 --> G2 --> G3
+    end
+
+    CLI --> G0
+    APP --> G0
+
+    G3 --> PR[Draft PR · human review required]
+    G3 -- fail --> ROLLBACK[[Rollback · revert writes<br/>fail-closed, visually loud]]
+    G0 -- low confidence / non-literal --> PLAN[[PLAN preview · REQUIRE_APPROVAL]]
+    G1 -- fail --> ROLLBACK
+    G2 -- fail --> ROLLBACK
+```
+
+- **Signed by whom:** Patch platform `PATCH_REGISTRY_SIGNING_KEY` (HMAC-SHA256 over canonical recipe JSON without `signature` field). Verified in `packages/cli/src/index.ts` via `verifyRecipeSignature()` from `packages/vendor-connectors/src/registry-recipes.ts` before any `--write`. On failure: abort `--write` (exit 1), degrade to `PLAN` dry-run preview.
+- **Gate 2 wording:** `Verifies 0 new type errors (static surfaces)` — `tsc --noEmit` checks only what the compiler sees, not behavioral correctness.
+- **Gate 0:** Upstream of every transform. Matcher confidence/precision validated against `eval-corpus` ground truth. Non-literal URLs (`${BASE_URL}`, constants, computed strings) never reach DRAFT_PR.
+
 ---
 
 ## 4. Security & Isolation Boundaries

@@ -23,7 +23,7 @@ export const migrationRecipeSchema = z.object({
   certifiedAt: z.string().datetime().nullable(),
   engineVersion: z.string().min(1).max(50),
   rules: z.array(recipeRuleSchema).min(1).max(100),
-  /** Hex-encoded HMAC/signature over the canonical JSON of the recipe (without this field). */
+  /** HMAC-SHA256 over canonical JSON (without this field), signed by Patch platform key. Verified in @patchbay/cli before --write; fails closed to PLAN preview. */
   signature: z.string().regex(/^[0-9a-f]{64,128}$/),
 });
 export type MigrationRecipe = z.infer<typeof migrationRecipeSchema>;

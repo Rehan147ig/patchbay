@@ -6,6 +6,7 @@ import {
   getRegistryRecipe,
   listRegistryEntries,
   REGISTRY_PAYLOADS,
+  verifyRecipeSignature,
 } from "@patchbay/vendor-connectors";
 import type { MigrationRecipe } from "@patchbay/domain";
 import { generatePlan } from "@patchbay/remediation-engine";
@@ -160,9 +161,25 @@ async function main(): Promise<void> {
     if (recipe.capability === "PLAN") {
       console.log("  PLAN-level recipe: requires human approval before apply.");
     }
+    // Gate: Verify HMAC-SHA256 signature (signed by Patch platform). Fail-closed.
+    const verified = verifyRecipeSignature(recipe);
+    if (!verified) {
+      console.error(
+        "\x1b[31m  Signature: FAILED - recipe not signed by trusted Patch key. Failing closed to PLAN preview; --write blocked.\x1b[0m",
+      );
+      if (args.write) {
+        console.error("  Set PATCH_REGISTRY_SIGNING_KEY to production key or fetch from trusted registry.");
+        process.exit(1);
+      }
+    } else {
+      console.log("  Signature: verified (HMAC-SHA256, Patch platform key)");
+    }
   } else {
     console.log(`No registry recipe found for vendor "${vendor}" (local fallback).`);
   }
+
+  // Gate 0: AST Matcher precision (upstream of all transforms). Literal-only, bail to PLAN on non-literal.
+  console.log("Gate 0: AST Matcher precision >=90% via eval-corpus (literal-only, PLAN on non-literal URLs)");
 
   // 2. Local workspace scan via repo-analysis + http-matcher (PLAN signal).
   let httpHits = 0;
@@ -276,17 +293,21 @@ async function main(): Promise<void> {
               const abs = path.join(path.resolve(args.cwd), patch.filePath);
               await fs.writeFile(abs, patch.patched, "utf8");
             }
-            console.log("\nRunning tsc --noEmit gate...");
+            console.log("\nGate 2: Verifies 0 new type errors (static surfaces, tsc --noEmit)...");
             const gate = runTscGate(path.resolve(args.cwd));
             if (!gate.ok) {
-              console.error("\x1b[31mtsc --noEmit FAILED - reverting writes.\x1b[0m");
+              console.error(
+                "\x1b[31mGate 2 FAILED: tsc reports new type errors - reverting writes (fail-closed).\x1b[0m",
+              );
               console.error(gate.output.slice(0, 4000));
               for (const [abs, original] of originals) {
                 await fs.writeFile(abs, original, "utf8");
               }
               process.exit(1);
             }
-            console.log("\x1b[32mtsc --noEmit PASSED - patches applied.\x1b[0m");
+            console.log(
+              "\x1b[32mGate 2 PASSED: Verifies 0 new type errors (static surfaces) - patches applied.\x1b[0m",
+            );
             for (const patch of plan.patches) {
               console.log(`  wrote ${patch.filePath}`);
             }

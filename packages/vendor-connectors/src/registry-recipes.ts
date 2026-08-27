@@ -1,9 +1,13 @@
-import { createHash } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import type { MigrationRecipe, RecipeListEntry, RecipeRule } from "@patchbay/domain";
 import { getCapability } from "./capabilities";
 import { getConnector } from "./registry";
 
 const ENGINE_VERSION = "1.0.0";
+
+function signingKey(): string {
+  return process.env.PATCH_REGISTRY_SIGNING_KEY ?? "dev-only-not-secure-change-in-production";
+}
 
 /** Static payloads derived from EVAL_CORPUS matched entries - avoids cross-package circular dep. */
 
@@ -44,7 +48,20 @@ export const REGISTRY_PAYLOADS = CORPUS_PAYLOADS;
 
 function signRecipe(canonical: Omit<MigrationRecipe, "signature">): string {
   const json = JSON.stringify(canonical);
-  return createHash("sha256").update(json).digest("hex");
+  // HMAC-SHA256 signed by Patch platform key. Verified in CLI before --write.
+  // In production PATCH_REGISTRY_SIGNING_KEY must be set; dev fallback is explicit.
+  return createHmac("sha256", signingKey()).update(json).digest("hex");
+}
+
+export function verifyRecipeSignature(recipe: MigrationRecipe): boolean {
+  const { signature, ...canonical } = recipe;
+  const expected = signRecipe(canonical as Omit<MigrationRecipe, "signature">);
+  if (signature.length !== expected.length) return false;
+  try {
+    return timingSafeEqual(Buffer.from(signature, "hex"), Buffer.from(expected, "hex"));
+  } catch {
+    return false;
+  }
 }
 
 function corpusPayloadFor(vendor: string): Record<string, unknown> | null {
