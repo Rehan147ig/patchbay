@@ -76,17 +76,28 @@ function colorizeDiff(diff: string): string {
 }
 
 function runTscGate(cwd: string): { ok: boolean; output: string } {
-  const hasTsconfig = existsSync(path.join(cwd, "tsconfig.json"));
+  // Fail-closed: do not silently pass when no tsconfig can be found.
+  // Search cwd and one level up (covers monorepo packages/* without root config).
+  const candidates = [
+    path.join(cwd, "tsconfig.json"),
+    path.join(cwd, "..", "tsconfig.json"),
+    path.join(path.dirname(cwd), "tsconfig.json"),
+  ];
+  const hasTsconfig = candidates.some((p) => existsSync(p));
   if (!hasTsconfig) {
-    // No tsconfig (fixtures) - rely on generatePlan's semantic gate which already validated.
-    return { ok: true, output: "No tsconfig.json - skipping tsc, semantic gate already passed." };
+    return {
+      ok: false,
+      output:
+        "No tsconfig.json found - cannot verify. Aborting --write (fail-closed). Add a tsconfig.json or run from repo root.",
+    };
   }
   const result = spawnSync("npx", ["tsc", "--noEmit", "--skipLibCheck"], {
     cwd,
     encoding: "utf8",
     timeout: 60_000,
+    shell: true,
   });
-  const output = [result.stdout ?? "", result.stderr ?? ""].join("\n");
+  const output = [result.stdout ?? "", result.stderr ?? "", result.error?.message ?? ""].join("\n");
   return { ok: result.status === 0, output };
 }
 
@@ -168,7 +179,9 @@ async function main(): Promise<void> {
         "\x1b[31m  Signature: FAILED - recipe not signed by trusted Patch key. Failing closed to PLAN preview; --write blocked.\x1b[0m",
       );
       if (args.write) {
-        console.error("  Set PATCH_REGISTRY_SIGNING_KEY to production key or fetch from trusted registry.");
+        console.error(
+          "  Set PATCH_REGISTRY_SIGNING_KEY to production key or fetch from trusted registry.",
+        );
         process.exit(1);
       }
     } else {
@@ -179,7 +192,9 @@ async function main(): Promise<void> {
   }
 
   // Gate 0: AST Matcher precision (upstream of all transforms). Literal-only, bail to PLAN on non-literal.
-  console.log("Gate 0: AST Matcher precision >=90% via eval-corpus (literal-only, PLAN on non-literal URLs)");
+  console.log(
+    "Gate 0: AST Matcher precision >=90% via eval-corpus (literal-only, PLAN on non-literal URLs)",
+  );
 
   // 2. Local workspace scan via repo-analysis + http-matcher (PLAN signal).
   let httpHits = 0;

@@ -353,3 +353,19 @@ flowchart TB
   multi-tenant infrastructure — stated in the UI and docs.
 - **Correlation & Audit**: every API response carries a `correlationId`; every mutation writes an
   `AuditEvent` (actions in `packages/audit/src/actions.ts`).
+
+## 5. Known Gaps & Honest Prioritization (2026-08-27)
+
+| Gap | Description                          | Fix Time        | Blocks                                                                             |
+| --- | ------------------------------------ | --------------- | ---------------------------------------------------------------------------------- |
+| #2  | Gate 2 fails open without tsconfig   | 1 hour (done)   | Every demo and fail-closed claim                                                   |
+| #3  | Gate 0 no real-repo proof            | 1 day           | Every precision claim                                                              |
+| #1  | 7 recipes (0.7% coverage)            | Ongoing         | Scale and revenue - linear authoring cost, AI synthesis reduces but not eliminates |
+| #5  | Python gate unverified               | 1 day           | Multi-language claims                                                              |
+| #4  | HMAC key custody no story            | Half day (done) | Any security conversation                                                          |
+| #7  | GitHub App trust barrier             | Weeks/months    | Subscription revenue                                                               |
+| #6  | No independent audit                 | Months          | Enterprise/regulated                                                               |
+| #8  | Founder bandwidth (TradeDocAI + MSc) | Not fixable     | Everything above - 2-3 vendors/week max                                            |
+
+- **#1 Coverage ceiling:** 7 registry entries is 0.7% of the ecosystem. Engine is excellent but delivers zero value for Prisma, tRPC, Supabase, Resend, etc. AI synthesis path reduces authoring cost but does not eliminate human review. This is the #1 business constraint.
+- **#8 Bandwidth:** Realistic capacity is fixes #2-#5 now, 2-3 new vendors/week, no enterprise sales or full audit until bandwidth changes.
