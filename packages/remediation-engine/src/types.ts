@@ -28,6 +28,14 @@ export interface PlanInput {
   normalizations: NormalizedChangeDraft[];
   /** Assessment confidence, used when no rule applies (plan-only fallback). */
   assessmentConfidence: number;
+  /**
+   * Expected SHA-256 of each file's original content as captured at analysis/
+   * planning time (e.g. PatchPlanEdit.expectedSourceHash per file). When
+   * supplied, generatePlan() fail-closes per file if current content hash
+   * mismatches - prevents TOCTOU wrong-location edits. Reuses existing
+   * sha256Hex / PatchPlanEdit.expectedSourceHash infrastructure.
+   */
+  expectedFileHashes?: ReadonlyMap<string, string> | Record<string, string>;
 }
 
 export interface PatchDraft {

@@ -233,3 +233,236 @@ describe("unifiedDiff", () => {
     expect(diff).toContain("(no changes)");
   });
 });
+
+describe("regression: safe refactoring pipeline", () => {
+  it("handles multiple renames on the same line (Promise.all)", async () => {
+    const tmp = await import("node:fs/promises").then((m) => m.mkdtemp("/tmp/patch-test-"));
+    const { mkdtemp } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const dir = await mkdtemp(`${tmpdir()}/patch-multi-`);
+    const filePath = "src/app.ts";
+    const content = "Promise.all([\n  client.chat.completions.create(x),\n  client.chat.completions.create(y)\n])\n";
+    // Actually test foo(oldA(), oldB()) same line
+    const sameLine = "line1\nline2\nfoo(oldA(), oldB())\nline4\nline5\n";
+    await import("node:fs/promises").then((fs) =>
+      fs.mkdir(`${dir}/src`, { recursive: true }),
+    );
+    const fs = await import("node:fs/promises");
+    await fs.writeFile(`${dir}/${filePath}`, sameLine, "utf8");
+    const plan = await generatePlan({
+      fixtureDir: dir,
+      repositoryName: "test",
+      usages: [
+        { filePath, line: 3, symbol: "oldA", excerpt: sameLine.trim() },
+        { filePath, line: 3, symbol: "oldB", excerpt: sameLine.trim() },
+      ],
+      patchSuggestions: [
+        { symbol: "oldA", replacement: "newA", description: "a", confidence: 90 },
+        { symbol: "oldB", replacement: "newB", description: "b", confidence: 90 },
+      ],
+      normalizations: [],
+      assessmentConfidence: 90,
+    });
+    expect(plan.patches).toHaveLength(1);
+    expect(plan.patches[0]!.patched).toBe("line1\nline2\nfoo(newA(), newB())\nline4\nline5\n");
+    expect(plan.patches[0]!.patched).not.toContain("oldA");
+    expect(plan.patches[0]!.patched).not.toContain("oldB");
+  });
+
+  it("preserves CRLF line endings", async () => {
+    const { mkdtemp, writeFile, mkdir } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const dir = await mkdtemp(`${tmpdir()}/patch-crlf-`);
+    const filePath = "src/app.ts";
+    const original = "line1\r\noldSymbol()\r\nline3\r\n";
+    await mkdir(`${dir}/src`, { recursive: true });
+    const fs = await import("node:fs/promises");
+    await writeFile(`${dir}/${filePath}`, original, "utf8");
+    const plan = await generatePlan({
+      fixtureDir: dir,
+      repositoryName: "test",
+      usages: [{ filePath, line: 2, symbol: "oldSymbol", excerpt: "oldSymbol()" }],
+      patchSuggestions: [{ symbol: "oldSymbol", replacement: "newSymbol", description: "x", confidence: 90 }],
+      normalizations: [],
+      assessmentConfidence: 90,
+    });
+    expect(plan.patches).toHaveLength(1);
+    const patched = plan.patches[0]!.patched;
+    // Should still be CRLF, not normalized to LF, and only intended line changed
+    expect(patched).toContain("\r\n");
+    expect(patched).not.toContain("\noldSymbol()");
+    expect(patched).toContain("newSymbol()");
+    expect(patched.split("\r\n")).toHaveLength(original.split("\r\n").length);
+  });
+
+  it("applies Python bootstrap after renames (zero line shift during renames)", async () => {
+    const { mkdtemp, writeFile, mkdir } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const dir = await mkdtemp(`${tmpdir()}/patch-py-`);
+    const filePath = "src/chat.py";
+    const original = "import os\n\nopenai.ChatCompletion.create(model='x')\n";
+    await mkdir(`${dir}/src`, { recursive: true });
+    const fs = await import("node:fs/promises");
+    await writeFile(`${dir}/${filePath}`, original, "utf8");
+    // Use a Python-targeted suggestion that triggers bootstrap
+    const plan = await generatePlan({
+      fixtureDir: dir,
+      repositoryName: "test",
+      usages: [{ filePath, line: 3, symbol: "openai.ChatCompletion.create", excerpt: "openai.ChatCompletion.create" }],
+      patchSuggestions: [{ symbol: "openai.ChatCompletion.create", replacement: "client.chat.completions.create", description: "py", confidence: 90 }],
+      normalizations: [],
+      assessmentConfidence: 90,
+    });
+    // Should have bootstrap + rename, and rename was at original line 3 (not shifted)
+    expect(plan.patches).toHaveLength(1);
+    const patched = plan.patches[0]!.patched;
+    expect(patched).toContain("from openai import OpenAI");
+    expect(patched).toContain("client = OpenAI()");
+    expect(patched).toContain("client.chat.completions.create");
+    // Ensure bootstrap is after imports, not before, and original line content still correct
+    const lines = patched.split("\n");
+    const bootstrapIdx = lines.findIndex((l) => l.includes("client = OpenAI()"));
+    const renameIdx = lines.findIndex((l) => l.includes("client.chat.completions.create"));
+    expect(bootstrapIdx).toBeGreaterThan(-1);
+    expect(renameIdx).toBeGreaterThan(bootstrapIdx);
+  });
+
+  it("bails safely when line content drifted (TOCTOU)", async () => {
+    const { mkdtemp, writeFile, mkdir } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const dir = await mkdtemp(`${tmpdir()}/patch-toctou-`);
+    const filePath = "src/app.ts";
+    const originalAtPatchTime = "const x = 1;\nconst y = 2;\n";
+    await mkdir(`${dir}/src`, { recursive: true });
+    const fs = await import("node:fs/promises");
+    await writeFile(`${dir}/${filePath}`, originalAtPatchTime, "utf8");
+    // Usage was recorded at analysis time as line 1 with symbol oldSymbol, but file no longer contains it
+    const plan = await generatePlan({
+      fixtureDir: dir,
+      repositoryName: "test",
+      usages: [{ filePath, line: 1, symbol: "oldSymbol", excerpt: "oldSymbol()" }],
+      patchSuggestions: [{ symbol: "oldSymbol", replacement: "newSymbol", description: "x", confidence: 90 }],
+      normalizations: [],
+      assessmentConfidence: 90,
+    });
+    // Should be skipped (no patch) because target line does not contain from
+    expect(plan.patches).toHaveLength(0);
+    expect(plan.skippedFiles).toContain(filePath);
+  });
+});
+
+describe("hash-based TOCTOU guard (expectedFileHashes)", () => {
+  it("fails closed when line inserted above target but same symbol on wrong line", async () => {
+    const { mkdtemp, writeFile, mkdir, readFile } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { sha256Hex } = await import("./diff");
+    const dir = await mkdtemp(`${tmpdir()}/patch-hash-`);
+    const filePath = "src/app.ts";
+    const atAnalysis = "line1\nline2\noldSymbol()\nline4\n";
+    await mkdir(`${dir}/src`, { recursive: true });
+    await writeFile(`${dir}/${filePath}`, atAnalysis, "utf8");
+    const expectedHash = sha256Hex(atAnalysis);
+    // Drift: insert comment containing same symbol at line 2, so line 3 (usage line 3) now is comment, but still contains oldSymbol
+    const drifted = "line1\n// oldSymbol in comment\nline2\noldSymbol()\nline4\n";
+    await writeFile(`${dir}/${filePath}`, drifted, "utf8");
+    const plan = await generatePlan({
+      fixtureDir: dir,
+      repositoryName: "test",
+      usages: [{ filePath, line: 3, symbol: "oldSymbol", excerpt: "oldSymbol()" }],
+      patchSuggestions: [{ symbol: "oldSymbol", replacement: "newSymbol", description: "x", confidence: 90 }],
+      normalizations: [],
+      assessmentConfidence: 90,
+      expectedFileHashes: new Map([[filePath, expectedHash]]),
+    });
+    // Hash mismatch -> no patch, even though line 3 still contains oldSymbol (in comment)
+    expect(plan.patches).toHaveLength(0);
+    expect(plan.skippedFiles).toContain(filePath);
+    // Verify file not corrupted (still drifted content, not partially patched)
+    expect(await readFile(`${dir}/${filePath}`, "utf8")).toBe(drifted);
+  });
+
+  it("allows patch when hash matches (no drift)", async () => {
+    const { mkdtemp, writeFile, mkdir } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { sha256Hex } = await import("./diff");
+    const dir = await mkdtemp(`${tmpdir()}/patch-hash-ok-`);
+    const filePath = "src/app.ts";
+    const content = "line1\nline2\noldSymbol()\nline4\n";
+    await mkdir(`${dir}/src`, { recursive: true });
+    await writeFile(`${dir}/${filePath}`, content, "utf8");
+    const plan = await generatePlan({
+      fixtureDir: dir,
+      repositoryName: "test",
+      usages: [{ filePath, line: 3, symbol: "oldSymbol", excerpt: "oldSymbol()" }],
+      patchSuggestions: [{ symbol: "oldSymbol", replacement: "newSymbol", description: "x", confidence: 90 }],
+      normalizations: [],
+      assessmentConfidence: 90,
+      expectedFileHashes: new Map([[filePath, sha256Hex(content)]]),
+    });
+    expect(plan.patches).toHaveLength(1);
+    expect(plan.patches[0]!.patched).toContain("newSymbol()");
+  });
+
+  it("one conflicting file does not prevent another file from patching", async () => {
+    const { mkdtemp, writeFile, mkdir } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { sha256Hex } = await import("./diff");
+    const dir = await mkdtemp(`${tmpdir()}/patch-hash-multi-`);
+    const fileA = "src/a.ts";
+    const fileB = "src/b.ts";
+    const contentA = "line1\noldSymbol()\nline3\n";
+    const contentB = "line1\noldSymbol()\nline3\n";
+    await mkdir(`${dir}/src`, { recursive: true });
+    await writeFile(`${dir}/${fileA}`, contentA, "utf8");
+    await writeFile(`${dir}/${fileB}`, contentB, "utf8");
+    const hashA = sha256Hex(contentA);
+    const wrongHash = sha256Hex("different");
+    const plan = await generatePlan({
+      fixtureDir: dir,
+      repositoryName: "test",
+      usages: [
+        { filePath: fileA, line: 2, symbol: "oldSymbol", excerpt: "oldSymbol()" },
+        { filePath: fileB, line: 2, symbol: "oldSymbol", excerpt: "oldSymbol()" },
+      ],
+      patchSuggestions: [{ symbol: "oldSymbol", replacement: "newSymbol", description: "x", confidence: 90 }],
+      normalizations: [],
+      assessmentConfidence: 90,
+      expectedFileHashes: new Map([
+        [fileA, wrongHash],
+        [fileB, sha256Hex(contentB)],
+      ]),
+    });
+    expect(plan.patches).toHaveLength(1);
+    expect(plan.patches[0]!.filePath).toBe(fileB);
+    expect(plan.skippedFiles).toContain(fileA);
+    expect(plan.skippedFiles).not.toContain(fileB);
+  });
+
+  it("same-line multiple transformations still work with hash", async () => {
+    const { mkdtemp, writeFile, mkdir } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { sha256Hex } = await import("./diff");
+    const dir = await mkdtemp(`${tmpdir()}/patch-hash-same-`);
+    const filePath = "src/app.ts";
+    const content = "line1\nline2\nfoo(oldA(), oldB())\nline4\n";
+    await mkdir(`${dir}/src`, { recursive: true });
+    await writeFile(`${dir}/${filePath}`, content, "utf8");
+    const plan = await generatePlan({
+      fixtureDir: dir,
+      repositoryName: "test",
+      usages: [
+        { filePath, line: 3, symbol: "oldA", excerpt: "foo(oldA(), oldB())" },
+        { filePath, line: 3, symbol: "oldB", excerpt: "foo(oldA(), oldB())" },
+      ],
+      patchSuggestions: [
+        { symbol: "oldA", replacement: "newA", description: "a", confidence: 90 },
+        { symbol: "oldB", replacement: "newB", description: "b", confidence: 90 },
+      ],
+      normalizations: [],
+      assessmentConfidence: 90,
+      expectedFileHashes: new Map([[filePath, sha256Hex(content)]]),
+    });
+    expect(plan.patches).toHaveLength(1);
+    expect(plan.patches[0]!.patched).toContain("foo(newA(), newB())");
+  });
+});

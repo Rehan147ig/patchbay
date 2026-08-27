@@ -46,27 +46,33 @@ function lastTopLevelImportLine(lines: string[]): number {
  * present. The constructor reads OPENAI_API_KEY, which the human reviewer must
  * confirm matches how the legacy code supplied credentials.
  */
-export function applyPythonClientBootstrap(content: string): string {
+export function applyPythonClientBootstrap(content: string, eol = "\n"): string {
   if (OPENAI_CLIENT_CONSTRUCTION.test(content)) return content;
-  const lines = content.split("\n");
+  const lines = content.split(/\r?\n/);
   const parts: string[] = [];
   if (!OPENAI_CLIENT_IMPORT.test(content)) parts.push("from openai import OpenAI");
   parts.push("client = OpenAI()");
   const lastImportIndex = lastTopLevelImportLine(lines);
   if (lastImportIndex === -1) {
-    return [...parts, "", ...lines].join("\n");
+    return [...parts, "", ...lines].join(eol);
   }
   lines.splice(lastImportIndex + 1, 0, "", ...parts.flatMap((part) => [part, ""]));
-  return lines.join("\n");
+  return lines.join(eol);
 }
 
-function applyLineRename(fileText: string, line: number, from: string, to: string): string {
+function applyLineRename(
+  fileText: string,
+  line: number,
+  from: string,
+  to: string,
+  eol = "\n",
+): string {
   const lines = fileText.split(/\r?\n/);
   const target = lines[line - 1];
   if (target === undefined) return fileText;
   if (!target.includes(from)) return fileText;
   lines[line - 1] = target.split(from).join(to);
-  return lines.join("\n");
+  return lines.join(eol);
 }
 
 /** Feature-adoption edit: insert text right after a search string on the usage line. */
@@ -75,19 +81,22 @@ function applyLineInsert(
   line: number,
   searchText: string,
   insertText: string,
+  eol = "\n",
 ): string {
   const lines = fileText.split(/\r?\n/);
   const target = lines[line - 1];
   if (target === undefined) return fileText;
   if (!target.includes(searchText)) return fileText;
   lines[line - 1] = target.split(searchText).join(`${searchText}${insertText}`);
-  return lines.join("\n");
+  return lines.join(eol);
 }
 
-function applyResponseUnwrap(fileText: string, symbol: string): string {
+function applyResponseUnwrap(fileText: string, symbol: string, eol = "\n"): string {
   const match = RESPONSE_UNWRAP_PATTERN.exec(symbol);
   if (!match) return fileText;
   const chain = match[1];
+  // Only unwrap the validated chain, not arbitrary globals. Runs after renames.
+  if (!fileText.includes(`${chain}.data`)) return fileText;
   return fileText.split(`${chain}.data`).join(chain);
 }
 
@@ -186,27 +195,48 @@ export async function generatePlan(input: PlanInput): Promise<PlanDraft> {
       continue;
     }
 
+    // TOCTOU guard: per-file expected hash (reuses PatchPlanEdit.expectedSourceHash / sha256Hex).
+    // If caller supplied expectedFileHashes (captured at analysis time), fail-closed per file on mismatch.
+    if (input.expectedFileHashes) {
+      const expected =
+        input.expectedFileHashes instanceof Map
+          ? input.expectedFileHashes.get(filePath)
+          : (input.expectedFileHashes as Record<string, string>)[filePath];
+      if (expected !== undefined) {
+        const actualHash = sha256Hex(original);
+        if (actualHash !== expected) {
+          skippedFiles.push(filePath);
+          continue;
+        }
+      }
+    }
+
+    const eol = original.includes("\r\n") ? "\r\n" : "\n";
     let patched = original;
     let bootstrapped = false;
+    // 1. Stable line renames on original coordinates (no drift during loop).
     for (const usage of usages) {
       if (usage.filePath !== filePath) continue;
       const suggestion = renameBySymbol.get(usage.symbol);
       if (!suggestion) continue;
-      patched = applyLineRename(patched, usage.line, suggestion.symbol, suggestion.replacement);
+      patched = applyLineRename(patched, usage.line, suggestion.symbol, suggestion.replacement, eol);
       if (suggestion.insert) {
         patched = applyLineInsert(
           patched,
           usage.line,
           suggestion.insert.searchText,
           suggestion.insert.insertText,
+          eol,
         );
       }
-      if (
-        PYTHON_FILE.test(filePath) &&
-        isPythonClientRename(suggestion.replacement) &&
-        !bootstrapped
-      ) {
-        const withBootstrap = applyPythonClientBootstrap(patched);
+    }
+    // 2. Post-rename bootstrap (zero shifting during renames).
+    {
+      const needsBootstrap = [...usages].some(
+        (u) => u.filePath === filePath && isPythonClientRename(renameBySymbol.get(u.symbol)?.replacement ?? ""),
+      );
+      if (needsBootstrap && PYTHON_FILE.test(filePath)) {
+        const withBootstrap = applyPythonClientBootstrap(patched, eol);
         if (withBootstrap !== patched) {
           patched = withBootstrap;
           bootstrapped = true;
@@ -214,7 +244,7 @@ export async function generatePlan(input: PlanInput): Promise<PlanDraft> {
       }
     }
     for (const symbol of unwrapSymbols) {
-      patched = applyResponseUnwrap(patched, symbol);
+      patched = applyResponseUnwrap(patched, symbol, eol);
     }
 
     if (patched === original) {

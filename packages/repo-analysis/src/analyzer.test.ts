@@ -102,8 +102,8 @@ describe("analyzeRepository - openai fixture", () => {
     expect(analysis.packageManager).toBe("pnpm");
     expect(analysis.lockfileVersions.openai).toBe("3.3.0");
     expect(analysis.packageCount).toBe(7);
-    expect(analysis.typescriptFiles).toBe(7);
-    expect(analysis.filesScanned).toBe(8);
+    expect(analysis.typescriptFiles).toBe(8);
+    expect(analysis.filesScanned).toBe(10);
     expect(analysis.commitSha).toMatch(/^snap-[0-9a-f]{12}$/);
     expect(analysis.errors).toEqual([]);
     expect(analysis.manifests[0]?.name).toBe("@acme/ai-assistant-service");
