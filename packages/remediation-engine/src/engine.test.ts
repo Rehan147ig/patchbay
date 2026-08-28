@@ -52,7 +52,7 @@ describe("generatePlan", () => {
   it("produces a rule-based patch for the openai fixture chat service", async () => {
     const plan = await generatePlan(openAiInput());
 
-    expect(plan.patches).toHaveLength(1);
+    expect(plan.patches, JSON.stringify(plan, null, 2)).toHaveLength(1);
     const patch = plan.patches[0]!;
     expect(patch.filePath).toBe("src/chat/chat-service.ts");
     expect(patch.generationMethod).toBe("RULE_BASED");
@@ -136,7 +136,7 @@ describe("generatePlan", () => {
     });
 
     expect(drafts.some((d) => d.changeType === "NEW_CAPABILITY" && !d.breaking)).toBe(true);
-    expect(plan.patches).toHaveLength(1);
+    expect(plan.patches, JSON.stringify(plan, null, 2)).toHaveLength(1);
     const patch = plan.patches[0]!;
     expect(patch.generationMethod).toBe("RULE_BASED");
     expect(patch.confidence).toBe(88);
@@ -259,7 +259,7 @@ describe("regression: safe refactoring pipeline", () => {
       normalizations: [],
       assessmentConfidence: 90,
     });
-    expect(plan.patches).toHaveLength(1);
+    expect(plan.patches, JSON.stringify(plan, null, 2)).toHaveLength(1);
     expect(plan.patches[0]!.patched).toBe("line1\nline2\nfoo(newA(), newB())\nline4\nline5\n");
     expect(plan.patches[0]!.patched).not.toContain("oldA");
     expect(plan.patches[0]!.patched).not.toContain("oldB");
@@ -283,7 +283,7 @@ describe("regression: safe refactoring pipeline", () => {
       normalizations: [],
       assessmentConfidence: 90,
     });
-    expect(plan.patches).toHaveLength(1);
+    expect(plan.patches, JSON.stringify(plan, null, 2)).toHaveLength(1);
     const patched = plan.patches[0]!.patched;
     // Should still be CRLF, not normalized to LF, and only intended line changed
     expect(patched).toContain("\r\n");
@@ -324,7 +324,7 @@ describe("regression: safe refactoring pipeline", () => {
       assessmentConfidence: 90,
     });
     // Should have bootstrap + rename, and rename was at original line 3 (not shifted)
-    expect(plan.patches).toHaveLength(1);
+    expect(plan.patches, JSON.stringify(plan, null, 2)).toHaveLength(1);
     const patched = plan.patches[0]!.patched;
     expect(patched).toContain("from openai import OpenAI");
     expect(patched).toContain("client = OpenAI()");
@@ -414,7 +414,7 @@ describe("hash-based TOCTOU guard (expectedFileHashes)", () => {
       assessmentConfidence: 90,
       expectedFileHashes: new Map([[filePath, sha256Hex(content)]]),
     });
-    expect(plan.patches).toHaveLength(1);
+    expect(plan.patches, JSON.stringify(plan, null, 2)).toHaveLength(1);
     expect(plan.patches[0]!.patched).toContain("newSymbol()");
   });
 
@@ -448,7 +448,7 @@ describe("hash-based TOCTOU guard (expectedFileHashes)", () => {
         [fileB, sha256Hex(contentB)],
       ]),
     });
-    expect(plan.patches).toHaveLength(1);
+    expect(plan.patches, JSON.stringify(plan, null, 2)).toHaveLength(1);
     expect(plan.patches[0]!.filePath).toBe(fileB);
     expect(plan.skippedFiles).toContain(fileA);
     expect(plan.skippedFiles).not.toContain(fileB);
@@ -478,7 +478,7 @@ describe("hash-based TOCTOU guard (expectedFileHashes)", () => {
       assessmentConfidence: 90,
       expectedFileHashes: new Map([[filePath, sha256Hex(content)]]),
     });
-    expect(plan.patches).toHaveLength(1);
+    expect(plan.patches, JSON.stringify(plan, null, 2)).toHaveLength(1);
     expect(plan.patches[0]!.patched).toContain("foo(newA(), newB())");
   });
 });
