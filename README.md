@@ -6,229 +6,164 @@
 [![pnpm](https://img.shields.io/badge/pnpm-10.x-orange.svg)](https://pnpm.io/)
 [![Prisma](https://img.shields.io/badge/Prisma-6.x-green.svg)](https://www.prisma.io/)
 
-**Patchbay** is a neutral, policy-governed API-change remediation platform. When a vendor releases a
-breaking SDK update, deprecates a method, or updates an API specification, Patchbay detects the release
-via its Release Watchtower, proves TypeScript AST usages across your repositories using a commit-versioned
-**Software Intelligence Graph**, and opens reviewable draft pull requests when a certified rule pack exists
-(OpenAI, Stripe, Twilio, Anthropic, AWS SDK, and Supabase for Node/TS today; Auth0 and Generic OpenAPI for reviewable planning; 56-connector
-catalog for detection and impact assessment).
+**Patchbay** is a neutral, policy-governed API-change remediation platform ("Dependabot for APIs"). When a vendor releases a breaking SDK update, deprecates a method, or updates an API specification, Patchbay detects the release, proves AST usages across your repositories using a commit-versioned **Software Intelligence Graph**, and delivers compile-verified, test-passing remediations across **3 zero-friction distribution channels**:
 
-Patchbay validates all code edits in an isolated sandbox runner, enforces policy-based approval gates
-(payments, auth, webhooks), opens governed draft PRs that are never auto-merged, and immutably audits
-every decision — with an outcome-learning capability kill switch driving reliability.
+1. **Terminal CLI (`npx patch-migrate <vendor>`)**: Runs 100% locally on your machine — zero install, zero code access required.
+2. **GitHub Action (`action.yml`)**: Runs inside customer-owned CI runners.
+3. **Continuous GitHub App & Dashboard**: 24/7 Release Watchtower monitoring, automated Draft PR dispatch, and private internal SDK fleet governance.
 
-> **For AI coding agents**: start at [`AGENTS.md`](AGENTS.md) — it is the canonical orientation
-> document (repo layout, non-negotiable rules, verification commands, architecture rules).
+> **For AI coding agents**: start at [`AGENTS.md`](AGENTS.md) — it is the canonical orientation document (repo layout, non-negotiable rules, verification commands, architecture rules).
+
+---
+
+## ⚡ Zero-Install CLI Quickstart
+
+Any developer can migrate breaking SDKs locally with zero signup or repository permissions:
+
+```bash
+# Preview changes with colored terminal diff (dry-run)
+npx patch-migrate openai
+
+# Apply transforms in place with automatic `tsc --noEmit` compiler gate & rollback
+npx patch-migrate openai --write
+
+# Target a specific subdirectory or workspace
+npx patch-migrate stripe --write --cwd ./apps/backend
+```
 
 ---
 
 ## 🏗️ System Architecture
 
 ```mermaid
-flowchart TB
-    subgraph Ingest["1 · EVENT INGESTION"]
-        SW[Watchtower pollers<br/>npm registry + OpenAPI diffs]
-        AE[Agent ingest<br/>POST /api/vendors/:slug/events<br/>pb_agent_* bearer key]
-        WH[GitHub App webhook<br/>POST /api/webhooks/github<br/>HMAC sha256 + replay window]
+flowchart TD
+    %% Entrypoints
+    subgraph FRONT_DOORS ["Three Distribution Channels"]
+        CLI["1. Terminal CLI (<code>npx patch-migrate &lt;vendor&gt;</code>)<br/><i>For Solo Devs (Local, Zero-Install)</i>"]
+        ACTION["2. GitHub Action (<code>action.yml</code>)<br/><i>Customer-Owned CI Workflows</i>"]
+        GH_APP["3. GitHub App + Cloud Webhook<br/><i>Continuous 24/7 Monitoring & Microservice Fleets</i>"]
     end
 
-    subgraph Graph["2 · SOFTWARE INTELLIGENCE GRAPH"]
-        SCAN[scan-repository<br/>TS AST + lockfile inventory]
-        GX[graph-index<br/>immutable GraphSnapshot<br/>per commit SHA]
-        CLS[classify-release<br/>breaking change facts]
-        MATCH[match-release<br/>strict semver matching]
+    %% Shared Registry
+    REGISTRY["<b>Public Codemod Registry</b> (<code>/api/registry</code>)<br/>HMAC-SHA256 Signed Versioned Recipes (OpenAI, Stripe, Twilio, etc.)"]
+
+    CLI -->|Fetch Signed Recipe| REGISTRY
+    ACTION -->|Fetch Signed Recipe| REGISTRY
+    GH_APP -->|Detect Upstream Release| REGISTRY
+
+    %% Local vs Cloud Workspace
+    subgraph EXECUTION_ENVIRONMENT ["Execution Environment"]
+        LOCAL_WS["<b>Local Project Workspace</b><br/>(User's Laptop — Code never leaves)"]
+        SANDBOX_WS["<b>Ephemeral Cloud Sandbox</b><br/>(Disposable <code>/tmp</code> Container — Purged after run)"]
     end
 
-    subgraph Remediate["3 · GOVERNED REMEDIATION"]
-        CASE[RemediationCase<br/>policy-first blast radius]
-        HARNESS[AI harness<br/>analyst → planner → reviewer]
-        PATCH[Patch engine<br/>AST-aware + hash-verified]
-        VALIDATE[Sandbox validation<br/>allowlisted commands only]
-        POLICY[Policy engine<br/>ALLOW / APPROVE / DENY]
-        PR[Draft PR via GitHub App]
+    CLI -->|Scans files in| LOCAL_WS
+    ACTION -->|Scans files in| LOCAL_WS
+    GH_APP -->|Clones repo into| SANDBOX_WS
+
+    %% Core Engine
+    subgraph CORE_ENGINE ["The Shared Patchbay Safety Engine"]
+        SCANNER["<b>AST & HTTP Matcher</b> (<code>@patchbay/repo-analysis</code>)<br/>Finds exact call sites (TS compiler API, Python L1, literal fetch/axios)"]
+        TRANSFORMER["<b>Deterministic AST Transformer</b> (<code>@patchbay/remediation-engine</code>)<br/>Applies rule packs, renames symbols, unwraps responses"]
+
+        subgraph THREE_LAYER_SAFETY_GATE ["3-Layer Fail-Closed Safety Gates"]
+            GATE0["Gate 0: AST Reparse Check<br/><i>Guarantees valid syntax</i>"]
+            GATE1["Gate 1: HMAC-SHA256 Signature Verification<br/><i>Timing-safe verification (crypto.timingSafeEqual)</i>"]
+            GATE2["Gate 2: Compiler Semantic Gate (<code>tsc --noEmit</code>)<br/><i>Proves 0 type errors; fails closed if tsconfig missing</i>"]
+        end
     end
 
-    subgraph Learn["4 · OUTCOME LEARNING (WP10)"]
-        OUTCOME[(PrOutcome<br/>linked to versions/evidence)]
-        FEEDBACK[Feedback UI<br/>/outcomes dashboard]
-        SLO[SLO rollups<br/>@patchbay/operations]
-        GATE[(CapabilityGate<br/>auto-suspend kill switch)]
+    LOCAL_WS --> SCANNER
+    SANDBOX_WS --> SCANNER
+    SCANNER --> TRANSFORMER
+    TRANSFORMER --> GATE0
+    GATE0 --> GATE1
+    GATE1 --> GATE2
+
+    %% Rollback vs Success
+    FAIL_CHECK{"All Gates<br/>Passed?"}
+    GATE2 --> FAIL_CHECK
+
+    FAIL_CHECK -->|❌ NO| ROLLBACK["<b>FAIL-CLOSED SAFETY ROLLBACK</b><br/>• CLI: Automatically reverts modified files<br/>• GitHub App: Bails and suppresses PR creation"]
+
+    FAIL_CHECK -->|✅ YES| SUCCESS_OUTPUTS
+
+    %% Final Outputs
+    subgraph SUCCESS_OUTPUTS ["Verified Final Outputs"]
+        CLI_OUT["<b>CLI Result</b>: Colorized diff applied in-place<br/><i>Developer runs <code>git commit</code></i>"]
+        GH_OUT["<b>GitHub App Result</b>: Tested <b>Draft Pull Request</b> opened<br/><i>All CI checks green, 1-click merge</i>"]
+        AUDIT["<b>SOC2 WORM Audit Trail</b> (<code>@patchbay/audit</code>)<br/><i>Append-only cryptographic record</i>"]
     end
 
-    SW --> GX
-    AE --> GX
-    WH --> PR
-    SCAN --> GX
-    GX --> CLS
-    CLS --> MATCH
-    MATCH --> CASE
-    CASE --> HARNESS
-    HARNESS --> PATCH
-    PATCH --> VALIDATE
-    VALIDATE --> POLICY
-    POLICY --> PR
-    PR -- "merged / closed (webhook)" --> OUTCOME
-    PR -- "human verdict" --> FEEDBACK
-    OUTCOME --> SLO
-    SLO --> GATE
-    GATE -- "suspends enqueue" --> HARNESS
-    GATE -- "suspends enqueue" --> VALIDATE
-```
-
-### End-to-end remediation flow (one breaking release)
-
-```mermaid
-sequenceDiagram
-    participant R as npm registry / vendor API
-    participant W as Watchtower worker
-    participant G as GraphSnapshot (Postgres)
-    participant H as AI harness
-    participant S as Sandbox runner
-    participant P as Policy engine
-    participant GH as GitHub App
-    participant A as AuditEvent
-
-    R->>W: new version released
-    W->>G: classify + match against repo dependencies
-    G-->>W: affected repositories + usage subgraph
-    W->>W: create RemediationCase (blast radius, policy snapshot)
-    W->>H: plan migration (ReleaseAnalyst → Planner → Reviewer)
-    H-->>W: Zod-validated PatchPlan (source-hash bound)
-    W->>S: run allowlisted validation commands
-    S-->>W: pass/fail + sanitized output
-    W->>P: policy decision (risk tags, approvals)
-    P-->>W: ALLOW_DRAFT_PR | REQUIRE_APPROVAL | DENY
-    W->>GH: open draft PR (installation token)
-    GH-->>W: webhook on merged/closed
-    W->>W: record PrOutcome + SLO evaluation
-    W->>A: append audit events (redacted) at every step
-```
-
-### AST extraction & Software Intelligence Graph
-
-```mermaid
-flowchart LR
-    REPO[fixtures/repositories<br/>sample TS repos] --> TS[TypeScript compiler<br/>ts.createProgram]
-    TS --> USAGE[usage extraction<br/>IntegrationUsage]
-    TS --> GRAPH[graph extractor<br/>nodes + edges]
-    TS --> LOCK[lockfile parser<br/>dependencies]
-
-    USAGE --> SNAPSHOT[(GraphSnapshot<br/>immutable, commit-versioned)]
-    GRAPH --> SNAPSHOT
-    LOCK --> INVENTORY[(RepositoryDependency<br/>exact + range pins)]
-
-    SNAPSHOT --> IMPACT[Impact analyst<br/>subgraph queries]
-    INVENTORY --> SEMVER[strict semver engine<br/>zero-hallucination]
-
-    subgraph NodeVocabulary["node vocabulary"]
-        N1[MODULE / SYMBOL / FUNCTION / CLASS]
-        N2[DEPENDENCY / PACKAGE / API_CLIENT]
-        N3[API_OPERATION / TEST / FILE]
-    end
-
-    subgraph EdgeVocabulary["edge vocabulary"]
-        E1[IMPORTS / EXPORTS / CALLS / CONTAINS]
-        E2[USES_PACKAGE / CREATES_CLIENT / INVOKES_API]
-        E3[RESOLVES_TO / TESTS]
-    end
-
-    subgraph Provenance["provenance classes"]
-        P1[EXTRACTED 100%]
-        P2[RESOLVED 99/95%]
-        P3[INFERRED 85/90/80%]
-    end
-```
-
-### Outcome learning loop (WP10)
-
-```mermaid
-flowchart TB
-    MERGED[PR merged / closed] --> WH2[GitHub webhook<br/>env-gated]
-    WH2 --> REC[recordPrOutcome<br/>single writer]
-    FEED[User feedback<br/>/outcomes dashboard] --> REC
-    REC --> LINK[link rule-pack / extractor /<br/>model / prompt / snapshot /<br/>validation / policy]
-    REC --> EVAL[enqueue evaluate-capability-health]
-    EVAL --> METRICS[merge rate, FP rate,<br/>agent latency p95 · 30d window]
-    METRICS -- "below thresholds" --> SUSPEND[SUSPEND CapabilityGate]
-    SUSPEND -- "draft-pr / validate fail closed" --> GATE
-    METRICS -- "healthy" --> GATE[(CapabilityGate<br/>ACTIVE)]
-    GATE -- "admin restore" --> ADMIN[POST /api/capability-gates]
+    SUCCESS_OUTPUTS --> CLI_OUT
+    SUCCESS_OUTPUTS --> GH_OUT
+    SUCCESS_OUTPUTS --> AUDIT
 ```
 
 ---
 
-## ✨ Key Features
+## ✨ Key Features & Components
+
+- **Public Codemod Registry (`/api/registry`)**:
+  - `GET /api/registry`: Lists all certified migration recipes (`DRAFT_PR` + `PLAN`).
+  - `GET /api/registry/:vendor/:from/:to`: Returns structured `MigrationRecipe` signed with HMAC-SHA256 over canonical JSON.
+  - Verified with `crypto.timingSafeEqual` in `@patchbay/cli` before any disk writes.
+
+- **OpenAPI HTTP Client Canonicalizer (`packages/repo-analysis/src/http-matcher.ts`)**:
+  - Literal-only detection of `fetch`, `axios`, `ky`, and `got` callsites (string literals & template literal tails).
+  - Promoted strictly to **`PLAN` (with `REQUIRE_APPROVAL`)** to prevent false positives and preserve certification metrics.
+
+- **Deterministic AST Remediation Engine (`packages/remediation-engine`)**:
+  - Exact symbol renames, method transforms, response unwrapping, and feature adoption inserts.
+  - **CRLF Line-Ending Preservation**: Detects original EOL (`\r\n` vs `\n`) and preserves file formatting.
+  - **TOCTOU Guard**: Verifies expected file hashes and target symbols before applying edits, safely skipping drifted lines.
+  - **Post-Rename Python Bootstrap**: Injects `from openai import OpenAI` / `client = OpenAI()` after line renames to prevent line number drift.
 
 - **Software Intelligence Graph (`packages/repo-analysis`)**:
   - Immutable, content-addressed `GraphSnapshot` per commit SHA.
-  - Granular node vocabulary (`MODULE`, `SYMBOL`, `FUNCTION`, `DEPENDENCY`, `API_CLIENT`, `API_OPERATION`, `TEST`) and strict edge vocabulary (`USES_PACKAGE`, `CREATES_CLIENT`, `INVOKES_API`, `EXPORTS`, `IMPORTS`, `TESTS`).
-  - Fixed provenance (`EXTRACTED`, `RESOLVED`, `INFERRED`) with file path, line range, and source hash evidence.
-  - TypeScript via the compiler API (strongest L3 path) plus Python L1 via `web-tree-sitter` (WASM).
-
-- **Deterministic Semver & Matching Engine (`packages/domain`, `apps/worker`)**:
-  - Zero-hallucination semver parser (`parseVersion`, `compareVersions`, `satisfiesRange`).
-  - `classify-release` and `match-release` jobs linking global releases to repository dependencies with zero false positives.
+  - Granular node vocabulary (`MODULE`, `SYMBOL`, `FUNCTION`, `DEPENDENCY`, `API_CLIENT`, `API_OPERATION`, `TEST`) and strict edge vocabulary.
+  - TypeScript via the compiler API (L3 path) plus Python L1 via `web-tree-sitter`.
 
 - **56-Connector Catalog & Declarative SDK (`packages/vendor-connectors`)**:
-  - Pre-built connectors across 10 categories (AI/LLM, Cloud/Infra, Payments, Auth, Messaging, DB/Data, Web Frameworks, Search/Observability, CRM, Generic OpenAPI).
-  - Declarative `defineConnector()` SDK — a new vendor connector in ~40 lines of TypeScript.
-  - Connector **certification registry** (`getCapability`, `requireCertified`) gating PLAN/VALIDATE/DRAFT_PR capability levels (WP9).
-  - The H8 eval corpus (`pnpm test:corpus`) is the certification prerequisite: certified DRAFT_PR connectors must produce patch suggestions for corpus payloads and the patches must apply to the fixture repositories — breaking a rename in the corpus fails CI, and a connector below DRAFT_PR (auth0) is asserted to produce no patches so it cannot be promoted accidentally. Current DRAFT_PR kits: openai, stripe, twilio, anthropic, aws-sdk, supabase.
+  - Pre-built connectors across 10 categories (AI/LLM, Cloud/Infra, Payments, Auth, Messaging, DB/Data, Web Frameworks, etc.).
+  - Declarative `defineConnector()` SDK.
+  - Certified `DRAFT_PR` capability rule packs for OpenAI, Stripe, Twilio, Anthropic, AWS SDK, and Supabase.
 
-- **AI Harness (`packages/ai-harness`, `packages/ai-provider`)**:
-  - Provider registry (`mock` default, `openai`, custom) behind `AiProvider`.
-  - Deterministic workflow supervisor: Release Analyst → Impact Analyst → Migration Planner → Independent Reviewer, with `AgentRun`/`AgentStep` persistence (tokens, latency, cost), replay from failures, and a Mastra-contract adapter as the swap point.
-  - Planner/reviewer performance measurement (`measureWorkflow`) with PASS/FAIL thresholds.
-
-- **Governed Remediation Pipeline (`apps/worker`, engine packages)**:
-  - `RemediationCase` lifecycle (`OBSERVED → … → MERGED/CLOSED`) with append-only `RemediationCaseEvent` timeline.
-  - AST-aware patch generation with source-hash verification and diff budgets (`packages/remediation-engine`).
-  - Allowlisted sandbox validation (`packages/sandbox-runner`) — LLMs have zero shell access.
-  - Declarative policy gates for payment/auth/PII/webhook/infrastructure changes (`packages/policy-engine`).
-
-- **GitHub App & Real Repository Integration (`packages/git-provider`)**:
-  - JWT minting + installation access tokens, atomic draft PR creation.
-  - HMAC `sha256` webhook receiver with delivery deduplication, replay window, and monotonic `DRAFT → OPEN → MERGED/CLOSED` PR status sync.
-
-- **Outcome Learning & Enterprise Operations (WP10)**:
-  - `PrOutcome` records every terminal PR with full version/evidence/policy linkage; merged outcomes terminalize their case.
-  - `/outcomes` dashboard: SLO cards (merge rate, false positive rate, detection latency p95, validation pass rate, agent failure rate, cost per successful remediation) + one-click human feedback classification.
-  - Capability kill switch: worker auto-suspends a vendor's `DRAFT_PR` gate when SLOs degrade; `draft-pr`/`validate` routes fail closed while suspended; admin restore via Settings.
-  - Enterprise controls: admin export (no raw agent inputs/outputs), org data deletion with an immutable `data.deleted` audit marker, and 90-day agent-run retention purge (audited).
-
-- **Multi-Tenant Security & Governance**:
-  - Direct `organizationId` foreign keys + indexes across all operational models; `withOrgContext` row-scoping helpers.
-  - Append-only `AuditEvent` trail with automatic secret redaction; correlation IDs on every request.
+- **Enterprise Governance & Security**:
+  - **Zero Persistent Code Retention**: Repositories are cloned to ephemeral sandboxes (`$TMP/patchbay-*`) and wiped immediately after diff generation.
+  - **Private Vendor Ingest**: Internal company platform teams register private packages (`@acme/auth`) via Argon2id-authenticated `pb_agent_*` keys.
+  - **Capability Kill Switch**: Auto-suspends degraded connector gates if merge rates fall below SLO thresholds.
 
 ---
 
-## 📁 Monorepo Structure
+## 📁 Monorepo Structure (19 Workspace Projects)
 
 ```
 patchbay/
 ├── apps/
-│   ├── web/                     # Next.js 15 App Router dashboard & typed JSON API route handlers
-│   └── worker/                  # BullMQ background worker (scan, analyze, graph-index, validate, create-pr, evaluate-capability-health, purge-agent-runs)
+│   ├── web/                     # Next.js 15 dashboard & public JSON API route handlers
+│   └── worker/                  # BullMQ background worker (Watchtower, scan, analyze, validate, create-pr)
 ├── packages/
-│   ├── ai-harness/              # AI workflow supervisor (analyst → planner → reviewer) + measurement
+│   ├── ai-harness/              # AI workflow supervisor (analyst → planner → reviewer)
 │   ├── ai-provider/             # AiProvider interface (Mock & OpenAI-compatible drivers)
-│   ├── audit/                   # Append-only AuditEvent builder & secret redaction
-│   ├── billing/                 # Stripe subscription plans/caps (SDK-free REST client)
+│   ├── audit/                   # Append-only WORM AuditEvent builder & secret redaction
+│   ├── billing/                 # Stripe / Dodo subscription plans & usage meters
+│   ├── cli/                     # @patchbay/cli (npx patch-migrate binary)
 │   ├── db/                      # Prisma schema, client singleton, org row-scoping, seed
 │   ├── domain/                  # Single source of truth: enums, semver, Zod schemas, errors, logger
 │   ├── env/                     # Typed environment variable validation & secret management
 │   ├── git-provider/            # GitProvider abstraction (Local, GitHub PAT, GitHub App)
-│   ├── operations/              # WP10: SLO rollups, capability health, retention purge (DB-free)
+│   ├── operations/              # SLO rollups, capability health, retention purge
 │   ├── policy-engine/           # Deterministic policy decisions (ALLOW/APPROVE/DENY)
 │   ├── queue/                   # BullMQ queue definitions, job contracts, Redis connection
-│   ├── remediation-engine/      # AST-aware transformation rules & unified diff generation
-│   ├── repo-analysis/           # TS compiler API AST indexer + Python L1 + graph extractor
+│   ├── remediation-engine/      # AST-aware transformation rules, CRLF preservation, diff generation
+│   ├── repo-analysis/           # TS compiler AST indexer, Python L1, http-matcher, graph extractor
 │   ├── sandbox-runner/          # Allowlisted command execution with timeouts & output bounds
-│   ├── ui/                      # Accessible UI primitives (Card, Button, Badge, Table, CodeBlock)
-│   └── vendor-connectors/       # 56-connector catalog, certification registry, defineConnector SDK
-├── docs/                        # architecture.md, CTO execution plan, agent-harness roadmap, ledger, threat model
-├── fixtures/repositories/       # Legacy sample repositories for analysis/testing
-└── e2e/                         # Playwright specs (apps/web/e2e)
+│   ├── ui/                      # Accessible UI primitives (Card, Button, Badge, Table, PageHeader)
+│   └── vendor-connectors/       # 56-connector catalog, certified registry recipes, defineConnector SDK
+├── docs/                        # architecture.md, security.md, threat-model.md, execution plan
+├── fixtures/repositories/       # Legacy sample repositories for analysis & verification
+└── action.yml                   # Model 2 GitHub Action definition
 ```
 
 ---
@@ -260,7 +195,7 @@ docker compose up -d          # Starts PostgreSQL (port 5434) and Redis (port 63
 
 ```bash
 pnpm db:generate              # Generate Prisma Client
-pnpm db:migrate               # Apply committed database migrations
+pnpm db:migrate               # Apply database migrations
 pnpm db:seed                  # Seed Acme SaaS organization & vendor catalog
 ```
 
@@ -270,66 +205,44 @@ pnpm db:seed                  # Seed Acme SaaS organization & vendor catalog
 pnpm dev                      # Starts Next.js web app (http://localhost:3000) & BullMQ worker
 ```
 
-> Playwright (`pnpm e2e`) starts its own web server on port 3000 — stop any other process
-> listening on 3000 first, and keep the worker running for job-processing flows.
-
 ---
 
-## 🧪 Verification & Testing
+## 🧪 Verification & Quality Gates
 
-The repository enforces clean quality gates across all 18 workspace projects (2 apps + 16 packages):
+The repository enforces strict quality gates across all 19 workspace projects:
 
 ```bash
-# Typecheck all 18 projects (zero errors)
+# Typecheck all 19 projects (zero errors)
 pnpm typecheck
 
-# Run full Vitest suite (980 passing tests across 92 test files; +17 via the [id] route-test config)
+# Run full Vitest suite (1,067+ passing tests across 99 test files)
 pnpm test
 
-# Eval corpus certification gate (DRAFT_PR prerequisite; also run by pnpm test)
+# Eval corpus certification gate (DRAFT_PR prerequisite)
 pnpm test:corpus
 
 # ESLint, zero warnings
 pnpm lint
 
-# Prettier check
+# Prettier format check
 pnpm format:check
 
-# Production build
+# Production Next.js build
 pnpm build
-
-# Playwright end-to-end (demo happy path + outcomes dashboard)
-pnpm e2e
 ```
-
-> **Note on `[id]` route tests:** Vitest treats `[id]` in paths as a glob character class, so
-> route tests under `apps/web/src/app/api/**/[id]/**` are excluded from `pnpm test`. Run them with
-> the temp config: `pnpm vitest run --config vitest.wp10.config.ts` (aliases `@` and `server-only`).
-
----
-
-## 🧭 Guided Tour for External Agents
-
-- **Orientation**: [`AGENTS.md`](AGENTS.md) — repo layout, non-negotiable engineering rules, commands, architecture rules.
-- **Architecture**: [`docs/architecture.md`](docs/architecture.md) — package boundaries, subsystems, security boundaries.
-- **Product/execution**: [`docs/PATCHBAY-CTO-EXECUTION-PLAN.md`](docs/PATCHBAY-CTO-EXECUTION-PLAN.md) — work-package statuses (WP1–WP10).
-- **AI harness**: [`docs/PATCHBAY-AGENT-HARNESS-ROADMAP.md`](docs/PATCHBAY-AGENT-HARNESS-ROADMAP.md) and `docs/PATCHBAY-AGENT-HARNESS-IMPLEMENTATION-REPORT.md`.
-- **Watchtower**: [`docs/RELEASE-WATCHTOWER.md`](docs/RELEASE-WATCHTOWER.md) — release ledger, adapters, queue topology.
-- **Development history**: [`docs/development-ledger.md`](docs/development-ledger.md) — what shipped per work package, with test counts.
-- **Threat model**: [`docs/threat-model.md`](docs/threat-model.md) — security boundaries and assumptions.
 
 ---
 
 ## 🔐 Security & Governance Principles
 
 1. **Draft PR Default**: Patchbay opens draft pull requests only; auto-merging is never enabled.
-2. **Mandatory Validation**: Validation must pass before any PR is submitted; only allowlisted commands run in the sandbox.
-3. **Approval Gates**: Payment, Auth/Authorization, PII, Webhook, Encryption, Secrets, and Infrastructure changes require explicit human approval.
-4. **Command Allowlist**: LLMs have zero shell access; sandbox runs strictly allowlisted build/test commands with timeouts.
-5. **Secret Redaction**: Secrets are redacted from logs, audit events, and AI contexts; credentials live server-side only.
-6. **Monotonic PR Sync**: GitHub webhook status updates move strictly forward (`DRAFT → OPEN → MERGED/CLOSED`).
-7. **Fail-Closed Capabilities**: SLO-degraded vendor capabilities are auto-suspended and require admin restore.
-8. **Local-Dev Honesty**: The bundled sandbox and dev authentication are local-development tools, not hardened multi-tenant infrastructure — stated in docs and UI.
+2. **Mandatory Compiler & Test Gates**: `tsc --noEmit` and tests must pass before any PR is generated; fails closed if `tsconfig.json` is missing.
+3. **Timing-Safe Cryptographic Signatures**: All registry recipes are signed with HMAC-SHA256 and verified with `timingSafeEqual`.
+4. **Approval Gates**: Payment, Auth/Authorization, PII, Webhook, and Infrastructure changes require explicit human approval.
+5. **Zero Persistent Code Retention**: Cloned code is processed in disposable ephemeral sandboxes and purged immediately.
+6. **Command Allowlist**: LLMs have zero shell access; sandbox runs strictly allowlisted commands with timeouts and secret redaction.
+7. **Monotonic PR Sync**: GitHub webhook status updates move strictly forward (`DRAFT → OPEN → MERGED/CLOSED`).
+8. **Fail-Closed Capabilities**: SLO-degraded vendor capabilities are auto-suspended and require admin restore.
 
 ---
 
