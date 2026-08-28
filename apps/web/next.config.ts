@@ -14,6 +14,10 @@ const nextConfig: NextConfig = {
   serverExternalPackages: [
     "bullmq",
     "ioredis",
+    "tree-sitter",
+    "tree-sitter-java",
+    "tree-sitter-python",
+    "web-tree-sitter",
     "@patchbay/db",
     "@patchbay/domain",
     "@patchbay/audit",
