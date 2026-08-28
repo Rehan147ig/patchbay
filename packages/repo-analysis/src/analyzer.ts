@@ -301,7 +301,7 @@ async function readWorkspaceGlobs(rootDir: string): Promise<string[]> {
   const fromYaml = await readWorkspaceYamlGlobs(rootDir);
   if (fromYaml.length > 0) return fromYaml;
   try {
-    const raw = await fs.readFile(path.join(rootDir, "package.json"), "utf8");
+    const raw = await fs.readFile(path.join(/*turbopackIgnore: true*/ rootDir, "package.json"), "utf8");
     const pkg = JSON.parse(raw) as { workspaces?: unknown };
     const workspaces = pkg.workspaces;
     if (Array.isArray(workspaces)) {
@@ -322,7 +322,7 @@ async function readWorkspaceGlobs(rootDir: string): Promise<string[]> {
 async function readWorkspaceYamlGlobs(rootDir: string): Promise<string[]> {
   let raw: string;
   try {
-    raw = await fs.readFile(path.join(rootDir, "pnpm-workspace.yaml"), "utf8");
+    raw = await fs.readFile(path.join(/*turbopackIgnore: true*/ rootDir, "pnpm-workspace.yaml"), "utf8");
   } catch {
     return [];
   }
