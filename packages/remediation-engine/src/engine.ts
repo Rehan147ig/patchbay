@@ -91,7 +91,7 @@ function applyLineInsert(
   return lines.join(eol);
 }
 
-function applyResponseUnwrap(fileText: string, symbol: string, eol = "\n"): string {
+function applyResponseUnwrap(fileText: string, symbol: string, _eol = "\n"): string {
   const match = RESPONSE_UNWRAP_PATTERN.exec(symbol);
   if (!match) return fileText;
   const chain = match[1];
@@ -219,7 +219,13 @@ export async function generatePlan(input: PlanInput): Promise<PlanDraft> {
       if (usage.filePath !== filePath) continue;
       const suggestion = renameBySymbol.get(usage.symbol);
       if (!suggestion) continue;
-      patched = applyLineRename(patched, usage.line, suggestion.symbol, suggestion.replacement, eol);
+      patched = applyLineRename(
+        patched,
+        usage.line,
+        suggestion.symbol,
+        suggestion.replacement,
+        eol,
+      );
       if (suggestion.insert) {
         patched = applyLineInsert(
           patched,
@@ -233,7 +239,9 @@ export async function generatePlan(input: PlanInput): Promise<PlanDraft> {
     // 2. Post-rename bootstrap (zero shifting during renames).
     {
       const needsBootstrap = [...usages].some(
-        (u) => u.filePath === filePath && isPythonClientRename(renameBySymbol.get(u.symbol)?.replacement ?? ""),
+        (u) =>
+          u.filePath === filePath &&
+          isPythonClientRename(renameBySymbol.get(u.symbol)?.replacement ?? ""),
       );
       if (needsBootstrap && PYTHON_FILE.test(filePath)) {
         const withBootstrap = applyPythonClientBootstrap(patched, eol);

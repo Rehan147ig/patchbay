@@ -236,19 +236,15 @@ describe("unifiedDiff", () => {
 
 describe("regression: safe refactoring pipeline", () => {
   it("handles multiple renames on the same line (Promise.all)", async () => {
-    const tmp = await import("node:fs/promises").then((m) => m.mkdtemp("/tmp/patch-test-"));
     const { mkdtemp } = await import("node:fs/promises");
     const { tmpdir } = await import("node:os");
     const dir = await mkdtemp(`${tmpdir()}/patch-multi-`);
     const filePath = "src/app.ts";
-    const content = "Promise.all([\n  client.chat.completions.create(x),\n  client.chat.completions.create(y)\n])\n";
     // Actually test foo(oldA(), oldB()) same line
     const sameLine = "line1\nline2\nfoo(oldA(), oldB())\nline4\nline5\n";
-    await import("node:fs/promises").then((fs) =>
-      fs.mkdir(`${dir}/src`, { recursive: true }),
-    );
-    const fs = await import("node:fs/promises");
-    await fs.writeFile(`${dir}/${filePath}`, sameLine, "utf8");
+    await import("node:fs/promises").then((fs) => fs.mkdir(`${dir}/src`, { recursive: true }));
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(`${dir}/${filePath}`, sameLine, "utf8");
     const plan = await generatePlan({
       fixtureDir: dir,
       repositoryName: "test",
@@ -276,13 +272,14 @@ describe("regression: safe refactoring pipeline", () => {
     const filePath = "src/app.ts";
     const original = "line1\r\noldSymbol()\r\nline3\r\n";
     await mkdir(`${dir}/src`, { recursive: true });
-    const fs = await import("node:fs/promises");
     await writeFile(`${dir}/${filePath}`, original, "utf8");
     const plan = await generatePlan({
       fixtureDir: dir,
       repositoryName: "test",
       usages: [{ filePath, line: 2, symbol: "oldSymbol", excerpt: "oldSymbol()" }],
-      patchSuggestions: [{ symbol: "oldSymbol", replacement: "newSymbol", description: "x", confidence: 90 }],
+      patchSuggestions: [
+        { symbol: "oldSymbol", replacement: "newSymbol", description: "x", confidence: 90 },
+      ],
       normalizations: [],
       assessmentConfidence: 90,
     });
@@ -302,14 +299,27 @@ describe("regression: safe refactoring pipeline", () => {
     const filePath = "src/chat.py";
     const original = "import os\n\nopenai.ChatCompletion.create(model='x')\n";
     await mkdir(`${dir}/src`, { recursive: true });
-    const fs = await import("node:fs/promises");
     await writeFile(`${dir}/${filePath}`, original, "utf8");
     // Use a Python-targeted suggestion that triggers bootstrap
     const plan = await generatePlan({
       fixtureDir: dir,
       repositoryName: "test",
-      usages: [{ filePath, line: 3, symbol: "openai.ChatCompletion.create", excerpt: "openai.ChatCompletion.create" }],
-      patchSuggestions: [{ symbol: "openai.ChatCompletion.create", replacement: "client.chat.completions.create", description: "py", confidence: 90 }],
+      usages: [
+        {
+          filePath,
+          line: 3,
+          symbol: "openai.ChatCompletion.create",
+          excerpt: "openai.ChatCompletion.create",
+        },
+      ],
+      patchSuggestions: [
+        {
+          symbol: "openai.ChatCompletion.create",
+          replacement: "client.chat.completions.create",
+          description: "py",
+          confidence: 90,
+        },
+      ],
       normalizations: [],
       assessmentConfidence: 90,
     });
@@ -334,14 +344,15 @@ describe("regression: safe refactoring pipeline", () => {
     const filePath = "src/app.ts";
     const originalAtPatchTime = "const x = 1;\nconst y = 2;\n";
     await mkdir(`${dir}/src`, { recursive: true });
-    const fs = await import("node:fs/promises");
     await writeFile(`${dir}/${filePath}`, originalAtPatchTime, "utf8");
     // Usage was recorded at analysis time as line 1 with symbol oldSymbol, but file no longer contains it
     const plan = await generatePlan({
       fixtureDir: dir,
       repositoryName: "test",
       usages: [{ filePath, line: 1, symbol: "oldSymbol", excerpt: "oldSymbol()" }],
-      patchSuggestions: [{ symbol: "oldSymbol", replacement: "newSymbol", description: "x", confidence: 90 }],
+      patchSuggestions: [
+        { symbol: "oldSymbol", replacement: "newSymbol", description: "x", confidence: 90 },
+      ],
       normalizations: [],
       assessmentConfidence: 90,
     });
@@ -369,7 +380,9 @@ describe("hash-based TOCTOU guard (expectedFileHashes)", () => {
       fixtureDir: dir,
       repositoryName: "test",
       usages: [{ filePath, line: 3, symbol: "oldSymbol", excerpt: "oldSymbol()" }],
-      patchSuggestions: [{ symbol: "oldSymbol", replacement: "newSymbol", description: "x", confidence: 90 }],
+      patchSuggestions: [
+        { symbol: "oldSymbol", replacement: "newSymbol", description: "x", confidence: 90 },
+      ],
       normalizations: [],
       assessmentConfidence: 90,
       expectedFileHashes: new Map([[filePath, expectedHash]]),
@@ -394,7 +407,9 @@ describe("hash-based TOCTOU guard (expectedFileHashes)", () => {
       fixtureDir: dir,
       repositoryName: "test",
       usages: [{ filePath, line: 3, symbol: "oldSymbol", excerpt: "oldSymbol()" }],
-      patchSuggestions: [{ symbol: "oldSymbol", replacement: "newSymbol", description: "x", confidence: 90 }],
+      patchSuggestions: [
+        { symbol: "oldSymbol", replacement: "newSymbol", description: "x", confidence: 90 },
+      ],
       normalizations: [],
       assessmentConfidence: 90,
       expectedFileHashes: new Map([[filePath, sha256Hex(content)]]),
@@ -415,7 +430,6 @@ describe("hash-based TOCTOU guard (expectedFileHashes)", () => {
     await mkdir(`${dir}/src`, { recursive: true });
     await writeFile(`${dir}/${fileA}`, contentA, "utf8");
     await writeFile(`${dir}/${fileB}`, contentB, "utf8");
-    const hashA = sha256Hex(contentA);
     const wrongHash = sha256Hex("different");
     const plan = await generatePlan({
       fixtureDir: dir,
@@ -424,7 +438,9 @@ describe("hash-based TOCTOU guard (expectedFileHashes)", () => {
         { filePath: fileA, line: 2, symbol: "oldSymbol", excerpt: "oldSymbol()" },
         { filePath: fileB, line: 2, symbol: "oldSymbol", excerpt: "oldSymbol()" },
       ],
-      patchSuggestions: [{ symbol: "oldSymbol", replacement: "newSymbol", description: "x", confidence: 90 }],
+      patchSuggestions: [
+        { symbol: "oldSymbol", replacement: "newSymbol", description: "x", confidence: 90 },
+      ],
       normalizations: [],
       assessmentConfidence: 90,
       expectedFileHashes: new Map([
