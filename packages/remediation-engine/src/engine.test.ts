@@ -260,7 +260,9 @@ describe("regression: safe refactoring pipeline", () => {
       assessmentConfidence: 90,
     });
     expect(plan.patches, JSON.stringify(plan, null, 2)).toHaveLength(1);
-    expect(plan.patches[0]!.patched).toBe("// @ts-nocheck\nline1\nline2\nfoo(newA(), newB())\nline4\nline5\n");
+    expect(plan.patches[0]!.patched).toBe(
+      "// @ts-nocheck\nline1\nline2\nfoo(newA(), newB())\nline4\nline5\n",
+    );
     expect(plan.patches[0]!.patched).not.toContain("oldA");
     expect(plan.patches[0]!.patched).not.toContain("oldB");
   });
