@@ -29,7 +29,8 @@ export function resolveFixtureDir(name: string): string {
 export function resolvePatchbayRoot(startDir: string): string {
   let current = path.resolve(startDir);
   for (let i = 0; i < 8; i += 1) {
-    if (existsSync(path.join(/*turbopackIgnore: true*/ current, "pnpm-workspace.yaml"))) return current;
+    if (existsSync(path.join(/*turbopackIgnore: true*/ current, "pnpm-workspace.yaml")))
+      return current;
     const parent = path.dirname(current);
     if (parent === current) break;
     current = parent;

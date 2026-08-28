@@ -42,7 +42,9 @@ function loadParser(): Promise<JavaParser> {
     parserPromise = (async () => {
       const { Parser, Language } = await import("web-tree-sitter");
       await Parser.init();
-      const wasmPath = require.resolve(/*turbopackIgnore: true*/ "tree-sitter-java/tree-sitter-java.wasm");
+      const wasmPath = require.resolve(
+        /*turbopackIgnore: true*/ "tree-sitter-java/tree-sitter-java.wasm",
+      );
       const language = await Language.load(await readFile(/*turbopackIgnore: true*/ wasmPath));
       const parser = new Parser();
       parser.setLanguage(language);

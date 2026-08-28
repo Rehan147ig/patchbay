@@ -38,7 +38,9 @@ function loadParser(): Promise<PythonParser> {
       const { Parser, Language } = await import("web-tree-sitter");
       await Parser.init();
       const languagePkg = "tree-sitter-" + "python";
-      const wasmPath = require.resolve(/*turbopackIgnore: true*/ `${languagePkg}/${languagePkg}.wasm`);
+      const wasmPath = require.resolve(
+        /*turbopackIgnore: true*/ `${languagePkg}/${languagePkg}.wasm`,
+      );
       const language = await Language.load(await readFile(/*turbopackIgnore: true*/ wasmPath));
       const parser = new Parser();
       parser.setLanguage(language);

@@ -241,7 +241,8 @@ describe("regression: safe refactoring pipeline", () => {
     const dir = await mkdtemp(`${tmpdir()}/patch-multi-`);
     const filePath = "src/app.ts";
     // Actually test foo(oldA(), oldB()) same line
-    const sameLine = "// @ts-nocheck\nconst oldA = () => 1;\nconst oldB = () => 1;\nconst newA = () => 1;\nconst newB = () => 1;\nfunction foo(a:any,b:any){}\nfoo(oldA(), oldB())\nline8\n";
+    const sameLine =
+      "// @ts-nocheck\nconst oldA = () => 1;\nconst oldB = () => 1;\nconst newA = () => 1;\nconst newB = () => 1;\nfunction foo(a:any,b:any){}\nfoo(oldA(), oldB())\nline8\n";
     await import("node:fs/promises").then((fs) => fs.mkdir(`${dir}/src`, { recursive: true }));
     const { writeFile } = await import("node:fs/promises");
     await writeFile(`${dir}/${filePath}`, sameLine, "utf8");
@@ -260,7 +261,9 @@ describe("regression: safe refactoring pipeline", () => {
       assessmentConfidence: 90,
     });
     expect(plan.patches, JSON.stringify(plan, null, 2)).toHaveLength(1);
-    expect(plan.patches[0]!.patched).toBe("// @ts-nocheck\nconst oldA = () => 1;\nconst oldB = () => 1;\nconst newA = () => 1;\nconst newB = () => 1;\nfunction foo(a:any,b:any){}\nfoo(newA(), newB())\nline8\n");
+    expect(plan.patches[0]!.patched).toBe(
+      "// @ts-nocheck\nconst oldA = () => 1;\nconst oldB = () => 1;\nconst newA = () => 1;\nconst newB = () => 1;\nfunction foo(a:any,b:any){}\nfoo(newA(), newB())\nline8\n",
+    );
     expect(plan.patches[0]!.patched).toContain("foo(newA(), newB())");
     expect(plan.patches[0]!.patched).not.toContain("foo(oldA");
   });
@@ -270,7 +273,8 @@ describe("regression: safe refactoring pipeline", () => {
     const { tmpdir } = await import("node:os");
     const dir = await mkdtemp(`${tmpdir()}/patch-crlf-`);
     const filePath = "src/app.ts";
-    const original = "// @ts-nocheck\r\nfunction oldSymbol(){}\r\nfunction newSymbol(){}\r\noldSymbol()\r\nline3\r\n";
+    const original =
+      "// @ts-nocheck\r\nfunction oldSymbol(){}\r\nfunction newSymbol(){}\r\noldSymbol()\r\nline3\r\n";
     await mkdir(`${dir}/src`, { recursive: true });
     await writeFile(`${dir}/${filePath}`, original, "utf8");
     const plan = await generatePlan({
@@ -400,7 +404,8 @@ describe("hash-based TOCTOU guard (expectedFileHashes)", () => {
     const { sha256Hex } = await import("./diff");
     const dir = await mkdtemp(`${tmpdir()}/patch-hash-ok-`);
     const filePath = "src/app.ts";
-    const content = "// @ts-nocheck\nfunction oldSymbol(){}\nfunction newSymbol(){}\noldSymbol()\nline5\n";
+    const content =
+      "// @ts-nocheck\nfunction oldSymbol(){}\nfunction newSymbol(){}\noldSymbol()\nline5\n";
     await mkdir(`${dir}/src`, { recursive: true });
     await writeFile(`${dir}/${filePath}`, content, "utf8");
     const plan = await generatePlan({
@@ -425,8 +430,10 @@ describe("hash-based TOCTOU guard (expectedFileHashes)", () => {
     const dir = await mkdtemp(`${tmpdir()}/patch-hash-multi-`);
     const fileA = "src/a.ts";
     const fileB = "src/b.ts";
-    const contentA = "// @ts-nocheck\nfunction oldSymbol(){}\nfunction newSymbol(){}\noldSymbol()\n";
-    const contentB = "// @ts-nocheck\nfunction oldSymbol(){}\nfunction newSymbol(){}\noldSymbol()\n";
+    const contentA =
+      "// @ts-nocheck\nfunction oldSymbol(){}\nfunction newSymbol(){}\noldSymbol()\n";
+    const contentB =
+      "// @ts-nocheck\nfunction oldSymbol(){}\nfunction newSymbol(){}\noldSymbol()\n";
     await mkdir(`${dir}/src`, { recursive: true });
     await writeFile(`${dir}/${fileA}`, contentA, "utf8");
     await writeFile(`${dir}/${fileB}`, contentB, "utf8");
@@ -460,7 +467,8 @@ describe("hash-based TOCTOU guard (expectedFileHashes)", () => {
     const { sha256Hex } = await import("./diff");
     const dir = await mkdtemp(`${tmpdir()}/patch-hash-same-`);
     const filePath = "src/app.ts";
-    const content = "// @ts-nocheck\nconst oldA = () => 1;\nconst oldB = () => 1;\nconst newA = () => 1;\nconst newB = () => 1;\nfunction foo(a:any,b:any){}\nfoo(oldA(), oldB())\n";
+    const content =
+      "// @ts-nocheck\nconst oldA = () => 1;\nconst oldB = () => 1;\nconst newA = () => 1;\nconst newB = () => 1;\nfunction foo(a:any,b:any){}\nfoo(oldA(), oldB())\n";
     await mkdir(`${dir}/src`, { recursive: true });
     await writeFile(`${dir}/${filePath}`, content, "utf8");
     const plan = await generatePlan({

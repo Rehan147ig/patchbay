@@ -4,7 +4,11 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
-  turbopack: {},
+  turbopack: {
+    resolveAlias: {
+      env: "./empty.js",
+    },
+  },
   outputFileTracingRoot: path.join(__dirname, "../.."),
   // bullmq/ioredis stay external (native requires in the Node runtime); bundling them
   // trips webpack on bullmq's optional @valkey/valkey-glide import. The @patchbay/*
