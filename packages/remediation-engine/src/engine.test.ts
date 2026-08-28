@@ -241,7 +241,7 @@ describe("regression: safe refactoring pipeline", () => {
     const dir = await mkdtemp(`${tmpdir()}/patch-multi-`);
     const filePath = "src/app.ts";
     // Actually test foo(oldA(), oldB()) same line
-    const sameLine = "// @ts-nocheck\nline1\nline2\nfoo(oldA(), oldB())\nline4\nline5\n";
+    const sameLine = "// @ts-nocheck\nconst oldA = () => 1;\nconst oldB = () => 1;\nconst newA = () => 1;\nconst newB = () => 1;\nfunction foo(a:any,b:any){}\nfoo(oldA(), oldB())\nline8\n";
     await import("node:fs/promises").then((fs) => fs.mkdir(`${dir}/src`, { recursive: true }));
     const { writeFile } = await import("node:fs/promises");
     await writeFile(`${dir}/${filePath}`, sameLine, "utf8");
@@ -249,8 +249,8 @@ describe("regression: safe refactoring pipeline", () => {
       fixtureDir: dir,
       repositoryName: "test",
       usages: [
-        { filePath, line: 4, symbol: "oldA", excerpt: sameLine.trim() },
-        { filePath, line: 4, symbol: "oldB", excerpt: sameLine.trim() },
+        { filePath, line: 7, symbol: "oldA", excerpt: sameLine.trim() },
+        { filePath, line: 7, symbol: "oldB", excerpt: sameLine.trim() },
       ],
       patchSuggestions: [
         { symbol: "oldA", replacement: "newA", description: "a", confidence: 90 },
@@ -260,11 +260,9 @@ describe("regression: safe refactoring pipeline", () => {
       assessmentConfidence: 90,
     });
     expect(plan.patches, JSON.stringify(plan, null, 2)).toHaveLength(1);
-    expect(plan.patches[0]!.patched).toBe(
-      "// @ts-nocheck\nline1\nline2\nfoo(newA(), newB())\nline4\nline5\n",
-    );
-    expect(plan.patches[0]!.patched).not.toContain("oldA");
-    expect(plan.patches[0]!.patched).not.toContain("oldB");
+    expect(plan.patches[0]!.patched).toBe("// @ts-nocheck\nconst oldA = () => 1;\nconst oldB = () => 1;\nconst newA = () => 1;\nconst newB = () => 1;\nfunction foo(a:any,b:any){}\nfoo(newA(), newB())\nline8\n");
+    expect(plan.patches[0]!.patched).toContain("foo(newA(), newB())");
+    expect(plan.patches[0]!.patched).not.toContain("foo(oldA");
   });
 
   it("preserves CRLF line endings", async () => {
@@ -272,13 +270,13 @@ describe("regression: safe refactoring pipeline", () => {
     const { tmpdir } = await import("node:os");
     const dir = await mkdtemp(`${tmpdir()}/patch-crlf-`);
     const filePath = "src/app.ts";
-    const original = "// @ts-nocheck\r\nline1\r\noldSymbol()\r\nline3\r\n";
+    const original = "// @ts-nocheck\r\nfunction oldSymbol(){}\r\nfunction newSymbol(){}\r\noldSymbol()\r\nline3\r\n";
     await mkdir(`${dir}/src`, { recursive: true });
     await writeFile(`${dir}/${filePath}`, original, "utf8");
     const plan = await generatePlan({
       fixtureDir: dir,
       repositoryName: "test",
-      usages: [{ filePath, line: 3, symbol: "oldSymbol", excerpt: "oldSymbol()" }],
+      usages: [{ filePath, line: 4, symbol: "oldSymbol", excerpt: "oldSymbol()" }],
       patchSuggestions: [
         { symbol: "oldSymbol", replacement: "newSymbol", description: "x", confidence: 90 },
       ],
@@ -402,7 +400,7 @@ describe("hash-based TOCTOU guard (expectedFileHashes)", () => {
     const { sha256Hex } = await import("./diff");
     const dir = await mkdtemp(`${tmpdir()}/patch-hash-ok-`);
     const filePath = "src/app.ts";
-    const content = "// @ts-nocheck\nline1\nline2\noldSymbol()\nline4\n";
+    const content = "// @ts-nocheck\nfunction oldSymbol(){}\nfunction newSymbol(){}\noldSymbol()\nline5\n";
     await mkdir(`${dir}/src`, { recursive: true });
     await writeFile(`${dir}/${filePath}`, content, "utf8");
     const plan = await generatePlan({
@@ -427,8 +425,8 @@ describe("hash-based TOCTOU guard (expectedFileHashes)", () => {
     const dir = await mkdtemp(`${tmpdir()}/patch-hash-multi-`);
     const fileA = "src/a.ts";
     const fileB = "src/b.ts";
-    const contentA = "// @ts-nocheck\nline1\noldSymbol()\nline3\n";
-    const contentB = "// @ts-nocheck\nline1\noldSymbol()\nline3\n";
+    const contentA = "// @ts-nocheck\nfunction oldSymbol(){}\nfunction newSymbol(){}\noldSymbol()\n";
+    const contentB = "// @ts-nocheck\nfunction oldSymbol(){}\nfunction newSymbol(){}\noldSymbol()\n";
     await mkdir(`${dir}/src`, { recursive: true });
     await writeFile(`${dir}/${fileA}`, contentA, "utf8");
     await writeFile(`${dir}/${fileB}`, contentB, "utf8");
@@ -437,8 +435,8 @@ describe("hash-based TOCTOU guard (expectedFileHashes)", () => {
       fixtureDir: dir,
       repositoryName: "test",
       usages: [
-        { filePath: fileA, line: 3, symbol: "oldSymbol", excerpt: "oldSymbol()" },
-        { filePath: fileB, line: 3, symbol: "oldSymbol", excerpt: "oldSymbol()" },
+        { filePath: fileA, line: 4, symbol: "oldSymbol", excerpt: "oldSymbol()" },
+        { filePath: fileB, line: 4, symbol: "oldSymbol", excerpt: "oldSymbol()" },
       ],
       patchSuggestions: [
         { symbol: "oldSymbol", replacement: "newSymbol", description: "x", confidence: 90 },
@@ -462,15 +460,15 @@ describe("hash-based TOCTOU guard (expectedFileHashes)", () => {
     const { sha256Hex } = await import("./diff");
     const dir = await mkdtemp(`${tmpdir()}/patch-hash-same-`);
     const filePath = "src/app.ts";
-    const content = "// @ts-nocheck\nline1\nline2\nfoo(oldA(), oldB())\nline4\n";
+    const content = "// @ts-nocheck\nconst oldA = () => 1;\nconst oldB = () => 1;\nconst newA = () => 1;\nconst newB = () => 1;\nfunction foo(a:any,b:any){}\nfoo(oldA(), oldB())\n";
     await mkdir(`${dir}/src`, { recursive: true });
     await writeFile(`${dir}/${filePath}`, content, "utf8");
     const plan = await generatePlan({
       fixtureDir: dir,
       repositoryName: "test",
       usages: [
-        { filePath, line: 4, symbol: "oldA", excerpt: "foo(oldA(), oldB())" },
-        { filePath, line: 4, symbol: "oldB", excerpt: "foo(oldA(), oldB())" },
+        { filePath, line: 7, symbol: "oldA", excerpt: "foo(oldA(), oldB())" },
+        { filePath, line: 7, symbol: "oldB", excerpt: "foo(oldA(), oldB())" },
       ],
       patchSuggestions: [
         { symbol: "oldA", replacement: "newA", description: "a", confidence: 90 },
