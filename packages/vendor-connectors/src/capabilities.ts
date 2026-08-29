@@ -221,6 +221,11 @@ export const CAPABILITY_REGISTRY: readonly ConnectorCapability[] = [
   // CRM & product
   baseline("salesforce", "jsforce"),
   baseline("hubspot", "@hubspot/api-client"),
+  // New for launch - 25 vendors (AI/LLM + commerce + infra)
+  baseline("vercel-ai-sdk", "ai"),
+  baseline("azure-openai", "@azure/openai"),
+  baseline("shopify", "@shopify/shopify-api"),
+  baseline("postgresql", "pg"),
 ];
 
 export function getCapability(vendorSlug: string): ConnectorCapability | null {

@@ -4,6 +4,7 @@ import { anthropicConnector } from "./connectors/anthropic";
 import { auth0Connector } from "./connectors/auth0";
 import { awsSdkConnector } from "./connectors/aws-sdk";
 import { axiosConnector } from "./connectors/axios";
+import { azureOpenAiConnector } from "./connectors/azure-openai";
 import { azureSdkConnector } from "./connectors/azure-sdk";
 import { clerkConnector } from "./connectors/clerk";
 import { cloudflareConnector } from "./connectors/cloudflare";
@@ -37,6 +38,7 @@ import { passportConnector } from "./connectors/passport";
 import { paypalConnector } from "./connectors/paypal";
 import { plaidConnector } from "./connectors/plaid";
 import { prismaConnector } from "./connectors/prisma";
+import { postgresqlConnector } from "./connectors/postgresql";
 import { reactConnector } from "./connectors/react";
 import { redisConnector } from "./connectors/redis";
 import { replicateConnector } from "./connectors/replicate";
@@ -44,6 +46,7 @@ import { salesforceConnector } from "./connectors/salesforce";
 import { sendgridConnector } from "./connectors/sendgrid";
 import { sentryConnector } from "./connectors/sentry";
 import { sequelizeConnector } from "./connectors/sequelize";
+import { shopifyConnector } from "./connectors/shopify";
 import { slackConnector } from "./connectors/slack";
 import { socketIoConnector } from "./connectors/socket-io";
 import { squareConnector } from "./connectors/square";
@@ -54,6 +57,7 @@ import { terraformConnector } from "./connectors/terraform";
 import { trpcConnector } from "./connectors/trpc";
 import { twilioConnector } from "./connectors/twilio";
 import { typeormConnector } from "./connectors/typeorm";
+import { vercelAiConnector } from "./connectors/vercel-ai-sdk";
 import { vercelConnector } from "./connectors/vercel";
 import { vueConnector } from "./connectors/vue";
 import type { VendorConnector } from "./types";
@@ -77,6 +81,8 @@ export const connectors: readonly VendorConnector[] = [
   replicateConnector,
   langchainConnector,
   huggingfaceConnector,
+  vercelAiConnector,
+  azureOpenAiConnector,
   // HTTP clients & integration SDKs
   axiosConnector,
   firebaseConnector,
@@ -98,6 +104,7 @@ export const connectors: readonly VendorConnector[] = [
   plaidConnector,
   adyenConnector,
   lemonSqueezyConnector,
+  shopifyConnector,
   // Auth & identity
   clerkConnector,
   oktaConnector,
@@ -116,6 +123,7 @@ export const connectors: readonly VendorConnector[] = [
   sequelizeConnector,
   mongodbConnector,
   redisConnector,
+  postgresqlConnector,
   // Web frameworks
   expressConnector,
   reactConnector,
