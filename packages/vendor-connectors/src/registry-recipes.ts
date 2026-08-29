@@ -20,6 +20,7 @@ const REGISTRY_PAIRS: Array<{ vendor: string; from: string; to: string }> = [
   { vendor: "supabase", from: "1.35.6", to: "1.35.7" },
   { vendor: "aws-sdk", from: "2.1690.0", to: "2.1691.0" },
   { vendor: "auth0", from: "3.2.0", to: "3.3.0" },
+  { vendor: "langchain", from: "0.0.1", to: "0.1.0" },
 ];
 
 const CORPUS_PAYLOADS: Record<string, Record<string, unknown>> = {
@@ -42,6 +43,7 @@ const CORPUS_PAYLOADS: Record<string, Record<string, unknown>> = {
   supabase: { sdk: "supabase" },
   "aws-sdk": { sdk: "aws-sdk" },
   auth0: { sdk: "auth0" },
+  langchain: { sdk: "langchain" },
 };
 
 export const REGISTRY_PAYLOADS = CORPUS_PAYLOADS;

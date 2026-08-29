@@ -169,7 +169,14 @@ export const CAPABILITY_REGISTRY: readonly ConnectorCapability[] = [
   baseline("cohere", "cohere-ai"),
   baseline("groq", "groq-sdk"),
   baseline("replicate", "@replicate/replicate"),
-  baseline("langchain", "langchain"),
+  {
+    ...baseline("langchain", "langchain"),
+    level: "PLAN",
+    rulePackVersion: RULE_PACK_VERSION,
+    validationProfile: "node-ts-reparse",
+    corpus: H8_CORPUS,
+    certifiedAt: CERTIFIED_AT,
+  },
   baseline("huggingface", "@huggingface/inference"),
   // HTTP clients & integration SDKs
   baseline("axios", "axios"),

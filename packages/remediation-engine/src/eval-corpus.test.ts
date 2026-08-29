@@ -125,6 +125,7 @@ describe("H8 per-entry cases", () => {
         "anthropic",
         "aws-sdk",
         "supabase",
+        "langchain",
       ]),
     );
   });

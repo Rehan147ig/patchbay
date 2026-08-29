@@ -1,0 +1,14 @@
+{
+  "name": "@acme/langchain-service",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "dependencies": {
+    "langchain": "^0.1.0",
+    "@langchain/openai": "^0.0.14",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  }
+}

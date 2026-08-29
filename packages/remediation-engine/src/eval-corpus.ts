@@ -105,6 +105,8 @@ const TRACKED = [
   "@anthropic-ai/sdk",
   "aws-sdk",
   "@supabase/supabase-js",
+  "langchain",
+  "@langchain/openai",
 ];
 
 export const EVAL_CORPUS: EvalCorpusEntry[] = [
@@ -337,6 +339,19 @@ export const EVAL_CORPUS: EvalCorpusEntry[] = [
     expectedMatched: false,
     expectedFiles: [],
     facts: { breaking: false, requiresHumanReview: false, riskTags: [] },
+    expectedDecision: PolicyDecision.ALLOW_PLAN_ONLY,
+  },
+  {
+    id: "langchain-0.1.0",
+    vendor: "langchain",
+    fixture: "langchain-node-legacy",
+    packageName: "langchain",
+    releaseVersion: "0.1.0",
+    previousVersion: "0.0.1",
+    payload: { sdk: "other" },
+    expectedMatched: true,
+    expectedFiles: [],
+    facts: { breaking: true, requiresHumanReview: true, riskTags: [] },
     expectedDecision: PolicyDecision.ALLOW_PLAN_ONLY,
   },
 ];
