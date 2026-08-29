@@ -356,16 +356,16 @@ flowchart TB
 
 ## 5. Known Gaps & Honest Prioritization (2026-08-27)
 
-| Gap | Description                          | Fix Time        | Blocks                                                                             |
-| --- | ------------------------------------ | --------------- | ---------------------------------------------------------------------------------- |
-| #2  | Gate 2 fails open without tsconfig   | 1 hour (done)   | Every demo and fail-closed claim                                                   |
-| #3  | Gate 0 no real-repo proof            | 1 day           | Every precision claim                                                              |
-| #1  | 7 recipes (0.7% coverage)            | Ongoing         | Scale and revenue - linear authoring cost, AI synthesis reduces but not eliminates |
-| #5  | Python gate unverified               | 1 day           | Multi-language claims                                                              |
-| #4  | HMAC key custody no story            | Half day (done) | Any security conversation                                                          |
-| #7  | GitHub App trust barrier             | Weeks/months    | Subscription revenue                                                               |
-| #6  | No independent audit                 | Months          | Enterprise/regulated                                                               |
-| #8  | Founder bandwidth (TradeDocAI + MSc) | Not fixable     | Everything above - 2-3 vendors/week max                                            |
+| Gap | Description                          | Fix Time        | Blocks                                                                             | Status                                                                                                                                                   |
+| --- | ------------------------------------ | --------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #2  | Gate 2 fails open without tsconfig   | 1 hour (done)   | Every demo and fail-closed claim                                                   | ✅ Done - `runTscGate()` fail-closed + fixture `tsconfig.json`                                                                                           |
+| #3  | Gate 0 no real-repo proof            | 1 day (done)    | Every precision claim                                                              | ✅ Probe run 2026-08-29: `axios 1/217`, `ky 0/54`, `got 0/85`, `dotenv 0/15`, `twilio-node 0/791` - literal `fetch` is rare, `http-matcher` stays `PLAN` |
+| #1  | 7 recipes (0.7% coverage)            | Ongoing         | Scale and revenue - linear authoring cost, AI synthesis reduces but not eliminates | 🟡 62 vendors visible (`27` launch), `6 DRAFT_PR` certified                                                                                              |
+| #5  | Python gate unverified               | 1 day (partial) | Multi-language claims                                                              | ✅ Scan verified `openai-python-legacy: 5 py files, 2 usages`, `pyright` gate pending (`npx pyright` not yet in `pnpm`)                                  |
+| #4  | HMAC key custody no story            | Half day (done) | Any security conversation                                                          | ✅ Done - `docs/security.md` HMAC + rotation + compromise                                                                                                |
+| #7  | GitHub App trust barrier             | Weeks/months    | Subscription revenue                                                               | ✅ Docs: ephemeral sandbox `docs/security.md: GitHub App Trust Barrier`                                                                                  |
+| #6  | No independent audit                 | Months          | Enterprise/regulated                                                               | ✅ Docs: `security-conscious` not `security-audited`                                                                                                     |
+| #8  | Founder bandwidth (TradeDocAI + MSc) | Not fixable     | Everything above - 2-3 vendors/week max                                            | 🟡 Honest capacity documented                                                                                                                            |
 
 - **#1 Coverage ceiling:** 7 registry entries is 0.7% of the ecosystem. Engine is excellent but delivers zero value for Prisma, tRPC, Supabase, Resend, etc. AI synthesis path reduces authoring cost but does not eliminate human review. This is the #1 business constraint.
 - **#8 Bandwidth:** Realistic capacity is fixes #2-#5 now, 2-3 new vendors/week, no enterprise sales or full audit until bandwidth changes.

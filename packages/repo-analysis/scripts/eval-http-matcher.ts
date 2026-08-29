@@ -11,10 +11,10 @@ import os from "node:os";
 import { execSync } from "node:child_process";
 
 const REPOS = [
-  "https://github.com/vercel/next.js",
-  "https://github.com/prisma/prisma",
-  "https://github.com/supabase/supabase",
   "https://github.com/axios/axios",
+  "https://github.com/sindresorhus/ky",
+  "https://github.com/sindresorhus/got",
+  "https://github.com/motdotla/dotenv",
   "https://github.com/twilio/twilio-node",
 ];
 
@@ -24,7 +24,11 @@ async function cloneAndScan(
 ): Promise<{ repo: string; hits: number; files: number }> {
   const name = url.split("/").pop() ?? "repo";
   const dir = path.join(tmpRoot, name);
-  execSync(`git clone --depth 1 ${url} ${dir}`, { stdio: "ignore" });
+  try {
+    execSync(`git clone --depth 1 ${url} ${dir}`, { stdio: "ignore", timeout: 60000 });
+  } catch (e) {
+    throw new Error(`clone failed: ${String(e)}`);
+  }
   let files = 0;
   let hits = 0;
   async function walk(d: string): Promise<void> {
