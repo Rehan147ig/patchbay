@@ -1,5 +1,4 @@
 import { defineConnector } from "../sdk";
-import { RiskTag } from "@patchbay/domain";
 
 /**
  * Vercel AI SDK connector.
