@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
   acquireGlobalConcurrency,
@@ -5,12 +6,21 @@ import {
   releaseOrgConcurrency,
 } from "@patchbay/queue";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 declare const global: any;
 
 describe("P0-B: Redis PR Slot Safety", () => {
-  beforeAll(() => {
-    if (!global.redis) {
+  beforeAll(async () => {
+    if (!(global as any).redis) {
+      const { Redis } = await import("ioredis");
+      const client = new (Redis as any)("redis://127.0.0.1:6379");
+      await new Promise<void>((resolve) => {
+        client.once("ready", () => resolve());
+        client.once("error", () => resolve());
+        setTimeout(() => resolve(), 3000);
+      });
+      (global as any).redis = client;
+    }
+    if (!(global as any).redis) {
       throw new Error("Redis client not initialized");
     }
   });

@@ -8,6 +8,8 @@ export default defineConfig({
     hookTimeout: 30_000,
     globalSetup: "./vitest.redis.setup.ts",
     globalTeardown: "./vitest.redis.teardown.ts",
+  },
+  server: {
     deps: {
       inline: [/ioredis/],
     },
