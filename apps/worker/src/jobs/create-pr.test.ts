@@ -71,6 +71,7 @@ vi.mock("@patchbay/queue", async () => {
       incr: vi.fn().mockResolvedValue(1),
       expire: vi.fn().mockResolvedValue(1),
       decr: vi.fn().mockResolvedValue(1),
+      eval: vi.fn().mockResolvedValue([1, 1]),
     },
   };
 });
@@ -517,9 +518,9 @@ describe("processCreatePR", () => {
 
     // Organization already has 5 active draft PRs (default limit) — Redis slot count exceeds 5
     const { rateLimitRedis } = await import("@patchbay/queue");
-    vi.mocked(rateLimitRedis.incr as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
-      6 as never,
-    );
+    vi.mocked(rateLimitRedis.eval as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      0, 6,
+    ] as never);
 
     await expect(processCreatePR(mockJob)).rejects.toThrow(
       /PR creation throttled by circuit breaker/,
