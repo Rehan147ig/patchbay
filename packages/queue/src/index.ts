@@ -96,6 +96,27 @@ export interface RateLimitResult {
 }
 
 /**
+ * Atomic fixed-window counter: INCR on a hashed key, EXPIRE only when the
+ * counter starts a fresh window. Used by the web rate-limiter.
+ */
+export async function checkRateLimitRedis(
+  key: string,
+  limit: number,
+  windowMs: number,
+): Promise<RateLimitResult> {
+  const redisKey = `rl:${createHash("sha256").update(key).digest("hex")}`;
+  const count = await rateLimitRedis.incr(redisKey);
+  if (count === 1) {
+    await rateLimitRedis.expire(redisKey, Math.max(1, Math.ceil(windowMs / 1000)));
+  }
+  if (count > limit) {
+    const ttl = await rateLimitRedis.pttl(redisKey);
+    return { allowed: false, retryAfterMs: ttl > 0 ? ttl : windowMs };
+  }
+  return { allowed: true, retryAfterMs: 0 };
+}
+
+/**
  * Acquire a per-organization concurrency slot.
  * INCR is atomic; TTL auto-releases on worker crash (24h).
  * Returns the slot count; caller must check against orgLimit.
