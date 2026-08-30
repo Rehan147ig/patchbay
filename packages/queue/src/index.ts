@@ -143,7 +143,20 @@ end
 return redis.call('DECR', key)
 `;
 
-const ACQUIRE_TTL_SECONDS = 86400; // 24h — EXPIRE uses seconds (was incorrectly 86_400_000)
+export const ACQUIRE_TTL_SECONDS = 86400; // 24h — EXPIRE uses seconds (was incorrectly 86_400_000)
+
+/**
+ * Ensures concurrency Redis clients are connected and reachable.
+ * Call once during worker startup before accepting jobs.
+ * Preserves fail-closed behavior: if Redis becomes unavailable later,
+ * acquire functions return structured denial via the "Redis safety mechanism unreachable" path.
+ */
+export async function ensureConcurrencyRedisReady(): Promise<void> {
+  await orgConcurrencyRedis.connect();
+  await orgConcurrencyRedis.ping();
+  await globalConcurrencyRedis.connect();
+  await globalConcurrencyRedis.ping();
+}
 
 /**
  * Acquire a per-organization concurrency slot atomically via Lua.
@@ -183,19 +196,16 @@ export async function acquireOrgConcurrency(
 
 /**
  * Release a per-organization concurrency slot atomically, never below 0.
+ * Accepts an optional injected Redis client so test setup, acquire, release,
+ * and assertions all use the same verified connection.
  */
-export async function releaseOrgConcurrency(organizationId: string): Promise<void> {
+export async function releaseOrgConcurrency(
+  organizationId: string,
+  redisClient?: Redis,
+): Promise<void> {
   const slotKey = `org_conc:${organizationId}`;
-  try {
-    await orgConcurrencyRedis.eval(RELEASE_LUA, 1, slotKey);
-  } catch {
-    // best-effort; release failures should not crash the worker
-    try {
-      await orgConcurrencyRedis.decr(slotKey);
-    } catch {
-      // ignore
-    }
-  }
+  const client = redisClient ?? orgConcurrencyRedis;
+  await client.eval(RELEASE_LUA, 1, slotKey);
 }
 
 /**
@@ -233,15 +243,10 @@ export async function acquireGlobalConcurrency(
 
 /**
  * Release global concurrency slot atomically, never below 0.
+ * Accepts an optional injected Redis client so test setup, acquire, release,
+ * and assertions all use the same verified connection.
  */
-export async function releaseGlobalConcurrency(): Promise<void> {
-  try {
-    await globalConcurrencyRedis.eval(RELEASE_LUA, 1, "global_conc");
-  } catch {
-    try {
-      await globalConcurrencyRedis.decr("global_conc");
-    } catch {
-      // ignore
-    }
-  }
+export async function releaseGlobalConcurrency(redisClient?: Redis): Promise<void> {
+  const client = redisClient ?? globalConcurrencyRedis;
+  await client.eval(RELEASE_LUA, 1, "global_conc");
 }

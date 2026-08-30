@@ -1,9 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import {
-  acquireOrgConcurrency,
-  releaseOrgConcurrency,
-} from "@patchbay/queue";
+import { acquireOrgConcurrency, releaseOrgConcurrency } from "@patchbay/queue";
 
 declare const global: any;
 
@@ -55,6 +52,7 @@ describe("P0-B: Redis PR Slot Safety", () => {
       const results = await Promise.all(barrier);
       const successful = results.filter(Boolean).length;
       const blocked = results.filter((v) => !v).length;
+      expect(successful).toBeGreaterThan(0);
       expect(successful).toBeLessThanOrEqual(5);
       expect(blocked).toBeGreaterThanOrEqual(15);
       const counter = parseInt((await (global as any).redis.get("org_conc:test-org")) || "0", 10);
@@ -178,49 +176,85 @@ describe("P0-B: Redis PR Slot Safety", () => {
   describe("B8 Process crash", () => {
     it("should recover capacity after child process acquires and crashes without release", async () => {
       const crashOrg = `crash-b8-${Date.now()}`;
-      await (global as any).redis.del(`org_conc:${crashOrg}`);
+      const testKey = `org_conc:${crashOrg}`;
+      await (global as any).redis.del(testKey);
 
-      // Spawn child process that acquires a slot and crashes without release
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { spawn } = require("child_process");
-      const script = `
-const { acquireOrgConcurrency, acquireGlobalConcurrency } = require("@patchbay/queue");
-const { Redis } = require("ioredis");
-const redis = new Redis("redis://127.0.0.1:6379");
-const org = "${crashOrg}";
-const orgRes = await acquireOrgConcurrency(org, 5);
-process.send(JSON.stringify({ org: orgRes.allowed, slotCount: orgRes.slotCount }));
-await new Promise((r) => setTimeout(r, 100));
-process.exit(0);
-`;
-      const child = spawn("node", [script], { shell: true });
-      let childData = "";
+      // Import the actual Lua text from @patchbay/queue
+      const { ACQUIRE_LUA } = await import("@patchbay/queue");
+
+      // Pass the literal Lua text in ACQUIRE_LUA environment variable
+      const childEnv = {
+        ...process.env,
+        REDIS_URL: "redis://127.0.0.1:6379",
+        KEY: testKey,
+        LIMIT: "5",
+        ACQUIRE_LUA,
+      };
+
+      // Spawn the .mjs fixture as:
+      // spawn(process.execPath, ["./packages/queue/fixtures/b8-child.mjs"], { env, stdio: ["ignore", "pipe", "pipe"] })
+      // Do not use shell:true or --input-type=module
+      const { spawn } = require("child_process"); // eslint-disable-line @typescript-eslint/no-require-imports
+      const child = spawn(process.execPath, ["./packages/queue/fixtures/b8-child.mjs"], {
+        env: childEnv,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+
+      let childStdout = "";
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      let childStderr = "";
       child.stdout.on("data", (chunk: Buffer) => {
-        childData += chunk.toString();
+        childStdout += chunk.toString();
       });
       child.stderr.on("data", (chunk: Buffer) => {
-        childData += chunk.toString();
+        childStderr += chunk.toString();
       });
-      await new Promise((r) => child.on("exit", r));
-      const childResult = JSON.parse(childData);
-      expect(childResult.org).toBe(true);
+
+      // Await child close and use the close callback's numeric exit code argument
+      let exitCode: number | undefined;
+      await new Promise<void>((resolve) =>
+        child.on("close", (code: number) => {
+          exitCode = code;
+          resolve();
+        }),
+      );
+
+      // Validate exit code
+      expect(exitCode).toBe(0);
+
+      // Validate stdout JSON
+      let childResult: { allowed: boolean; slotCount: number } | null = null;
+      try {
+        childResult = JSON.parse(childStdout);
+      } catch {
+        // stdout JSON parse failure - mark as failed
+      }
+      expect(childResult).toBeTruthy();
+      expect(childResult?.allowed).toBe(true);
 
       // Verify child acquired the slot - key has value 1 with positive TTL
-      const ttl = await (global as any).redis.ttl(`org_conc:${crashOrg}`);
+      // (child began from empty key; acquired one slot and left it abandoned)
+      const ttl = await (global as any).redis.ttl(testKey);
       expect(ttl).toBeGreaterThan(0);
       expect(ttl).toBeLessThanOrEqual(86400);
-      const count = parseInt((await (global as any).redis.get(`org_conc:${crashOrg}`)) || "0", 10);
+      const count = parseInt((await (global as any).redis.get(testKey)) || "0", 10);
+      // Child acquired one slot and left it; count should be 1 (not decremented)
       expect(count).toBe(1);
 
-      // Child exits without releasing; parent shortens key for fast test execution
-      await (global as any).redis.expire(`org_conc:${crashOrg}`, 1);
+      // Parent shortens key for fast test execution (child holds the slot)
+      await (global as any).redis.expire(testKey, 1);
       await new Promise((r) => setTimeout(r, 2100));
-      expect(await (global as any).redis.get(`org_conc:${crashOrg}`)).toBeNull();
+
+      // Key should now be expired
+      expect(await (global as any).redis.get(testKey)).toBeNull();
 
       // Verify new acquire succeeds after expiry
       const r3 = await acquireOrgConcurrency(crashOrg, 5);
       expect(r3.allowed).toBe(true);
       await releaseOrgConcurrency(crashOrg);
+
+      // Include stderr in failure diagnostics if test eventually fails
+      // (stderr is captured in childStderr for this purpose)
     });
   });
 

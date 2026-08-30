@@ -23,6 +23,7 @@ import {
   releaseOrgConcurrency,
   acquireGlobalConcurrency,
   releaseGlobalConcurrency,
+  ensureConcurrencyRedisReady,
 } from "@patchbay/queue";
 import {
   createSandboxRunner,
@@ -82,6 +83,8 @@ async function main(): Promise<void> {
       logger.info("production sandbox runtime ready", { runtime: sandbox.runtime });
     }
   }
+
+  await ensureConcurrencyRedisReady();
 
   const worker = new Worker(
     QUEUE_NAME,

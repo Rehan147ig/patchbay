@@ -2,7 +2,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    include: ["**/redis-pr-slot-integration.test.ts"],
+    include: ["**/redis-pr-slot-integration.test.ts", "**/redis-conformance.test.ts"],
     environment: "node",
     testTimeout: 60_000,
     hookTimeout: 30_000,
