@@ -1,16 +1,14 @@
-import { createClient } from "redis";
+import { Redis } from "ioredis";
 
 export default async function setup() {
-  // Connect to Redis using the GitHub Actions service host
-  // The GitHub Actions redis service binds to 127.0.0.1:6379
-  const client = createClient({
-    url: "redis://127.0.0.1:6379",
+  const client = new Redis("redis://127.0.0.1:6379");
+  // ioredis connects lazily; wait for ready
+  await new Promise<void>((resolve, reject) => {
+    client.once("ready", () => resolve());
+    client.once("error", (err) => reject(err));
+    // fallback timeout 5s
+    setTimeout(() => resolve(), 5000);
   });
-  await client.connect();
-
-  // Export client for test files via globals
-  global.redis = client;
-
-  // Set test key namespace to avoid collisions
-  global.TEST_PREFIX = "test:p0_c:";
+  (global as unknown as Record<string, unknown>).redis = client;
+  (global as unknown as Record<string, unknown>).TEST_PREFIX = "test:p0_c:";
 }

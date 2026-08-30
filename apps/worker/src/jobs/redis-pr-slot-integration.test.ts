@@ -119,9 +119,7 @@ describe("P0-B: Redis PR Slot Safety", () => {
 
   describe("B7 TTL recovery", () => {
     it("should expire and recover abandoned slots via TTL", async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await global.redis.set("test:p0_c:ttl:test", "1", { EX: 1 } as any);
-      // Alternative: use expire with 1s and wait
+      await global.redis.set("test:p0_c:ttl:test", "1");
       await global.redis.expire("test:p0_c:ttl:test", 1);
       await new Promise((r) => setTimeout(r, 2100));
       const value = await global.redis.get("test:p0_c:ttl:test");
