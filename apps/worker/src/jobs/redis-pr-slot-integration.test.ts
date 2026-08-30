@@ -72,22 +72,20 @@ describe("P0-B: Redis PR Slot Safety", () => {
         await (global as any).redis.del(`org_conc:${org}`);
         await (global as any).redis.set(`org_conc:${org}`, "4");
 
-        // Use a proper barrier for concurrent execution
-        let resolveGate: () => void;
+        // Proper barrier using an array to hold resolvers
+        const resolvers: Array<() => void> = [];
         const gate = new Promise<void>((resolve) => {
-          resolveGate = resolve;
+          resolvers.push(resolve);
         });
-        let started = 0;
+        let arrived = 0;
         const [a, b] = await Promise.all([
           (async () => {
-            started++;
-            if (started === 2) resolveGate!();
+            if (++arrived === 2) resolvers[1]!();
             await gate;
             return acquireOrgConcurrency(org, 5);
           })(),
           (async () => {
-            started++;
-            if (started === 2) resolveGate!();
+            if (++arrived === 2) resolvers[0]!();
             await gate;
             return acquireOrgConcurrency(org, 5);
           })(),
