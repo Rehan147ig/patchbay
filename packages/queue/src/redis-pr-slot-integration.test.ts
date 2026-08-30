@@ -264,11 +264,26 @@ describe("P0-C: Concurrency & Fairness", () => {
   });
 
   describe("Redis outage", () => {
-    it("should fail closed when Redis is unavailable", async () => {
-      await (global as any).redis.set("org_conc:outage-org", "5");
-      const result = await acquireOrgConcurrency("outage-org", 5);
+    it("should fail closed when Redis is unavailable (disposable client)", async () => {
+      const { Redis } = await import("ioredis");
+      const badClient = new (Redis as any)("redis://127.0.0.1:1", {
+        lazyConnect: true,
+        enableOfflineQueue: false,
+        maxRetriesPerRequest: 0,
+        connectTimeout: 500,
+      });
+      try {
+        await badClient.connect();
+      } catch {
+        // expected to fail
+      }
+      const result = await acquireOrgConcurrency("outage-disposable", 5, badClient as any);
       expect(result.allowed).toBe(false);
-      await (global as any).redis.del("org_conc:outage-org");
+      expect(result.reason).toContain("Redis safety mechanism unreachable");
+      await badClient.quit().catch(() => {});
+      const recovery = await acquireOrgConcurrency("outage-disposable", 5);
+      expect(recovery.allowed).toBe(true);
+      await releaseOrgConcurrency("outage-disposable");
     });
   });
 

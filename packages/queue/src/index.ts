@@ -148,14 +148,18 @@ const ACQUIRE_TTL_SECONDS = 86400; // 24h — EXPIRE uses seconds (was incorrect
 /**
  * Acquire a per-organization concurrency slot atomically via Lua.
  * The increment, limit check, rollback and TTL are one atomic operation.
+ * `redisClient` is for testing only — allows injecting a disposable client for outage tests
+ * without disconnecting the shared singleton in parallel runs.
  */
 export async function acquireOrgConcurrency(
   organizationId: string,
   orgLimit: number,
+  redisClient?: Redis,
 ): Promise<{ allowed: boolean; slotCount: number; reason?: string }> {
   const slotKey = `org_conc:${organizationId}`;
+  const client = redisClient ?? orgConcurrencyRedis;
   try {
-    const res = (await orgConcurrencyRedis.eval(
+    const res = (await client.eval(
       ACQUIRE_LUA,
       1,
       slotKey,
@@ -196,13 +200,16 @@ export async function releaseOrgConcurrency(organizationId: string): Promise<voi
 
 /**
  * Acquire global concurrency slot atomically via Lua.
+ * `redisClient` is for testing only — see acquireOrgConcurrency.
  */
 export async function acquireGlobalConcurrency(
   globalLimit: number,
+  redisClient?: Redis,
 ): Promise<{ allowed: boolean; slotCount: number; reason?: string }> {
   const slotKey = "global_conc";
+  const client = redisClient ?? globalConcurrencyRedis;
   try {
-    const res = (await globalConcurrencyRedis.eval(
+    const res = (await client.eval(
       ACQUIRE_LUA,
       1,
       slotKey,
