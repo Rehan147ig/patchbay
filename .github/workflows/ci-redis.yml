@@ -12,35 +12,33 @@ jobs:
     timeout-minutes: 120
     services:
       redis:
-        image: redis:7-alpine
+        image: redis:7-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
         ports:
           - 6379:6379
         options: >-
           --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
 
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.34.5
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
           cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Typecheck
-        run: pnpm typecheck
-
+      - run: pnpm install --frozen-lockfile
+      - name: Generate Prisma client
+        run: pnpm db:generate
+      - run: pnpm typecheck
       - name: Unit tests (non-Redis)
-        run: pnpm test 2>&1 | tail -30
-
+        run: pnpm test
       - name: Redis readiness check
         run: |
+          sudo apt-get update && sudo apt-get install -y redis-tools
           for i in $(seq 1 30); do
             if redis-cli ping | grep -q PONG; then
               echo "Redis ready"
@@ -51,15 +49,9 @@ jobs:
           done
           echo "Redis failed to become ready after 30s"
           exit 1
-
       - name: Redis integration tests
         run: pnpm test:redis-integration
-
       - name: Corpus tests
         run: pnpm test:corpus
-
-      - name: Lint
-        run: pnpm lint
-
-      - name: Format check
-        run: pnpm format:check
+      - run: pnpm lint
+      - run: pnpm format:check
