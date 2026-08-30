@@ -116,7 +116,7 @@ export async function checkRateLimitRedis(
   return { allowed: true, retryAfterMs: 0 };
 }
 
-const ACQUIRE_LUA = `
+export const ACQUIRE_LUA = `
 local key = KEYS[1]
 local limit = tonumber(ARGV[1])
 local ttl = tonumber(ARGV[2])
@@ -131,7 +131,7 @@ end
 return {1, newVal}
 `;
 
-const RELEASE_LUA = `
+export const RELEASE_LUA = `
 local key = KEYS[1]
 local cur = redis.call('GET', key)
 if not cur then return 0 end

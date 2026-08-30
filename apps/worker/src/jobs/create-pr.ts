@@ -23,6 +23,7 @@ import { rateLimitRedis } from "@patchbay/queue";
 import type { Job } from "bullmq";
 import { writeAuditEvent } from "../lib/audit";
 import { assertInstallationBelongsToOrganization } from "../lib/repository-source";
+import { ACQUIRE_LUA, RELEASE_LUA } from "@patchbay/queue";
 
 export const CreatePRJobDataSchema = z.object({
   remediationPlanId: z.string().min(1),
@@ -149,37 +150,13 @@ async function createDraftPR(
   }
 
   // Atomic PR slot reservation — INCR + limit check + TTL in one Lua op.
+  // Imported from @patchbay/queue: ACQUIRE_LUA, RELEASE_LUA
   const PR_SLOT_TTL_SECONDS = 86400;
-  const PR_ACQUIRE_LUA = `
-local key = KEYS[1]
-local limit = tonumber(ARGV[1])
-local ttl = tonumber(ARGV[2])
-local newVal = redis.call('INCR', key)
-if newVal == 1 then
-  redis.call('EXPIRE', key, ttl)
-end
-if newVal > limit then
-  redis.call('DECR', key)
-  return {0, newVal}
-end
-return {1, newVal}
-`;
-  const PR_RELEASE_LUA = `
-local key = KEYS[1]
-local cur = redis.call('GET', key)
-if not cur then return 0 end
-cur = tonumber(cur)
-if cur <= 0 then
-  redis.call('DEL', key)
-  return 0
-end
-return redis.call('DECR', key)
-`;
-  const slotKey = `pr_slot:${organizationId}`;
   let evalResult: [number, number];
+  const slotKey = `pr_slot:${organizationId}`;
   try {
     evalResult = (await rateLimitRedis.eval(
-      PR_ACQUIRE_LUA,
+      ACQUIRE_LUA,
       1,
       slotKey,
       "5",
@@ -425,7 +402,7 @@ return redis.call('DECR', key)
     };
   } finally {
     try {
-      await rateLimitRedis.eval(PR_RELEASE_LUA, 1, slotKey);
+      await rateLimitRedis.eval(RELEASE_LUA, 1, slotKey);
     } catch {
       try {
         await rateLimitRedis.decr(slotKey);
