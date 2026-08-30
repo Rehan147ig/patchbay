@@ -63,6 +63,18 @@ vi.mock("@patchbay/repo-analysis", () => ({
   resolveFixtureDir: vi.fn(),
 }));
 
+vi.mock("@patchbay/queue", async () => {
+  const actual = await vi.importActual<typeof import("@patchbay/queue")>("@patchbay/queue");
+  return {
+    ...actual,
+    rateLimitRedis: {
+      incr: vi.fn().mockResolvedValue(1),
+      expire: vi.fn().mockResolvedValue(1),
+      decr: vi.fn().mockResolvedValue(1),
+    },
+  };
+});
+
 describe("processCreatePR", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -503,8 +515,11 @@ describe("processCreatePR", () => {
       },
     } as never);
 
-    // Organization already has 5 active draft PRs (default limit)
-    vi.mocked(prisma.pullRequest.count).mockResolvedValueOnce(5);
+    // Organization already has 5 active draft PRs (default limit) — Redis slot count exceeds 5
+    const { rateLimitRedis } = await import("@patchbay/queue");
+    vi.mocked(rateLimitRedis.incr as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      6 as never,
+    );
 
     await expect(processCreatePR(mockJob)).rejects.toThrow(
       /PR creation throttled by circuit breaker/,

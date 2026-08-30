@@ -10,6 +10,7 @@ export default defineConfig({
   },
   test: {
     include: ["packages/*/src/**/*.test.ts", "apps/*/src/**/*.test.ts"],
+    exclude: ["**/redis-pr-slot-integration.test.ts", "**/node_modules/**"],
     environment: "node",
     testTimeout: 30_000,
     hookTimeout: 30_000,

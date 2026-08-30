@@ -6,7 +6,7 @@
 import { createHash } from "node:crypto";
 import { Queue, type Job, type JobsOptions } from "bullmq";
 import { Redis } from "ioredis";
-import { assertJobPayloadSize, MAX_JOB_PAYLOAD_BYTES, parseRedisUrl } from "./url";
+import { assertJobPayloadSize, parseRedisUrl } from "./url";
 
 export { assertJobPayloadSize, MAX_JOB_PAYLOAD_BYTES, parseRedisUrl } from "./url";
 
@@ -154,9 +154,7 @@ export async function acquireOrgConcurrency(
  * Release a per-organization concurrency slot.
  * Must be called in a finally block after job completion.
  */
-export async function releaseOrgConcurrency(
-  organizationId: string,
-): Promise<void> {
+export async function releaseOrgConcurrency(organizationId: string): Promise<void> {
   const slotKey = `org_conc:${organizationId}`;
   await orgConcurrencyRedis.decr(slotKey);
 }

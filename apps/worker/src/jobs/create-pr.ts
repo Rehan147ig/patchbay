@@ -18,7 +18,7 @@ import {
 } from "@patchbay/domain";
 import { resolveFixtureDir } from "@patchbay/repo-analysis";
 import { createGitProviderFromEnv } from "@patchbay/git-provider";
-import { evaluatePolicy, evaluateFanoutCircuitBreaker } from "@patchbay/policy-engine";
+import { evaluatePolicy } from "@patchbay/policy-engine";
 import { rateLimitRedis } from "@patchbay/queue";
 import type { Job } from "bullmq";
 import { writeAuditEvent } from "../lib/audit";
@@ -34,7 +34,7 @@ export type CreatePRJobData = z.infer<typeof CreatePRJobDataSchema>;
 export interface CreatePRResult {
   pullRequestId: string;
   url: string;
-  branchName: string
+  branchName: string;
 }
 
 /**
@@ -156,7 +156,7 @@ async function createDraftPR(
   let newSlotCount: number;
   try {
     newSlotCount = await rateLimitRedis.incr(slotKey);
-  } catch (error) {
+  } catch {
     // Redis unavailable — fail closed. Automated PR creation cannot proceed when the
     // concurrency safety mechanism is untrusted. The remediation remains safely blocked
     // and can be retried once Redis recovers.

@@ -14,7 +14,16 @@ import { Worker } from "bullmq";
 import { prisma } from "@patchbay/db";
 import { parseEnv } from "@patchbay/env";
 import { logger } from "@patchbay/domain";
-import { JobType, QUEUE_NAME, connection, queue, acquireOrgConcurrency, releaseOrgConcurrency, acquireGlobalConcurrency, releaseGlobalConcurrency } from "@patchbay/queue";
+import {
+  JobType,
+  QUEUE_NAME,
+  connection,
+  queue,
+  acquireOrgConcurrency,
+  releaseOrgConcurrency,
+  acquireGlobalConcurrency,
+  releaseGlobalConcurrency,
+} from "@patchbay/queue";
 import {
   createSandboxRunner,
   resolveSandboxMode,
