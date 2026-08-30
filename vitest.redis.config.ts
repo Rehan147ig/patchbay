@@ -8,6 +8,9 @@ export default defineConfig({
     hookTimeout: 30_000,
     globalSetup: "./vitest.redis.setup.ts",
     globalTeardown: "./vitest.redis.teardown.ts",
+    sequence: { concurrent: false },
+    pool: "forks",
+    poolOptions: { forks: { singleFork: true } },
   },
   server: {
     deps: {

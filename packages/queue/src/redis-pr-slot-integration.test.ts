@@ -74,13 +74,30 @@ describe("P0-C: Concurrency & Fairness", () => {
     it("should handle org counter=3, limit=4 correctly (100 rounds)", async () => {
       let violations = 0;
       for (let round = 0; round < 100; round++) {
-        const org = `c2-race-${round}-${Date.now()}`;
+        const org = `c2-race-${round}-${Date.now()}-${Math.random()}`;
         await (global as any).redis.del(`org_conc:${org}`);
         await (global as any).redis.set(`org_conc:${org}`, "3");
+
+        let resolveGate: () => void;
+        const gate = new Promise<void>((resolve) => {
+          resolveGate = resolve;
+        });
+        let started = 0;
         const [a, b] = await Promise.all([
-          acquireOrgConcurrency(org, 4),
-          acquireOrgConcurrency(org, 4),
+          (async () => {
+            started++;
+            if (started === 2) resolveGate!();
+            await gate;
+            return acquireOrgConcurrency(org, 4);
+          })(),
+          (async () => {
+            started++;
+            if (started === 2) resolveGate!();
+            await gate;
+            return acquireOrgConcurrency(org, 4);
+          })(),
         ]);
+
         const allowedCount = [a.allowed, b.allowed].filter(Boolean).length;
         const counter = parseInt((await (global as any).redis.get(`org_conc:${org}`)) || "0", 10);
         if (allowedCount !== 1 || counter > 4) violations++;
@@ -98,10 +115,27 @@ describe("P0-C: Concurrency & Fairness", () => {
       for (let round = 0; round < 100; round++) {
         await (global as any).redis.del("global_conc");
         await (global as any).redis.set("global_conc", "9");
+
+        let resolveGate: () => void;
+        const gate = new Promise<void>((resolve) => {
+          resolveGate = resolve;
+        });
+        let started = 0;
         const [a, b] = await Promise.all([
-          acquireGlobalConcurrency(10),
-          acquireGlobalConcurrency(10),
+          (async () => {
+            started++;
+            if (started === 2) resolveGate!();
+            await gate;
+            return acquireGlobalConcurrency(10);
+          })(),
+          (async () => {
+            started++;
+            if (started === 2) resolveGate!();
+            await gate;
+            return acquireGlobalConcurrency(10);
+          })(),
         ]);
+
         const allowedCount = [a.allowed, b.allowed].filter(Boolean).length;
         const counter = parseInt((await (global as any).redis.get("global_conc")) || "0", 10);
         if (allowedCount !== 1 || counter > 10) violations++;

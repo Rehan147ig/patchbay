@@ -68,13 +68,31 @@ describe("P0-B: Redis PR Slot Safety", () => {
     it("should allow exactly 1 of 2 concurrent when at limit-1 (100 rounds)", async () => {
       let violations = 0;
       for (let round = 0; round < 100; round++) {
-        const org = `b2-race-${round}-${Date.now()}`;
+        const org = `b2-race-${round}-${Date.now()}-${Math.random()}`;
         await (global as any).redis.del(`org_conc:${org}`);
         await (global as any).redis.set(`org_conc:${org}`, "4");
+
+        // Use a proper barrier for concurrent execution
+        let resolveGate: () => void;
+        const gate = new Promise<void>((resolve) => {
+          resolveGate = resolve;
+        });
+        let started = 0;
         const [a, b] = await Promise.all([
-          acquireOrgConcurrency(org, 5),
-          acquireOrgConcurrency(org, 5),
+          (async () => {
+            started++;
+            if (started === 2) resolveGate!();
+            await gate;
+            return acquireOrgConcurrency(org, 5);
+          })(),
+          (async () => {
+            started++;
+            if (started === 2) resolveGate!();
+            await gate;
+            return acquireOrgConcurrency(org, 5);
+          })(),
         ]);
+
         const allowedCount = [a.allowed, b.allowed].filter(Boolean).length;
         const counter = parseInt((await (global as any).redis.get(`org_conc:${org}`)) || "0", 10);
         if (allowedCount !== 1 || counter > 5) violations++;
@@ -165,23 +183,70 @@ describe("P0-B: Redis PR Slot Safety", () => {
   describe("B8 Process crash", () => {
     it("should not leak slots when worker crashes without release", async () => {
       const crashOrg = `crash-b8-${Date.now()}`;
+      const globalKey = `global_conc:b8-${Date.now()}`;
       await (global as any).redis.del(`org_conc:${crashOrg}`);
-      await (global as any).redis.del("global_conc");
+      await (global as any).redis.del(globalKey);
+
+      // Parent acquires slots
       const r1 = await acquireOrgConcurrency(crashOrg, 5);
       const r2 = await acquireGlobalConcurrency(10);
       expect(r1.allowed).toBe(true);
       expect(r2.allowed).toBe(true);
+
       const ttl = await (global as any).redis.ttl(`org_conc:${crashOrg}`);
       expect(ttl).toBeGreaterThan(0);
       expect(ttl).toBeLessThanOrEqual(86400);
       const count = parseInt((await (global as any).redis.get(`org_conc:${crashOrg}`)) || "0", 10);
       expect(count).toBe(1);
-      // shorten TTL for test speed and verify recovery
+
+      // Spawn child process that acquires slots and crashes
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { spawn } = require("child_process");
+      const script = `
+const { acquireOrgConcurrency, acquireGlobalConcurrency } = require("@patchbay/queue");
+const { Redis } = require("ioredis");
+const redis = new Redis("redis://127.0.0.1:6379");
+const org = "${crashOrg}";
+const globalKey = "${globalKey}";
+const orgRes = await acquireOrgConcurrency(org, 5);
+const globalRes = await acquireGlobalConcurrency(10);
+process.send(JSON.stringify({ org: orgRes.allowed, global: globalRes.allowed }));
+await new Promise((r) => setTimeout(r, 100));
+process.exit(0);
+`;
+      const child = spawn("node", [script], { shell: true });
+      let childData = "";
+      child.stdout.on("data", (chunk: Buffer) => {
+        childData += chunk.toString();
+      });
+      child.stderr.on("data", (chunk: Buffer) => {
+        childData += chunk.toString();
+      });
+      await new Promise((r) => child.on("exit", r));
+      const childResult = JSON.parse(childData);
+      expect(childResult.org).toBe(true);
+      expect(childResult.global).toBe(true);
+
+      // Verify parent still holds slots
+      const parentOrgCount = parseInt(
+        (await (global as any).redis.get(`org_conc:${crashOrg}`)) || "0",
+        10,
+      );
+      const parentGlobalCount = parseInt(
+        (await (global as any).redis.get("global_conc")) || "0",
+        10,
+      );
+      expect(parentOrgCount).toBe(1);
+      expect(parentGlobalCount).toBe(1);
+
+      // Child exits, slots should be recoverable via TTL
       await (global as any).redis.expire(`org_conc:${crashOrg}`, 1);
       await (global as any).redis.expire("global_conc", 1);
       await new Promise((r) => setTimeout(r, 2100));
       expect(await (global as any).redis.get(`org_conc:${crashOrg}`)).toBeNull();
       expect(await (global as any).redis.get("global_conc")).toBeNull();
+
+      // Verify recovery
       const r3 = await acquireOrgConcurrency(crashOrg, 5);
       expect(r3.allowed).toBe(true);
       await releaseOrgConcurrency(crashOrg);
