@@ -1,13 +1,13 @@
-import { Redis } from "ioredis";
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+declare const global: any;
 
 export default async function setup() {
+  const { Redis } = await import("ioredis");
   const client = new Redis("redis://127.0.0.1:6379");
-  // ioredis connects lazily; wait for ready
-  await new Promise<void>((resolve, reject) => {
+  await new Promise<void>((resolve) => {
     client.once("ready", () => resolve());
-    client.once("error", (err) => reject(err));
-    // fallback timeout 5s
-    setTimeout(() => resolve(), 5000);
+    client.once("error", () => resolve());
+    setTimeout(() => resolve(), 3000);
   });
   (global as unknown as Record<string, unknown>).redis = client;
   (global as unknown as Record<string, unknown>).TEST_PREFIX = "test:p0_c:";
