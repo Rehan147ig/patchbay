@@ -26,18 +26,18 @@ describe("P0-B: Redis PR Slot Safety", () => {
   });
 
   afterAll(async () => {
-    const keys = await global.redis.keys("test:p0_c:*");
+    const keys = await (global as any).redis.keys("test:p0_c:*");
     if (keys.length > 0) {
-      await global.redis.del(...keys);
+      await (global as any).redis.del(...keys);
     }
-    await global.redis.del("org_conc:test-org");
-    await global.redis.del("org_conc:crash-org");
-    await global.redis.del("global_conc");
+    await (global as any).redis.del("org_conc:test-org");
+    await (global as any).redis.del("org_conc:crash-org");
+    await (global as any).redis.del("global_conc");
   });
 
   describe("B1 concurrent limit 20 workers / limit 5", () => {
     it("should enforce org concurrency limit with real INCR/DECR", async () => {
-      await global.redis.del("org_conc:test-org");
+      await (global as any).redis.del("org_conc:test-org");
       const limit = 5;
       const workers = 20;
 
@@ -59,143 +59,158 @@ describe("P0-B: Redis PR Slot Safety", () => {
       const blocked = results.filter((v) => !v).length;
       expect(successful).toBeLessThanOrEqual(5);
       expect(blocked).toBeGreaterThanOrEqual(15);
-      const counter = parseInt((await global.redis.get("org_conc:test-org")) || "0", 10);
+      const counter = parseInt((await (global as any).redis.get("org_conc:test-org")) || "0", 10);
       expect(counter).toBe(0);
     });
   });
 
   describe("B2 exact-limit race", () => {
-    it("should allow 1 and block 1 when counter=4 limit=5", async () => {
-      await global.redis.set("org_conc:test-org", "4");
-      const [a, b] = await Promise.all([
-        acquireOrgConcurrency("test-org", 5),
-        acquireOrgConcurrency("test-org", 5),
-      ]);
-      const allowedCount = [a.allowed, b.allowed].filter(Boolean).length;
-      expect(allowedCount).toBe(1);
-      const counter = parseInt((await global.redis.get("org_conc:test-org")) || "0", 10);
-      expect(counter).toBeLessThanOrEqual(5);
-      // cleanup
-      if (a.allowed) await releaseOrgConcurrency("test-org");
-      if (b.allowed) await releaseOrgConcurrency("test-org");
-      await global.redis.del("org_conc:test-org");
+    it("should allow exactly 1 of 2 concurrent when at limit-1 (100 rounds)", async () => {
+      let violations = 0;
+      for (let round = 0; round < 100; round++) {
+        const org = `b2-race-${round}-${Date.now()}`;
+        await (global as any).redis.del(`org_conc:${org}`);
+        await (global as any).redis.set(`org_conc:${org}`, "4");
+        const [a, b] = await Promise.all([
+          acquireOrgConcurrency(org, 5),
+          acquireOrgConcurrency(org, 5),
+        ]);
+        const allowedCount = [a.allowed, b.allowed].filter(Boolean).length;
+        const counter = parseInt((await (global as any).redis.get(`org_conc:${org}`)) || "0", 10);
+        if (allowedCount !== 1 || counter > 5) violations++;
+        if (a.allowed) await releaseOrgConcurrency(org);
+        if (b.allowed) await releaseOrgConcurrency(org);
+        await (global as any).redis.del(`org_conc:${org}`);
+      }
+      expect(violations).toBe(0);
     });
   });
 
   describe("B3 normal release", () => {
     it("should restore counter to initial value", async () => {
-      await global.redis.set("org_conc:test-org", "3");
+      await (global as any).redis.set("org_conc:test-org", "3");
       const r = await acquireOrgConcurrency("test-org", 5);
       expect(r.allowed).toBe(true);
       await releaseOrgConcurrency("test-org");
-      const current = parseInt((await global.redis.get("org_conc:test-org")) || "0", 10);
+      const current = parseInt((await (global as any).redis.get("org_conc:test-org")) || "0", 10);
       expect(current).toBe(3);
-      await global.redis.del("org_conc:test-org");
+      await (global as any).redis.del("org_conc:test-org");
     });
   });
 
   describe("B4 rejected reservation rollback", () => {
     it("should roll back over-limit increment", async () => {
-      await global.redis.set("org_conc:test-org", "5");
+      await (global as any).redis.set("org_conc:test-org", "5");
       const result = await acquireOrgConcurrency("test-org", 5);
       expect(result.allowed).toBe(false);
-      const counter = parseInt((await global.redis.get("org_conc:test-org")) || "0", 10);
+      const counter = parseInt((await (global as any).redis.get("org_conc:test-org")) || "0", 10);
       expect(counter).toBe(5);
-      await global.redis.del("org_conc:test-org");
+      await (global as any).redis.del("org_conc:test-org");
     });
   });
 
   describe("B5 Redis unavailable", () => {
     it("should fail closed with structured reason", async () => {
-      // Simulate by filling to limit then verifying fail-closed path returns allowed=false
-      await global.redis.set("org_conc:test-org", "5");
+      await (global as any).redis.set("org_conc:test-org", "5");
       const result = await acquireOrgConcurrency("test-org", 5);
       expect(result.allowed).toBe(false);
       expect(result.reason).toBeDefined();
-      await global.redis.del("org_conc:test-org");
+      await (global as any).redis.del("org_conc:test-org");
     });
   });
 
   describe("B6 Redis recovery", () => {
     it("should resume reservations after Redis restore", async () => {
-      await global.redis.del("org_conc:test-org");
+      await (global as any).redis.del("org_conc:test-org");
       const result = await acquireOrgConcurrency("test-org", 5);
       expect(result.allowed).toBe(true);
       await releaseOrgConcurrency("test-org");
-      const counter = parseInt((await global.redis.get("org_conc:test-org")) || "0", 10);
+      const counter = parseInt((await (global as any).redis.get("org_conc:test-org")) || "0", 10);
       expect(counter).toBe(0);
     });
   });
 
   describe("B7 TTL recovery", () => {
-    it("should expire and recover abandoned slots via TTL", async () => {
-      await global.redis.set("test:p0_c:ttl:test", "1");
-      await global.redis.expire("test:p0_c:ttl:test", 1);
+    it("should set correct TTL on production key (86400s, not 86400000)", async () => {
+      await (global as any).redis.del("org_conc:ttl-test");
+      const r = await acquireOrgConcurrency("ttl-test", 5);
+      expect(r.allowed).toBe(true);
+      const ttl = await (global as any).redis.ttl("org_conc:ttl-test");
+      expect(ttl).toBeGreaterThan(86000);
+      expect(ttl).toBeLessThanOrEqual(86400);
+      expect(ttl).not.toBe(86400000);
+      await releaseOrgConcurrency("ttl-test");
+      // also verify short TTL expiry for test isolation
+      await (global as any).redis.set("test:p0_c:ttl-short", "1");
+      await (global as any).redis.expire("test:p0_c:ttl-short", 1);
       await new Promise((r) => setTimeout(r, 2100));
-      const value = await global.redis.get("test:p0_c:ttl:test");
-      expect(value).toBeNull();
+      expect(await (global as any).redis.get("test:p0_c:ttl-short")).toBeNull();
     });
   });
 
   describe("B8 Process crash", () => {
     it("should not leak slots when worker crashes without release", async () => {
-      await global.redis.del("org_conc:crash-org");
-      await global.redis.del("global_conc");
-      const orgRes = await acquireOrgConcurrency("crash-org", 5);
-      const globalRes = await acquireGlobalConcurrency(10);
-      expect(orgRes.allowed).toBe(true);
-      expect(globalRes.allowed).toBe(true);
-      // Simulate crash: do not release, instead set short TTL and verify expiry
-      await global.redis.expire("org_conc:crash-org", 1);
-      await global.redis.expire("global_conc", 1);
+      const crashOrg = `crash-b8-${Date.now()}`;
+      await (global as any).redis.del(`org_conc:${crashOrg}`);
+      await (global as any).redis.del("global_conc");
+      const r1 = await acquireOrgConcurrency(crashOrg, 5);
+      const r2 = await acquireGlobalConcurrency(10);
+      expect(r1.allowed).toBe(true);
+      expect(r2.allowed).toBe(true);
+      const ttl = await (global as any).redis.ttl(`org_conc:${crashOrg}`);
+      expect(ttl).toBeGreaterThan(0);
+      expect(ttl).toBeLessThanOrEqual(86400);
+      const count = parseInt((await (global as any).redis.get(`org_conc:${crashOrg}`)) || "0", 10);
+      expect(count).toBe(1);
+      // shorten TTL for test speed and verify recovery
+      await (global as any).redis.expire(`org_conc:${crashOrg}`, 1);
+      await (global as any).redis.expire("global_conc", 1);
       await new Promise((r) => setTimeout(r, 2100));
-      expect(await global.redis.get("org_conc:crash-org")).toBeNull();
-      expect(await global.redis.get("global_conc")).toBeNull();
-      // After recovery, new reservation should succeed
-      const orgRes2 = await acquireOrgConcurrency("crash-org", 5);
-      expect(orgRes2.allowed).toBe(true);
-      await releaseOrgConcurrency("crash-org");
+      expect(await (global as any).redis.get(`org_conc:${crashOrg}`)).toBeNull();
+      expect(await (global as any).redis.get("global_conc")).toBeNull();
+      const r3 = await acquireOrgConcurrency(crashOrg, 5);
+      expect(r3.allowed).toBe(true);
+      await releaseOrgConcurrency(crashOrg);
     });
   });
 
   describe("B9 Retry safety", () => {
     it("should not create duplicate slots on retry", async () => {
-      await global.redis.del("org_conc:test-org");
-      await global.redis.set("org_conc:test-org", "4");
+      await (global as any).redis.del("org_conc:test-org");
+      await (global as any).redis.set("org_conc:test-org", "4");
       const r1 = await acquireOrgConcurrency("test-org", 5);
       expect(r1.allowed).toBe(true);
       const r2 = await acquireOrgConcurrency("test-org", 5);
       expect(r2.allowed).toBe(false);
-      const counter = parseInt((await global.redis.get("org_conc:test-org")) || "0", 10);
+      const counter = parseInt((await (global as any).redis.get("org_conc:test-org")) || "0", 10);
       expect(counter).toBeLessThanOrEqual(5);
       await releaseOrgConcurrency("test-org");
-      await global.redis.del("org_conc:test-org");
+      await (global as any).redis.del("org_conc:test-org");
     });
   });
 
   describe("B10 GitHub idempotency", () => {
     it("should be idempotent for same remediation key", async () => {
-      await global.redis.del("org_conc:test-org");
+      await (global as any).redis.del("org_conc:test-org");
       const r1 = await acquireOrgConcurrency("test-org", 5);
       expect(r1.allowed).toBe(true);
       await releaseOrgConcurrency("test-org");
       const r2 = await acquireOrgConcurrency("test-org", 5);
       expect(r2.allowed).toBe(true);
       await releaseOrgConcurrency("test-org");
-      const counter = parseInt((await global.redis.get("org_conc:test-org")) || "0", 10);
+      const counter = parseInt((await (global as any).redis.get("org_conc:test-org")) || "0", 10);
       expect(counter).toBe(0);
     });
   });
 
   describe("B11 Double release", () => {
     it("should not make counter negative", async () => {
-      await global.redis.set("org_conc:test-org", "1");
+      await (global as any).redis.set("org_conc:test-org", "1");
       await releaseOrgConcurrency("test-org");
       await releaseOrgConcurrency("test-org");
-      const counter = parseInt((await global.redis.get("org_conc:test-org")) || "0", 10);
-      // Current implementation allows negative; verify final cleanup recovers
-      expect(counter).toBeGreaterThanOrEqual(-1);
-      await global.redis.del("org_conc:test-org");
+      const counter = parseInt((await (global as any).redis.get("org_conc:test-org")) || "0", 10);
+      expect(counter).toBe(0);
+      await (global as any).redis.del("org_conc:test-org");
     });
   });
 });

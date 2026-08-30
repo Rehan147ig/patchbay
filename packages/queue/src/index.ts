@@ -116,84 +116,125 @@ export async function checkRateLimitRedis(
   return { allowed: true, retryAfterMs: 0 };
 }
 
+const ACQUIRE_LUA = `
+local key = KEYS[1]
+local limit = tonumber(ARGV[1])
+local ttl = tonumber(ARGV[2])
+local newVal = redis.call('INCR', key)
+if newVal == 1 then
+  redis.call('EXPIRE', key, ttl)
+end
+if newVal > limit then
+  redis.call('DECR', key)
+  return {0, newVal}
+end
+return {1, newVal}
+`;
+
+const RELEASE_LUA = `
+local key = KEYS[1]
+local cur = redis.call('GET', key)
+if not cur then return 0 end
+cur = tonumber(cur)
+if cur <= 0 then
+  redis.call('DEL', key)
+  return 0
+end
+return redis.call('DECR', key)
+`;
+
+const ACQUIRE_TTL_SECONDS = 86400; // 24h — EXPIRE uses seconds (was incorrectly 86_400_000)
+
 /**
- * Acquire a per-organization concurrency slot.
- * INCR is atomic; TTL auto-releases on worker crash (24h).
- * Returns the slot count; caller must check against orgLimit.
- * If orgLimit is exceeded, DECR the slot back and returns the observed count.
+ * Acquire a per-organization concurrency slot atomically via Lua.
+ * The increment, limit check, rollback and TTL are one atomic operation.
  */
 export async function acquireOrgConcurrency(
   organizationId: string,
   orgLimit: number,
 ): Promise<{ allowed: boolean; slotCount: number; reason?: string }> {
   const slotKey = `org_conc:${organizationId}`;
-  let newSlotCount: number;
   try {
-    newSlotCount = await orgConcurrencyRedis.incr(slotKey);
+    const res = (await orgConcurrencyRedis.eval(
+      ACQUIRE_LUA,
+      1,
+      slotKey,
+      String(orgLimit),
+      String(ACQUIRE_TTL_SECONDS),
+    )) as [number, number];
+    const allowed = res[0] === 1;
+    const slotCount = res[1];
+    if (!allowed) {
+      return {
+        allowed: false,
+        slotCount,
+        reason: `Organization concurrency limit exceeded: ${slotCount} > ${orgLimit}`,
+      };
+    }
+    return { allowed: true, slotCount };
   } catch {
-    // Redis unavailable — fail closed: cannot acquire slot
     return { allowed: false, slotCount: 0, reason: "Redis safety mechanism unreachable" };
   }
-  if (newSlotCount === 1) {
-    // First INCR — set TTL so the slot auto-releases if the worker crashes
-    await orgConcurrencyRedis.expire(slotKey, 86_400_000); // 24h TTL
-  }
-  if (newSlotCount > orgLimit) {
-    // Exceeded org's concurrency quota — roll back the slot and block
-    await orgConcurrencyRedis.decr(slotKey);
-    return {
-      allowed: false,
-      slotCount: newSlotCount,
-      reason: `Organization concurrency limit exceeded: ${newSlotCount} > ${orgLimit}`,
-    };
-  }
-  return { allowed: true, slotCount: newSlotCount };
 }
 
 /**
- * Release a per-organization concurrency slot.
- * Must be called in a finally block after job completion.
+ * Release a per-organization concurrency slot atomically, never below 0.
  */
 export async function releaseOrgConcurrency(organizationId: string): Promise<void> {
   const slotKey = `org_conc:${organizationId}`;
-  await orgConcurrencyRedis.decr(slotKey);
+  try {
+    await orgConcurrencyRedis.eval(RELEASE_LUA, 1, slotKey);
+  } catch {
+    // best-effort; release failures should not crash the worker
+    try {
+      await orgConcurrencyRedis.decr(slotKey);
+    } catch {
+      // ignore
+    }
+  }
 }
 
 /**
- * Acquire global concurrency slot.
- * INCR is atomic; TTL auto-releases on worker crash.
- * globalLimit is the maximum concurrent jobs across ALL organizations.
+ * Acquire global concurrency slot atomically via Lua.
  */
 export async function acquireGlobalConcurrency(
   globalLimit: number,
 ): Promise<{ allowed: boolean; slotCount: number; reason?: string }> {
   const slotKey = "global_conc";
-  let newSlotCount: number;
   try {
-    newSlotCount = await globalConcurrencyRedis.incr(slotKey);
+    const res = (await globalConcurrencyRedis.eval(
+      ACQUIRE_LUA,
+      1,
+      slotKey,
+      String(globalLimit),
+      String(ACQUIRE_TTL_SECONDS),
+    )) as [number, number];
+    const allowed = res[0] === 1;
+    const slotCount = res[1];
+    if (!allowed) {
+      return {
+        allowed: false,
+        slotCount,
+        reason: `Global concurrency limit exceeded: ${slotCount} > ${globalLimit}`,
+      };
+    }
+    return { allowed: true, slotCount };
   } catch {
-    // Redis unavailable — fail closed
     return { allowed: false, slotCount: 0, reason: "Redis safety mechanism unreachable" };
   }
-  if (newSlotCount === 1) {
-    // First INCR — set TTL so the slot auto-releases if the worker crashes
-    await globalConcurrencyRedis.expire(slotKey, 86_400_000); // 24h TTL
-  }
-  if (newSlotCount > globalLimit) {
-    // Exceeded global concurrency quota — roll back the slot and block
-    await globalConcurrencyRedis.decr(slotKey);
-    return {
-      allowed: false,
-      slotCount: newSlotCount,
-      reason: `Global concurrency limit exceeded: ${newSlotCount} > ${globalLimit}`,
-    };
-  }
-  return { allowed: true, slotCount: newSlotCount };
 }
 
 /**
- * Release global concurrency slot.
+ * Release global concurrency slot atomically, never below 0.
  */
 export async function releaseGlobalConcurrency(): Promise<void> {
-  await globalConcurrencyRedis.decr("global_conc");
+  try {
+    await globalConcurrencyRedis.eval(RELEASE_LUA, 1, "global_conc");
+  } catch {
+    try {
+      await globalConcurrencyRedis.decr("global_conc");
+    } catch {
+      // ignore
+    }
+  }
 }

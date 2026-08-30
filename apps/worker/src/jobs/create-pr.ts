@@ -148,18 +148,44 @@ async function createDraftPR(
     };
   }
 
-  // Atomic PR slot reservation — prevents race conditions where two workers both read
-  // the same PR count and both proceed, potentially exceeding the organization's concurrent PR limit.
-  // INCR is atomic; TTL auto-releases on worker crash.
-  // Redis unavailable is NOT a valid safety fallback — fail closed instead.
+  // Atomic PR slot reservation — INCR + limit check + TTL in one Lua op.
+  const PR_SLOT_TTL_SECONDS = 86400;
+  const PR_ACQUIRE_LUA = `
+local key = KEYS[1]
+local limit = tonumber(ARGV[1])
+local ttl = tonumber(ARGV[2])
+local newVal = redis.call('INCR', key)
+if newVal == 1 then
+  redis.call('EXPIRE', key, ttl)
+end
+if newVal > limit then
+  redis.call('DECR', key)
+  return {0, newVal}
+end
+return {1, newVal}
+`;
+  const PR_RELEASE_LUA = `
+local key = KEYS[1]
+local cur = redis.call('GET', key)
+if not cur then return 0 end
+cur = tonumber(cur)
+if cur <= 0 then
+  redis.call('DEL', key)
+  return 0
+end
+return redis.call('DECR', key)
+`;
   const slotKey = `pr_slot:${organizationId}`;
-  let newSlotCount: number;
+  let evalResult: [number, number];
   try {
-    newSlotCount = await rateLimitRedis.incr(slotKey);
+    evalResult = (await rateLimitRedis.eval(
+      PR_ACQUIRE_LUA,
+      1,
+      slotKey,
+      "5",
+      String(PR_SLOT_TTL_SECONDS),
+    )) as [number, number];
   } catch {
-    // Redis unavailable — fail closed. Automated PR creation cannot proceed when the
-    // concurrency safety mechanism is untrusted. The remediation remains safely blocked
-    // and can be retried once Redis recovers.
     await writeAuditEvent({
       organizationId,
       actorType: ActorType.SYSTEM,
@@ -182,13 +208,9 @@ async function createDraftPR(
       `PR creation safety unavailable: Redis is unreachable. Automated PR creation blocked until Redis recovers.`,
     );
   }
-  if (newSlotCount === 1) {
-    // First INCR — set TTL so the slot auto-releases if the worker crashes
-    await rateLimitRedis.expire(slotKey, 86_400_000); // 24h TTL
-  }
-  if (newSlotCount > 5) {
-    // Exceeded organization's concurrent PR limit — roll back the slot and block
-    await rateLimitRedis.decr(slotKey);
+  const allowed = evalResult[0] === 1;
+  const newSlotCount = evalResult[1];
+  if (!allowed) {
     await writeAuditEvent({
       organizationId,
       actorType: ActorType.SYSTEM,
@@ -402,8 +424,15 @@ async function createDraftPR(
       branchName: prResult.branchName,
     };
   } finally {
-    // Release the atomic PR slot — decrements the Redis counter, making room for other workers
-    await rateLimitRedis.decr(slotKey);
+    try {
+      await rateLimitRedis.eval(PR_RELEASE_LUA, 1, slotKey);
+    } catch {
+      try {
+        await rateLimitRedis.decr(slotKey);
+      } catch {
+        // ignore
+      }
+    }
   }
 }
 
