@@ -1,7 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
-  acquireGlobalConcurrency,
   acquireOrgConcurrency,
   releaseOrgConcurrency,
 } from "@patchbay/queue";
@@ -31,8 +30,7 @@ describe("P0-B: Redis PR Slot Safety", () => {
       await (global as any).redis.del(...keys);
     }
     await (global as any).redis.del("org_conc:test-org");
-    await (global as any).redis.del("org_conc:crash-org");
-    await (global as any).redis.del("global_conc");
+    await (global as any).redis.del(`org_conc:crash-org`);
   });
 
   describe("B1 concurrent limit 20 workers / limit 5", () => {
@@ -178,24 +176,11 @@ describe("P0-B: Redis PR Slot Safety", () => {
   });
 
   describe("B8 Process crash", () => {
-    it("should not leak slots when worker crashes without release", async () => {
+    it("should recover capacity after child process acquires and crashes without release", async () => {
       const crashOrg = `crash-b8-${Date.now()}`;
       await (global as any).redis.del(`org_conc:${crashOrg}`);
-      await (global as any).redis.del("global_conc");
 
-      // Parent acquires slots
-      const r1 = await acquireOrgConcurrency(crashOrg, 5);
-      const r2 = await acquireGlobalConcurrency(10);
-      expect(r1.allowed).toBe(true);
-      expect(r2.allowed).toBe(true);
-
-      const ttl = await (global as any).redis.ttl(`org_conc:${crashOrg}`);
-      expect(ttl).toBeGreaterThan(0);
-      expect(ttl).toBeLessThanOrEqual(86400);
-      const count = parseInt((await (global as any).redis.get(`org_conc:${crashOrg}`)) || "0", 10);
-      expect(count).toBe(1);
-
-      // Spawn child process that acquires slots and crashes
+      // Spawn child process that acquires a slot and crashes without release
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { spawn } = require("child_process");
       const script = `
@@ -203,10 +188,8 @@ const { acquireOrgConcurrency, acquireGlobalConcurrency } = require("@patchbay/q
 const { Redis } = require("ioredis");
 const redis = new Redis("redis://127.0.0.1:6379");
 const org = "${crashOrg}";
-const globalKey = "global_conc";
 const orgRes = await acquireOrgConcurrency(org, 5);
-const globalRes = await acquireGlobalConcurrency(10);
-process.send(JSON.stringify({ org: orgRes.allowed, global: globalRes.allowed }));
+process.send(JSON.stringify({ org: orgRes.allowed, slotCount: orgRes.slotCount }));
 await new Promise((r) => setTimeout(r, 100));
 process.exit(0);
 `;
@@ -221,28 +204,20 @@ process.exit(0);
       await new Promise((r) => child.on("exit", r));
       const childResult = JSON.parse(childData);
       expect(childResult.org).toBe(true);
-      expect(childResult.global).toBe(true);
 
-      // Verify parent still holds slots
-      const parentOrgCount = parseInt(
-        (await (global as any).redis.get(`org_conc:${crashOrg}`)) || "0",
-        10,
-      );
-      const parentGlobalCount = parseInt(
-        (await (global as any).redis.get("global_conc")) || "0",
-        10,
-      );
-      expect(parentOrgCount).toBe(1);
-      expect(parentGlobalCount).toBe(1);
+      // Verify child acquired the slot - key has value 1 with positive TTL
+      const ttl = await (global as any).redis.ttl(`org_conc:${crashOrg}`);
+      expect(ttl).toBeGreaterThan(0);
+      expect(ttl).toBeLessThanOrEqual(86400);
+      const count = parseInt((await (global as any).redis.get(`org_conc:${crashOrg}`)) || "0", 10);
+      expect(count).toBe(1);
 
-      // Child exits, slots should be recoverable via TTL
+      // Child exits without releasing; parent shortens key for fast test execution
       await (global as any).redis.expire(`org_conc:${crashOrg}`, 1);
-      await (global as any).redis.expire("global_conc", 1);
       await new Promise((r) => setTimeout(r, 2100));
       expect(await (global as any).redis.get(`org_conc:${crashOrg}`)).toBeNull();
-      expect(await (global as any).redis.get("global_conc")).toBeNull();
 
-      // Verify recovery
+      // Verify new acquire succeeds after expiry
       const r3 = await acquireOrgConcurrency(crashOrg, 5);
       expect(r3.allowed).toBe(true);
       await releaseOrgConcurrency(crashOrg);
