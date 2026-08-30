@@ -78,19 +78,19 @@ describe("P0-C: Concurrency & Fairness", () => {
         await (global as any).redis.del(`org_conc:${org}`);
         await (global as any).redis.set(`org_conc:${org}`, "3");
 
-        const resolvers: Array<() => void> = [];
+        let releaseGate: () => void;
         const gate = new Promise<void>((resolve) => {
-          resolvers.push(resolve);
+          releaseGate = resolve;
         });
         let arrived = 0;
         const [a, b] = await Promise.all([
           (async () => {
-            if (++arrived === 2) resolvers[1]!();
+            if (++arrived === 2) releaseGate!();
             await gate;
             return acquireOrgConcurrency(org, 4);
           })(),
           (async () => {
-            if (++arrived === 2) resolvers[0]!();
+            if (++arrived === 2) releaseGate!();
             await gate;
             return acquireOrgConcurrency(org, 4);
           })(),
@@ -114,19 +114,19 @@ describe("P0-C: Concurrency & Fairness", () => {
         await (global as any).redis.del("global_conc");
         await (global as any).redis.set("global_conc", "9");
 
-        const resolvers: Array<() => void> = [];
+        let releaseGate: () => void;
         const gate = new Promise<void>((resolve) => {
-          resolvers.push(resolve);
+          releaseGate = resolve;
         });
         let arrived = 0;
         const [a, b] = await Promise.all([
           (async () => {
-            if (++arrived === 2) resolvers[1]!();
+            if (++arrived === 2) releaseGate!();
             await gate;
             return acquireGlobalConcurrency(10);
           })(),
           (async () => {
-            if (++arrived === 2) resolvers[0]!();
+            if (++arrived === 2) releaseGate!();
             await gate;
             return acquireGlobalConcurrency(10);
           })(),

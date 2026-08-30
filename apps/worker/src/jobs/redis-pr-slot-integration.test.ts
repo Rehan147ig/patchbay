@@ -72,20 +72,19 @@ describe("P0-B: Redis PR Slot Safety", () => {
         await (global as any).redis.del(`org_conc:${org}`);
         await (global as any).redis.set(`org_conc:${org}`, "4");
 
-        // Proper barrier using an array to hold resolvers
-        const resolvers: Array<() => void> = [];
+        let releaseGate: () => void;
         const gate = new Promise<void>((resolve) => {
-          resolvers.push(resolve);
+          releaseGate = resolve;
         });
         let arrived = 0;
         const [a, b] = await Promise.all([
           (async () => {
-            if (++arrived === 2) resolvers[1]!();
+            if (++arrived === 2) releaseGate!();
             await gate;
             return acquireOrgConcurrency(org, 5);
           })(),
           (async () => {
-            if (++arrived === 2) resolvers[0]!();
+            if (++arrived === 2) releaseGate!();
             await gate;
             return acquireOrgConcurrency(org, 5);
           })(),
@@ -181,9 +180,8 @@ describe("P0-B: Redis PR Slot Safety", () => {
   describe("B8 Process crash", () => {
     it("should not leak slots when worker crashes without release", async () => {
       const crashOrg = `crash-b8-${Date.now()}`;
-      const globalKey = `global_conc:b8-${Date.now()}`;
       await (global as any).redis.del(`org_conc:${crashOrg}`);
-      await (global as any).redis.del(globalKey);
+      await (global as any).redis.del("global_conc");
 
       // Parent acquires slots
       const r1 = await acquireOrgConcurrency(crashOrg, 5);
@@ -205,7 +203,7 @@ const { acquireOrgConcurrency, acquireGlobalConcurrency } = require("@patchbay/q
 const { Redis } = require("ioredis");
 const redis = new Redis("redis://127.0.0.1:6379");
 const org = "${crashOrg}";
-const globalKey = "${globalKey}";
+const globalKey = "global_conc";
 const orgRes = await acquireOrgConcurrency(org, 5);
 const globalRes = await acquireGlobalConcurrency(10);
 process.send(JSON.stringify({ org: orgRes.allowed, global: globalRes.allowed }));
