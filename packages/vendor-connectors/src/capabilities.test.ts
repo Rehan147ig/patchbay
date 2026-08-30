@@ -52,6 +52,7 @@ describe("connector capability registry", () => {
     expect(levelOf("openai-python")).toBe("ASSESS");
     expect(levelOf("aws-sdk")).toBe("PLAN");
     expect(levelOf("auth0")).toBe("PLAN");
+    expect(levelOf("langchain")).toBe("PLAN");
     const certified = new Set([
       "openai",
       "openai-python",
@@ -61,6 +62,7 @@ describe("connector capability registry", () => {
       "aws-sdk",
       "supabase",
       "auth0",
+      "langchain",
     ]);
     for (const slug of listConnectorSlugs()) {
       if (!certified.has(slug)) {
@@ -115,6 +117,7 @@ describe("connector capability registry", () => {
       "anthropic",
       "auth0",
       "aws-sdk",
+      "langchain",
       "openai",
       "stripe",
       "supabase",

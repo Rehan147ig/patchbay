@@ -1,0 +1,65 @@
+name: CI with Redis
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests (non-Redis)
+        run: pnpm test 2>&1 | tail -30
+
+      - name: Redis readiness check
+        run: |
+          for i in $(seq 1 30); do
+            if redis-cli ping | grep -q PONG; then
+              echo "Redis ready"
+              exit 0
+            fi
+            echo "Waiting for Redis... ($i/30)"
+            sleep 1
+          done
+          echo "Redis failed to become ready after 30s"
+          exit 1
+
+      - name: Redis integration tests
+        run: pnpm test:redis-integration
+
+      - name: Corpus tests
+        run: pnpm test:corpus
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Format check
+        run: pnpm format:check

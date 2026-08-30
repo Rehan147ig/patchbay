@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { GenerationMethod, SCORING } from "@patchbay/domain";
+import { evaluatePlanCircuitBreaker } from "@patchbay/policy-engine";
 import { javaSyntaxCheck, pythonSyntaxCheck } from "@patchbay/repo-analysis";
 import * as ts from "typescript";
 import { sha256Hex, unifiedDiff } from "./diff";
@@ -340,11 +341,30 @@ export async function generatePlan(input: PlanInput): Promise<PlanDraft> {
   }
 
   const planConfidence = Math.min(...appliedConfidences);
+
+  // Circuit breaker: check plan file count, max edits per file, and patch byte size
+  const maxEditsInAnyFile = Math.max(0, ...Array.from(editsByFile.values()).map((e) => e.length));
+  const maxPatchBytesInAnyFile = Math.max(
+    0,
+    ...patches.map((p) => Buffer.byteLength(p.patched, "utf8")),
+  );
+  const planCircuit = evaluatePlanCircuitBreaker({
+    fileCount: patches.length,
+    maxEditsInAnyFile,
+    maxPatchBytesInAnyFile,
+  });
+
+  const requiresHumanReview = planConfidence < SCORING.CONFIDENCE_MIN_PATCH || !planCircuit.ok;
+
+  const circuitBreakerNote = !planCircuit.ok
+    ? ` [Circuit breaker throttled: ${planCircuit.reasons.join("; ")}]`
+    : "";
+
   return {
-    strategy: `Rule-based migration for ${repositoryName}: ${appliedConfidences.length} file(s) patched with deterministic rules (symbol rename, response unwrap, feature adoption), each re-parsed successfully.`,
+    strategy: `Rule-based migration for ${repositoryName}: ${appliedConfidences.length} file(s) patched with deterministic rules (symbol rename, response unwrap, feature adoption), each re-parsed successfully.${circuitBreakerNote}`,
     proposedChanges,
     confidence: planConfidence,
-    requiresHumanReview: planConfidence < SCORING.CONFIDENCE_MIN_PATCH,
+    requiresHumanReview,
     patches,
     skippedFiles,
   };

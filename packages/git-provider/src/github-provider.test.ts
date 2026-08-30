@@ -42,7 +42,10 @@ describe("GitHubProvider", () => {
         expect(body.content).toBe(Buffer.from("// patched", "utf8").toString("base64"));
         return jsonResponse(201, { content: { sha: "file-sha" } });
       }
-      if (url.endsWith("/pulls")) {
+      if (url.includes("/pulls") && init?.method === "GET") {
+        return jsonResponse(200, []);
+      }
+      if (url.endsWith("/pulls") && init?.method === "POST") {
         const body = JSON.parse(init?.body as string);
         expect(body).toMatchObject({
           title: "[Patch] Fix",
@@ -77,7 +80,7 @@ describe("GitHubProvider", () => {
       status: "DRAFT",
       branchName: "patchbay/fix-1",
     });
-    expect(calls).toHaveLength(6);
+    expect(calls).toHaveLength(7);
     expect(calls.every((c) => c.url.startsWith("https://api.github.com"))).toBe(true);
   });
 

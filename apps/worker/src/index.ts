@@ -14,7 +14,7 @@ import { Worker } from "bullmq";
 import { prisma } from "@patchbay/db";
 import { parseEnv } from "@patchbay/env";
 import { logger } from "@patchbay/domain";
-import { JobType, QUEUE_NAME, connection, queue } from "@patchbay/queue";
+import { JobType, QUEUE_NAME, connection, queue, acquireOrgConcurrency, releaseOrgConcurrency, acquireGlobalConcurrency, releaseGlobalConcurrency } from "@patchbay/queue";
 import {
   createSandboxRunner,
   resolveSandboxMode,
@@ -77,35 +77,59 @@ async function main(): Promise<void> {
   const worker = new Worker(
     QUEUE_NAME,
     async (job) => {
-      switch (job.name) {
-        case JobType.SCAN_REPOSITORY:
-          return processScanRepository(job);
-        case JobType.ANALYZE_CHANGE:
-          return processAnalyzeChange(job);
-        case JobType.RUN_VALIDATION:
-          return processRunValidation(job);
-        case JobType.CREATE_PR:
-          return processCreatePR(job);
-        case JobType.POLL_NPM_REGISTRY:
-          return processPollNpmRegistry(job);
-        case JobType.UPDATE_TASK_PARAMETER:
-          return processUpdateTaskParameter(job);
-        case JobType.GRAPH_INDEX:
-          return processGraphIndex(job);
-        case JobType.CLASSIFY_RELEASE:
-          return processClassifyRelease(job);
-        case JobType.MATCH_RELEASE:
-          return processMatchRelease(job);
-        case JobType.AGENT_PLAN:
-          return processAgentPlan(job);
-        case JobType.AGENT_REPLAY:
-          return processAgentReplay(job);
-        case JobType.DETECT_RELEASES:
-          return processDetectReleases(job);
-        case JobType.EVALUATE_CAPABILITY_HEALTH:
-          return processEvaluateCapabilityHealth(job);
-        default:
-          throw new Error(`unknown job type: ${job.name}`);
+      // Acquire per-org and global concurrency slots before job execution.
+      // If either fails, the job is deferred (throws, BullMQ will retry later
+      // per its attempts/backoff config, or the job can explicitly defer).
+      const orgLimit = Number(process.env.ORG_CONCURRENCY_LIMIT ?? "4");
+      const globalLimit = Number(process.env.GLOBAL_CONCURRENCY_LIMIT ?? "10");
+
+      const orgResult = await acquireOrgConcurrency(job.data.organizationId ?? "unknown", orgLimit);
+      if (!orgResult.allowed) {
+        throw new Error(`Org concurrency limit: ${orgResult.reason}`);
+      }
+
+      const globalResult = await acquireGlobalConcurrency(globalLimit);
+      if (!globalResult.allowed) {
+        // Release the org slot before throwing
+        await releaseOrgConcurrency(job.data.organizationId ?? "unknown");
+        throw new Error(`Global concurrency limit: ${globalResult.reason}`);
+      }
+
+      try {
+        switch (job.name) {
+          case JobType.SCAN_REPOSITORY:
+            return processScanRepository(job);
+          case JobType.ANALYZE_CHANGE:
+            return processAnalyzeChange(job);
+          case JobType.RUN_VALIDATION:
+            return processRunValidation(job);
+          case JobType.CREATE_PR:
+            return processCreatePR(job);
+          case JobType.POLL_NPM_REGISTRY:
+            return processPollNpmRegistry(job);
+          case JobType.UPDATE_TASK_PARAMETER:
+            return processUpdateTaskParameter(job);
+          case JobType.GRAPH_INDEX:
+            return processGraphIndex(job);
+          case JobType.CLASSIFY_RELEASE:
+            return processClassifyRelease(job);
+          case JobType.MATCH_RELEASE:
+            return processMatchRelease(job);
+          case JobType.AGENT_PLAN:
+            return processAgentPlan(job);
+          case JobType.AGENT_REPLAY:
+            return processAgentReplay(job);
+          case JobType.DETECT_RELEASES:
+            return processDetectReleases(job);
+          case JobType.EVALUATE_CAPABILITY_HEALTH:
+            return processEvaluateCapabilityHealth(job);
+          default:
+            throw new Error(`unknown job type: ${job.name}`);
+        }
+      } finally {
+        // Always release both slots, even if the job threw.
+        await releaseGlobalConcurrency();
+        await releaseOrgConcurrency(job.data.organizationId ?? "unknown");
       }
     },
     { connection, concurrency: 2, limiter: { max: 20, duration: 1_000 } },

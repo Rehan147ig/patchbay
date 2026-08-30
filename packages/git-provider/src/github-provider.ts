@@ -78,6 +78,21 @@ export class GitHubProvider implements GitProvider {
     const owner = this.config.repository.split("/")[0]!;
     const repo = this.config.repository.split("/")[1]!;
     const base = this.config.baseBranch ?? (await this.defaultBranch(owner, repo));
+
+    // Idempotency: if a PR already exists for this deterministic branch, return it immediately
+    const existing = await this.findExistingPullRequest(owner, repo, input.branchName);
+    if (existing) {
+      return {
+        provider: RepositoryProvider.GITHUB,
+        branchName: input.branchName,
+        url: existing.html_url,
+        externalId: String(existing.number),
+        title: input.title,
+        body: input.body,
+        status: PullRequestStatus.DRAFT,
+      };
+    }
+
     await this.createBranch(owner, repo, input.branchName, base);
     await this.applyPatches(owner, repo, input.branchName, input.patches);
     const pullRequest = await this.openDraftPR(owner, repo, base, input);
@@ -194,17 +209,25 @@ export class GitHubProvider implements GitProvider {
     branchName: string,
     base: string,
   ): Promise<void> {
-    const baseRef = await this.request<GitHubRef>(
-      `/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(base)}`,
-      { method: "GET" },
-    );
-    await this.request(`/repos/${owner}/${repo}/git/refs`, {
-      method: "POST",
-      body: JSON.stringify({
-        ref: `refs/heads/${branchName}`,
-        sha: baseRef.object.sha,
-      }),
-    });
+    try {
+      const baseRef = await this.request<GitHubRef>(
+        `/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(base)}`,
+        { method: "GET" },
+      );
+      await this.request(`/repos/${owner}/${repo}/git/refs`, {
+        method: "POST",
+        body: JSON.stringify({
+          ref: `refs/heads/${branchName}`,
+          sha: baseRef.object.sha,
+        }),
+      });
+    } catch (error) {
+      // Idempotency: if reference already exists on retry, proceed safely
+      if (error instanceof Error && error.message.includes("Reference already exists")) {
+        return;
+      }
+      throw error;
+    }
   }
 
   private async applyPatches(
@@ -240,16 +263,47 @@ export class GitHubProvider implements GitProvider {
     base: string,
     input: CreateDraftPRInput,
   ): Promise<GitHubPullRequest> {
-    return this.request<GitHubPullRequest>(`/repos/${owner}/${repo}/pulls`, {
-      method: "POST",
-      body: JSON.stringify({
-        title: input.title,
-        body: input.body,
-        head: input.branchName,
-        base,
-        draft: true,
-      }),
-    });
+    try {
+      return await this.request<GitHubPullRequest>(`/repos/${owner}/${repo}/pulls`, {
+        method: "POST",
+        body: JSON.stringify({
+          title: input.title,
+          body: input.body,
+          head: input.branchName,
+          base,
+          draft: true,
+        }),
+      });
+    } catch (error) {
+      // Idempotency: if a pull request already exists for this branch, query and return it
+      if (error instanceof Error && error.message.includes("A pull request already exists")) {
+        const existing = await this.findExistingPullRequest(owner, repo, input.branchName);
+        if (existing) {
+          return existing;
+        }
+      }
+      throw error;
+    }
+  }
+
+  async findExistingPullRequest(
+    owner: string,
+    repo: string,
+    branchName: string,
+  ): Promise<GitHubPullRequest | null> {
+    try {
+      const headQuery = `${owner}:${branchName}`;
+      const pulls = await this.request<GitHubPullRequest[]>(
+        `/repos/${owner}/${repo}/pulls?head=${encodeURIComponent(headQuery)}&state=all`,
+        { method: "GET", allowNotFound: true },
+      );
+      if (Array.isArray(pulls) && pulls.length > 0 && pulls[0]) {
+        return pulls[0];
+      }
+      return null;
+    } catch {
+      return null;
+    }
   }
 
   private async request<T>(

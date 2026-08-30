@@ -232,12 +232,16 @@ export async function processScanRepository(job: Job): Promise<ScanRepositoryRes
         body: `${usages.length} usages indexed across ${analysis.filesScanned} files`,
         correlationId,
       });
-      logger.info("scan completed", {
+      logger.info("job completed", {
+        correlationId,
+        organizationId,
         repositoryId,
         scanId,
-        correlationId,
         commitSha,
         usageCount: usages.length,
+        jobName: "scan-repository",
+        durationMs: analysis.durationMs,
+        outcome: "SCAN_COMPLETED",
       });
 
       // Next job in the pipeline: index the graph snapshot for the same source.

@@ -23,7 +23,8 @@
     "db:seed": "pnpm --filter @patchbay/db seed",
     "db:reset": "pnpm --filter @patchbay/db reset",
     "verify:lockfile": "pnpm install --frozen-lockfile",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "test:redis-integration": "vitest run --config vitest.redis.config.ts"
   },
   "devDependencies": {
     "@dodopayments/opencode-plugin": "^0.5.1",

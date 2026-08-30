@@ -350,10 +350,16 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
         })),
       },
     });
-    logger.info(passed ? "validation passed" : "validation failed", {
-      validationRunId,
-      remediationPlanId,
+    const totalDurationMs = Date.now() - startedClock;
+    logger.info("job completed", {
       correlationId,
+      organizationId,
+      repositoryId: repository.id,
+      remediationPlanId,
+      validationRunId,
+      jobName: "run-validation",
+      durationMs: totalDurationMs,
+      outcome: passed ? "PASSED" : "FAILED",
       results: results.map((result) => ({ command: result.command, ok: result.ok })),
     });
 
@@ -361,7 +367,7 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
       validationRunId,
       status: passed ? "PASSED" : "FAILED",
       commandsRun: results.length,
-      durationMs: Date.now() - startedClock,
+      durationMs: totalDurationMs,
     };
   } catch (error) {
     const message = String(error);

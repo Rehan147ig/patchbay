@@ -13,7 +13,10 @@ vi.mock("@patchbay/db", () => ({
     },
     pullRequest: {
       create: vi.fn(),
+      findFirst: vi.fn(),
+      count: vi.fn(),
     },
+
     agentRun: {
       findFirst: vi.fn(),
     },
@@ -66,6 +69,8 @@ describe("processCreatePR", () => {
     vi.mocked(prisma.gitHubInstallation.findUnique).mockResolvedValue({
       organizationId: "org-1",
     } as never);
+    vi.mocked(prisma.pullRequest.count).mockResolvedValue(0);
+    vi.mocked(prisma.pullRequest.findFirst).mockResolvedValue(null);
   });
 
   const validJobData: CreatePRJobData = {
@@ -425,5 +430,85 @@ describe("processCreatePR", () => {
     const afterJson = JSON.stringify(auditCall.data.afterJson);
     expect(afterJson).not.toContain("ghs_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4");
     expect(afterJson).toContain("[REDACTED]");
+  });
+
+  it("recovers idempotently on worker retry when GitHub PR already exists", async () => {
+    vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValueOnce({
+      id: "plan-1",
+      confidence: 90,
+      patches: [{ filePath: "src/app.ts", patchedContent: "code", originalHash: "hash-1" }],
+      validations: [{ status: "PASSED" }],
+      approvals: [],
+      pullRequests: [],
+      impactAssessment: {
+        score: 50,
+        rationale: "test",
+        affectedUsages: [],
+        repository: {
+          id: "repo-1",
+          name: "app",
+          fullName: "acme/app",
+          defaultBranch: "main",
+          provider: "GITHUB",
+          metadata: { installationId: 42 },
+          organizationId: "org-1",
+        },
+        changeEvent: { id: "change-1", title: "Test Change", organizationId: "org-1" },
+      },
+    } as never);
+
+    // Provider returns the existing PR found on GitHub
+    providerMock.createDraftPullRequest.mockResolvedValueOnce({
+      provider: "GITHUB",
+      branchName: "patchbay/remediation-a1b2c3d4e5f6",
+      url: "https://github.com/acme/app/pull/42",
+      externalId: "42",
+      title: "[Patch] Test Change",
+      body: "body",
+      status: "DRAFT",
+    });
+
+    vi.mocked(prisma.pullRequest.create).mockResolvedValueOnce({
+      id: "pr-1",
+      url: "https://github.com/acme/app/pull/42",
+      branchName: "patchbay/remediation-a1b2c3d4e5f6",
+    } as never);
+
+    const result = await processCreatePR(mockJob);
+
+    expect(result.pullRequestId).toBe("pr-1");
+    expect(result.url).toBe("https://github.com/acme/app/pull/42");
+    expect(providerMock.createDraftPullRequest).toHaveBeenCalledTimes(1);
+    expect(prisma.pullRequest.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("throttles PR creation when concurrent draft PR circuit breaker limit is reached", async () => {
+    vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValueOnce({
+      id: "plan-1",
+      confidence: 90,
+      patches: [{ filePath: "src/app.ts", patchedContent: "code" }],
+      validations: [{ status: "PASSED" }],
+      approvals: [],
+      pullRequests: [],
+      impactAssessment: {
+        score: 50,
+        rationale: "test",
+        affectedUsages: [],
+        repository: {
+          id: "repo-1",
+          name: "app",
+          organizationId: "org-1",
+        },
+        changeEvent: { title: "Test Change", organizationId: "org-1" },
+      },
+    } as never);
+
+    // Organization already has 5 active draft PRs (default limit)
+    vi.mocked(prisma.pullRequest.count).mockResolvedValueOnce(5);
+
+    await expect(processCreatePR(mockJob)).rejects.toThrow(
+      /PR creation throttled by circuit breaker/,
+    );
+    expect(providerMock.createDraftPullRequest).not.toHaveBeenCalled();
   });
 });

@@ -94,13 +94,25 @@ export function computeReextractionSet(input: InvalidationInput): InvalidationRe
 
   // Breadth-first invalidation over reverse IMPORTS + reverse CALLS so that a
   // chain a -> b -> c re-extracts c, b, and a when c changes.
+  // Bounded by circuit breakers (max depth 10, max nodes 500) to prevent runaway traversal.
   const queue = [...reextract];
   const seen = new Set<string>(queue);
+  const depthOf = new Map<string, number>();
+  for (const f of queue) depthOf.set(f, 0);
+
+  const MAX_TRAVERSAL_DEPTH = 10;
+  const MAX_NODES_VISITED = 500;
+
   while (queue.length > 0) {
+    if (seen.size >= MAX_NODES_VISITED) break;
     const current = queue.shift()!;
+    const currentDepth = depthOf.get(current) ?? 0;
+    if (currentDepth >= MAX_TRAVERSAL_DEPTH) continue;
+
     for (const dependent of dependentsOf(current, input)) {
       if (!seen.has(dependent)) {
         seen.add(dependent);
+        depthOf.set(dependent, currentDepth + 1);
         queue.push(dependent);
       }
     }
