@@ -86,5 +86,8 @@ export const AuditAction = {
   AGENT_RUN_PURGED: "agent.run_purged",
   NOTIFICATION_CREATED: "notification.created",
   NOTIFICATION_MARKED_READ: "notification.marked_read",
+  REGISTRY_RECIPE_VERIFIED: "registry.recipe_verified",
+  REGISTRY_KEY_ROTATION_STARTED: "registry.key_rotation_started",
+  REGISTRY_KEY_ROTATION_COMPLETED: "registry.key_rotation_completed",
 } as const;
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];

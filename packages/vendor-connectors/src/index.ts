@@ -3,10 +3,14 @@ export { OPENAI_PYTHON_CLIENT_VARIABLE, openaiPythonConnector } from "./connecto
 export { connectors, getConnector } from "./registry";
 export {
   getRegistryRecipe,
+  getSigningKeys,
   listRegistryEntries,
   REGISTRY_PAYLOADS,
+  signRecipeWithKeyId,
   verifyRecipeSignature,
+  verifyRecipeSignatureWithDetails,
 } from "./registry-recipes";
+export type { SigningKeyInfo, VerifyResult } from "./registry-recipes";
 export {
   CAPABILITY_LEVELS,
   CAPABILITY_LEVEL_INDEX,

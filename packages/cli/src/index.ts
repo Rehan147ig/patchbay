@@ -6,7 +6,7 @@ import {
   getRegistryRecipe,
   listRegistryEntries,
   REGISTRY_PAYLOADS,
-  verifyRecipeSignature,
+  verifyRecipeSignatureWithDetails,
 } from "@patchbay/vendor-connectors";
 import type { MigrationRecipe } from "@patchbay/domain";
 import { generatePlan } from "@patchbay/remediation-engine";
@@ -173,11 +173,16 @@ async function main(): Promise<void> {
       console.log("  PLAN-level recipe: requires human approval before apply.");
     }
     // Gate: Verify HMAC-SHA256 signature (signed by Patch platform). Fail-closed.
-    const verified = verifyRecipeSignature(recipe);
+    // Supports rotation window: current + next key, explicit keyId versioning.
+    const verifyResult = verifyRecipeSignatureWithDetails(recipe);
+    const verified = verifyResult.verified;
+    const keyId = verifyResult.keyId ?? "unknown";
+    const rotationNote = verifyResult.rotationWindowActive ? " (rotation window active)" : "";
     if (!verified) {
       console.error(
-        "\x1b[31m  Signature: FAILED - recipe not signed by trusted Patch key. Failing closed to PLAN preview; --write blocked.\x1b[0m",
+        `\x1b[31m  Signature: FAILED - recipe not signed by trusted Patch key${rotationNote}. Failing closed to PLAN preview; --write blocked.\x1b[0m`,
       );
+      if (verifyResult.keyId) console.error(`  KeyId: ${verifyResult.keyId}`);
       if (args.write) {
         console.error(
           "  Set PATCH_REGISTRY_SIGNING_KEY to production key or fetch from trusted registry.",
@@ -185,7 +190,9 @@ async function main(): Promise<void> {
         process.exit(1);
       }
     } else {
-      console.log("  Signature: verified (HMAC-SHA256, Patch platform key)");
+      console.log(
+        `  Signature: verified (HMAC-SHA256, Patch platform key, keyId=${keyId}${rotationNote})`,
+      );
     }
   } else {
     console.log(`No registry recipe found for vendor "${vendor}" (local fallback).`);
