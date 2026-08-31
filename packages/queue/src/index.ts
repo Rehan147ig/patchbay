@@ -9,7 +9,7 @@ import { Redis } from "ioredis";
 import { assertJobPayloadSize, parseRedisUrl } from "./url";
 
 export { assertJobPayloadSize, MAX_JOB_PAYLOAD_BYTES, parseRedisUrl } from "./url";
-export { createRedisTestClient, type IRedisTestClient } from "./redis-test-client.js";
+export { createRedisTestClient, type IRedisTestClient } from "./redis-test-client";
 
 export const QUEUE_NAME = "remediation";
 
