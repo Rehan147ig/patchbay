@@ -201,7 +201,6 @@ describe("P0-B: Redis PR Slot Safety", () => {
       });
 
       let childStdout = "";
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       let childStderr = "";
       child.stdout.on("data", (chunk: Buffer) => {
         childStdout += chunk.toString();
@@ -219,18 +218,25 @@ describe("P0-B: Redis PR Slot Safety", () => {
         }),
       );
 
-      // Validate exit code
-      expect(exitCode).toBe(0);
+      // Validate exit code - include stderr in assertion diagnostics
+      expect(exitCode, childStderr ? `child stderr: ${childStderr}` : undefined).toBe(0);
 
-      // Validate stdout JSON
+      // Validate stdout JSON - include stderr in assertion diagnostics
       let childResult: { allowed: boolean; slotCount: number } | null = null;
       try {
         childResult = JSON.parse(childStdout);
       } catch {
         // stdout JSON parse failure - mark as failed
       }
-      expect(childResult).toBeTruthy();
-      expect(childResult?.allowed).toBe(true);
+      expect(
+        childResult,
+        childStderr
+          ? `child stderr: ${childStderr}\nstdout: ${childStdout}`
+          : `child stdout: ${childStdout}`,
+      ).toBeTruthy();
+      expect(childResult?.allowed, childStderr ? `child stderr: ${childStderr}` : undefined).toBe(
+        true,
+      );
 
       // Verify child acquired the slot - key has value 1 with positive TTL
       // (child began from empty key; acquired one slot and left it abandoned)

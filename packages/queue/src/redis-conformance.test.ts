@@ -55,15 +55,11 @@ describe("CONFORMED: Org exact-limit race (B2 conformance)", () => {
       await client.del(testKey);
       await client.set(testKey, "4");
 
-      // Two concurrent acquires using the SAME ready client - capture RAW EVAL results
-      const rawA = (await client.eval(ACQUIRE_LUA, 1, testKey, String(5), String(86400))) as [
-        number,
-        number,
-      ];
-      const rawB = (await client.eval(ACQUIRE_LUA, 1, testKey, String(5), String(86400))) as [
-        number,
-        number,
-      ];
+      // Two concurrent acquires using the SAME ready injected client - capture RAW EVAL results via Promise.all
+      const [rawA, rawB] = (await Promise.all([
+        client.eval(ACQUIRE_LUA, 1, testKey, String(5), String(86400)),
+        client.eval(ACQUIRE_LUA, 1, testKey, String(5), String(86400)),
+      ])) as [number, number][];
 
       // Validate raw EVAL structure
       if (!Array.isArray(rawA) || rawA.length < 2 || !Array.isArray(rawB) || rawB.length < 2) {
@@ -157,15 +153,11 @@ describe("CONFORMED: Global exact-limit race (C3 conformance)", () => {
       await client.del(testKey);
       await client.set(testKey, "9");
 
-      // Two concurrent acquires using the SAME ready client - capture RAW EVAL results
-      const rawA = (await client.eval(ACQUIRE_LUA, 1, testKey, String(10), String(86400))) as [
-        number,
-        number,
-      ];
-      const rawB = (await client.eval(ACQUIRE_LUA, 1, testKey, String(10), String(86400))) as [
-        number,
-        number,
-      ];
+      // Two concurrent acquires using the SAME ready injected client - capture RAW EVAL results via Promise.all
+      const [rawA, rawB] = (await Promise.all([
+        client.eval(ACQUIRE_LUA, 1, testKey, String(10), String(86400)),
+        client.eval(ACQUIRE_LUA, 1, testKey, String(10), String(86400)),
+      ])) as [number, number][];
 
       // Validate raw EVAL structure
       if (!Array.isArray(rawA) || rawA.length < 2 || !Array.isArray(rawB) || rawB.length < 2) {
@@ -256,15 +248,11 @@ describe("CONFORMED: PR-slot path conformance", () => {
       await client.del(slotKey);
       await client.set(slotKey, "4");
 
-      // Two concurrent acquires at exact limit-1
-      const rawA = (await client.eval(ACQUIRE_LUA, 1, slotKey, String(5), String(86400))) as [
-        number,
-        number,
-      ];
-      const rawB = (await client.eval(ACQUIRE_LUA, 1, slotKey, String(5), String(86400))) as [
-        number,
-        number,
-      ];
+      // Two concurrent acquires at exact limit-1 via Promise.all
+      const [rawA, rawB] = (await Promise.all([
+        client.eval(ACQUIRE_LUA, 1, slotKey, String(5), String(86400)),
+        client.eval(ACQUIRE_LUA, 1, slotKey, String(5), String(86400)),
+      ])) as [number, number][];
 
       // Validate raw EVAL structure
       if (!Array.isArray(rawA) || rawA.length < 2 || !Array.isArray(rawB) || rawB.length < 2) {
