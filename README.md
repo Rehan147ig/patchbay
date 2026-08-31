@@ -1,12 +1,17 @@
-# Patchbay — Governed API-Change Remediation Platform
+# Patchbay — Autonomous Software Change Engine
 
 [![CI](https://github.com/Rehan147ig/patchbay/actions/workflows/ci.yml/badge.svg)](https://github.com/Rehan147ig/patchbay/actions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
 [![pnpm](https://img.shields.io/badge/pnpm-10.x-orange.svg)](https://pnpm.io/)
 [![Prisma](https://img.shields.io/badge/Prisma-6.x-green.svg)](https://www.prisma.io/)
+![Public](https://img.shields.io/badge/visibility-public-brightgreen)
 
-**Patchbay** is a neutral, policy-governed API-change remediation platform ("Dependabot for APIs"). When a vendor releases a breaking SDK update, deprecates a method, or updates an API specification, Patchbay detects the release, proves AST usages across your repositories using a commit-versioned **Software Intelligence Graph**, and delivers compile-verified, test-passing remediations across **3 zero-friction distribution channels**:
+> **Public for now — will return to private after early feedback.** Issues and PRs welcome.
+
+**Patchbay** is a neutral, policy-governed **Autonomous Software Change Engine**. When a contract changes — `REST/GraphQL/gRPC`, `Kafka/MQTT/AMQP`, `SQL/Mongo/Schema` — Patchbay detects the delta, maps it through every `npm/PyPI/Maven/NuGet/Go/Rust` and internal `JS/TS/Python/Go/Java` SDK usage, and ships a governed, validated patch. Think "Dependabot for APIs", extended to every contract surface.
+
+When a vendor releases a breaking SDK update, deprecates a method, or updates an API specification, Patchbay detects the release, proves AST usages across your repositories using a commit-versioned **Software Intelligence Graph**, and delivers compile-verified, test-passing remediations across **3 zero-friction distribution channels**:
 
 1. **Terminal CLI (`npx patch-migrate <vendor>`)**: Runs 100% locally on your machine — zero install, zero code access required.
 2. **GitHub Action (`action.yml`)**: Runs inside customer-owned CI runners.
@@ -33,7 +38,85 @@ npx patch-migrate stripe --write --cwd ./apps/backend
 
 ---
 
-## 🏗️ System Architecture
+## ♾️ Full-Scale Vision — Autonomous Software Change Engine
+
+This is the north-star Patch operates toward (current MVP implements the local-development slice: detect → graph → remediate → validate → draft PR).
+
+```mermaid
+flowchart TD
+    CONTRACT["CONTRACT"]
+    CONTRACT --> API["API"]
+    CONTRACT --> EVENT["EVENT"]
+    CONTRACT --> DATA["DATA"]
+
+    API --> REST["REST"]
+    API --> GQL["GraphQL"]
+    API --> GRPC["gRPC"]
+    API --> SOAP["SOAP"]
+    API --> WS["WebSocket"]
+
+    EVENT --> KAFKA["Kafka"]
+    EVENT --> MQTT["MQTT"]
+    EVENT --> AMQP["AMQP"]
+    EVENT --> NATS["NATS"]
+    EVENT --> PUBSUB["Pub/Sub"]
+
+    DATA --> SQL["SQL"]
+    DATA --> MONGO["Mongo"]
+    DATA --> SCHEMA["Schema<br/>JSON / Protobuf"]
+
+    REST & GQL & GRPC & SOAP & WS --> SDK
+    KAFKA & MQTT & AMQP & NATS & PUBSUB --> SDK
+    SQL & MONGO & SCHEMA --> SDK
+
+    SDK["SDK"]
+    SDK --> EXT["EXTERNAL SDK<br/>npm / PyPI / Maven<br/>NuGet / Go / Rust<br/>RubyGems / Vendor SDKs"]
+    SDK --> INT["INTERNAL SDK<br/>JS/TS / Python / Go<br/>Java / Mobile<br/>Internal Packages"]
+
+    EXT & INT --> IMPACT["IMPACT GRAPH"]
+    IMPACT --> DEP["DEPENDENCIES"]
+    IMPACT --> USAGE["USAGE MAP"]
+    IMPACT --> OWN["OWNERSHIP"]
+    DEP & USAGE & OWN --> CI0["CHANGE INTELLIGENCE"]
+    CI0 --> WHAT1["WHAT CHANGED?"]
+    CI0 --> WHAT2["WHAT BREAKS?"]
+    CI0 --> WHO["WHO IS AFFECTED?"]
+    WHAT1 & WHAT2 & WHO --> REMED["REMEDIATION ENGINE"]
+    REMED --> PLAN["PLAN"]
+    REMED --> PATCH["PATCH"]
+    REMED --> REFACT["REFACTOR"]
+    PLAN & PATCH & REFACT --> VALID["VALIDATION"]
+    VALID --> TC["TYPECHECK"]
+    VALID --> TESTS["TESTS"]
+    VALID --> SEM["SEMANTIC GATE"]
+    TC --> BUILD["BUILD / LINT"]
+    TESTS --> INTEG["INTEGRATION"]
+    SEM --> SBX["SANDBOX"]
+    BUILD & INTEG & SBX --> GOV["GOVERNANCE"]
+    GOV --> POL["POLICY"]
+    GOV --> AUDIT2["AUDIT"]
+    GOV --> APPR["APPROVAL"]
+    POL & AUDIT2 & APPR --> DELIV["GOVERNED DELIVERY"]
+    DELIV --> GH["GITHUB<br/>Pull Request / Draft PR"]
+    DELIV --> IGIT["INTERNAL GIT<br/>GitLab / Bitbucket"]
+    DELIV --> DEV["DEVELOPER<br/>CLI / IDE / Cursor/etc."]
+    GH & IGIT & DEV --> OUT["OUTCOME"]
+    OUT --> MERGED["MERGED"]
+    OUT --> REJ["REJECTED"]
+    OUT --> RB["ROLLED BACK"]
+    MERGED & REJ & RB --> LEARN["LEARNING LOOP"]
+    LEARN --> SDATA["SUCCESS DATA"]
+    LEARN --> FDATA["FAILURE DATA"]
+    LEARN --> HDATA["HEALTH DATA"]
+    SDATA & FDATA & HDATA --> BETTER["PATCH GETS BETTER"]
+    BETTER -.->|↺| CONTRACT
+```
+
+> Local MVP today = `REST/GraphQL/gRPC` → `npm/PyPI/Maven` + `JS/TS/Python` → `IMPACT GRAPH` → `REMEDIATION` → `TYPECHECK/TESTS/SANDBOX` → `GOVERNANCE` → `GITHUB Draft PR`. Event/Data planes and the full learning loop are roadmap, not claimed as shipped.
+
+---
+
+## 🏗️ System Architecture (Current MVP)
 
 ```mermaid
 flowchart TD
