@@ -1,3 +1,4 @@
+import { RepositoryProvider } from "@patchbay/domain";
 import type {
   GitProvider,
   CheckoutInput,
@@ -19,6 +20,7 @@ export interface BitbucketConfig {
 }
 
 export class BitbucketProvider implements GitProvider {
+  readonly provider = RepositoryProvider.BITBUCKET;
   constructor(private readonly config: BitbucketConfig) {}
 
   async createDraftPullRequest(_input: CreateDraftPRInput): Promise<PullRequestResult> {

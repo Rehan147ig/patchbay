@@ -1,3 +1,4 @@
+import { RepositoryProvider } from "@patchbay/domain";
 import type {
   GitProvider,
   CheckoutInput,
@@ -19,6 +20,7 @@ export interface GitLabConfig {
 }
 
 export class GitLabProvider implements GitProvider {
+  readonly provider = RepositoryProvider.GITLAB;
   constructor(private readonly config: GitLabConfig) {}
 
   async createDraftPullRequest(_input: CreateDraftPRInput): Promise<PullRequestResult> {

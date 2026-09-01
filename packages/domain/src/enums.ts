@@ -14,6 +14,8 @@ export type Role = (typeof Role)[keyof typeof Role];
 
 export const RepositoryProvider = {
   GITHUB: "GITHUB",
+  GITLAB: "GITLAB",
+  BITBUCKET: "BITBUCKET",
   LOCAL: "LOCAL",
 } as const;
 export type RepositoryProvider = (typeof RepositoryProvider)[keyof typeof RepositoryProvider];
