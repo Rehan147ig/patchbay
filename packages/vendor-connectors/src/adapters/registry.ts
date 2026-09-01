@@ -5,12 +5,19 @@ import { createOpenAPIAdapters } from "../adapters/openapi";
 
 let cachedAdapters: WatchtowerAdapter[] | null = null;
 
+/**
+ * Primary sources (CHANGE INTELLIGENCE): npm + OpenAPI diff are the
+ * deterministic contract planes. GitHub Releases is fallback/secondary.
+ * Ordering here defines poll priority; detect-releases iterates in this order.
+ * OpenAPI adapter already emits diffOpenApiSpecs Facts (added/removed/changed)
+ * so contract breaks are explainable without LLM.
+ */
 export function getWatchtowerAdapters(): WatchtowerAdapter[] {
   if (cachedAdapters) return cachedAdapters;
   cachedAdapters = [
-    ...createAllNpmAdapters(),
-    ...createAllGitHubReleasesAdapters(),
-    ...createOpenAPIAdapters(),
+    ...createAllNpmAdapters(), // primary: npm packument (ETag, conditional, batch 10)
+    ...createOpenAPIAdapters(), // primary: OpenAPI spec diff (apiDiff breaking facts)
+    ...createAllGitHubReleasesAdapters(), // secondary fallback
   ];
   return cachedAdapters;
 }

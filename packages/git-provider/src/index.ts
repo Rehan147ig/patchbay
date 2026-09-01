@@ -29,6 +29,14 @@ export type {
   GitHubAppTarget,
   GitHubRepositoryInfo,
 } from "./github-app-provider";
+export { GitLabProvider, createGitLabProviderFromEnv, isGitLabConfigured } from "./gitlab-provider";
+export type { GitLabConfig } from "./gitlab-provider";
+export {
+  BitbucketProvider,
+  createBitbucketProviderFromEnv,
+  isBitbucketConfigured,
+} from "./bitbucket-provider";
+export type { BitbucketConfig } from "./bitbucket-provider";
 export { assertSafeRepoFullName, assertSafeSha, gitAuthEnv, runGit } from "./git-safe";
 export {
   resolveRepositorySource,
