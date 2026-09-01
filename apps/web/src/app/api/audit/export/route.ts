@@ -52,20 +52,68 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    return jsonOk(
-      {
-        exportedAt: new Date().toISOString(),
-        organizationId: user.organizationId,
-        counts: {
-          auditEvents: auditEvents.length,
-          cases: remediationCases.length,
-          outcomes: outcomes.length,
+    const format = request.nextUrl.searchParams.get("format");
+    // Stage 5C: SIEM formats — Splunk HEC JSON per event, CEF per event
+    if (format === "splunk") {
+      const body = auditEvents
+        .map((e) =>
+          JSON.stringify({
+            time: Math.floor(e.createdAt.getTime() / 1000),
+            event: e,
+            source: "patchbay",
+          }),
+        )
+        .join("\n");
+      return new Response(body, {
+        headers: {
+          "content-type": "application/x-ndjson",
+          "x-patch-signed-export": await signExport(body),
+          "x-correlation-id": correlationId,
         },
-        data: { auditEvents, remediationCases, outcomes },
+      });
+    }
+    if (format === "cef") {
+      const body = auditEvents
+        .map(
+          (e) =>
+            `CEF:0|Patchbay|Audit|1.0|${e.action}|${e.entityType} ${e.entityId ?? ""}|5|src=${e.actorId ?? "system"} msg=${(e.afterJson as Record<string, unknown> | null)?.toString?.() ?? ""}`,
+        )
+        .join("\n");
+      return new Response(body, {
+        headers: {
+          "content-type": "text/plain",
+          "x-patch-signed-export": await signExport(body),
+          "x-correlation-id": correlationId,
+        },
+      });
+    }
+
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      organizationId: user.organizationId,
+      counts: {
+        auditEvents: auditEvents.length,
+        cases: remediationCases.length,
+        outcomes: outcomes.length,
       },
-      correlationId,
-    );
+      data: { auditEvents, remediationCases, outcomes },
+    };
+    const body = JSON.stringify(payload);
+    const res = jsonOk(payload, correlationId);
+    res.headers.set("x-patch-signed-export", await signExport(body));
+    return res;
   } catch (error) {
     return jsonError(error, correlationId);
+  }
+}
+
+async function signExport(body: string): Promise<string> {
+  try {
+    const { createHmac } = await import("node:crypto");
+    const key =
+      process.env.PATCH_REGISTRY_SIGNING_KEY ?? "dev-only-not-secure-change-in-production";
+    return createHmac("sha256", key).update(body).digest("hex").slice(0, 32);
+  } catch {
+    return "unsigned";
   }
 }

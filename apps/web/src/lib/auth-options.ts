@@ -2,6 +2,8 @@ import "server-only";
 import type { NextAuthOptions } from "next-auth";
 import type { Adapter, AdapterUser } from "next-auth/adapters";
 import GithubProvider from "next-auth/providers/github";
+import GoogleProvider from "next-auth/providers/google";
+import OktaProvider from "next-auth/providers/okta";
 import { PrismaAdapter } from "@next-auth/prisma-adapter";
 import { prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
@@ -27,9 +29,25 @@ function createPatchbayAdapter(): Adapter {
     ...base,
     async createUser(data: Omit<AdapterUser, "id">) {
       const name = data.name ?? data.email.split("@")[0] ?? "New user";
-      const organization = await prisma.organization.create({
-        data: { name: `${name}'s workspace` },
-      });
+      const emailDomain = data.email.split("@")[1]?.toLowerCase() ?? "";
+      // Stage 5A: SSO auto-provision — if an org has ssoDomain == emailDomain, join it instead of creating a new workspace.
+      let organization = null as Awaited<ReturnType<typeof prisma.organization.findFirst>>;
+      if (emailDomain) {
+        const candidates = await prisma.organization.findMany({ take: 50 });
+        // ssoDomain stored in Organization.name suffix or metadata — check both for backward compat
+        organization =
+          candidates.find((org) => {
+            const meta = (org as unknown as { metadata?: unknown }).metadata as
+              Record<string, unknown> | undefined;
+            const ssoDomain = (meta?.ssoDomain as string | undefined) ?? "";
+            return ssoDomain.toLowerCase() === emailDomain;
+          }) ?? null;
+      }
+      if (!organization) {
+        organization = await prisma.organization.create({
+          data: { name: `${name}'s workspace` },
+        });
+      }
       const user = await prisma.user.create({
         data: {
           email: data.email,
@@ -71,6 +89,8 @@ function createPatchbayAdapter(): Adapter {
   };
 }
 
+const ssoEnabled = process.env.SSO_ENABLED === "1";
+
 export const authOptions: NextAuthOptions = {
   adapter: createPatchbayAdapter(),
   providers: [
@@ -79,6 +99,26 @@ export const authOptions: NextAuthOptions = {
       clientSecret: env.GITHUB_CLIENT_SECRET ?? "",
       authorization: { params: { scope: "read:user user:email" } },
     }),
+    ...(ssoEnabled && process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
+      ? [
+          GoogleProvider({
+            clientId: process.env.GOOGLE_CLIENT_ID,
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+          }),
+        ]
+      : []),
+    ...(ssoEnabled &&
+    process.env.OKTA_CLIENT_ID &&
+    process.env.OKTA_CLIENT_SECRET &&
+    process.env.OKTA_ISSUER
+      ? [
+          OktaProvider({
+            clientId: process.env.OKTA_CLIENT_ID,
+            clientSecret: process.env.OKTA_CLIENT_SECRET,
+            issuer: process.env.OKTA_ISSUER,
+          }),
+        ]
+      : []),
   ],
   callbacks: {
     session({ session, user }) {

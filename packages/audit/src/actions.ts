@@ -89,5 +89,7 @@ export const AuditAction = {
   REGISTRY_RECIPE_VERIFIED: "registry.recipe_verified",
   REGISTRY_KEY_ROTATION_STARTED: "registry.key_rotation_started",
   REGISTRY_KEY_ROTATION_COMPLETED: "registry.key_rotation_completed",
+  SCIM_USER_CREATED: "scim.user_created",
+  SCIM_USER_DEPROVISIONED: "scim.user_deprovisioned",
 } as const;
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];
