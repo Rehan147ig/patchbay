@@ -74,6 +74,20 @@ export const queue = new Queue(QUEUE_NAME, {
   },
 });
 
+/** Stage 4: Dead Letter Queue — failed jobs after 3 attempts land here for alerting. */
+export const DLQ_QUEUE_NAME = "remediation-dlq";
+export const dlqQueue = new Queue(DLQ_QUEUE_NAME, {
+  connection,
+  defaultJobOptions: { removeOnComplete: 10_000, removeOnFail: 10_000 },
+});
+
+/** Alert hook stub — wire to Slack/PagerDuty in production. */
+export async function alertDlq(jobType: string, error: string): Promise<void> {
+  const msg = `[dlq] ${jobType} failed permanently: ${error.slice(0, 500)}`;
+  console.error(msg);
+  // In production: await fetch(process.env.ALERT_WEBHOOK_URL, { method:"POST", body: JSON.stringify({ text: msg }) })
+}
+
 /**
  * Single enqueue path: size-bounds every job payload before it reaches Redis
  * and keeps the queue contract in one place. Routes must use this instead of
