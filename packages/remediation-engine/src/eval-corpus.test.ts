@@ -127,6 +127,9 @@ describe("H8 per-entry cases", () => {
         "supabase",
         "langchain",
         "vercel-ai-sdk",
+        "google-gemini",
+        "mistral",
+        "cohere",
       ]),
     );
   });
