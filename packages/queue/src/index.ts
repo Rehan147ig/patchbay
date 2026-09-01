@@ -81,11 +81,21 @@ export const dlqQueue = new Queue(DLQ_QUEUE_NAME, {
   defaultJobOptions: { removeOnComplete: 10_000, removeOnFail: 10_000 },
 });
 
-/** Alert hook stub — wire to Slack/PagerDuty in production. */
+/** Stage 7A: DLQ alert — logs and, when ALERT_WEBHOOK_URL is set, POSTs to Slack/PagerDuty. */
 export async function alertDlq(jobType: string, error: string): Promise<void> {
   const msg = `[dlq] ${jobType} failed permanently: ${error.slice(0, 500)}`;
   console.error(msg);
-  // In production: await fetch(process.env.ALERT_WEBHOOK_URL, { method:"POST", body: JSON.stringify({ text: msg }) })
+  const webhook = process.env.ALERT_WEBHOOK_URL?.trim();
+  if (!webhook) return;
+  try {
+    await fetch(webhook, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: msg, jobType, error: error.slice(0, 2000) }),
+    });
+  } catch {
+    // alert is best-effort — never throw from DLQ path
+  }
 }
 
 /**
