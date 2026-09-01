@@ -92,7 +92,41 @@ export const OPENAPI_TRUST_PROFILE: TrustProfile = {
   cadenceMs: 15 * 60 * 1000,
 };
 
-const PROFILES: TrustProfile[] = [NPM_TRUST_PROFILE, GITHUB_TRUST_PROFILE, OPENAPI_TRUST_PROFILE];
+/** Event plane: Kafka/MQTT/AMQP/NATS/Pub/Sub via REST proxy. Local + internal brokers. */
+export const EVENT_TRUST_PROFILE: TrustProfile = {
+  adapterPrefix: "event:",
+  sources: ["CHANGELOG"],
+  allowedDomains: ["localhost", "127.0.0.1", "kafka-rest.internal", "event-bridge.internal"],
+  allowRedirects: false,
+  maxResponseBytes: 2 * 1024 * 1024,
+  timeoutMs: 15_000,
+  requireSignature: false,
+  evidenceAuthenticity: "SOURCE_TRUSTED",
+  evidenceConfidence: "MEDIUM",
+  cadenceMs: 5 * 60 * 1000,
+};
+
+/** Data plane: SQL/Mongo/Schema Registry diffs. */
+export const DATA_TRUST_PROFILE: TrustProfile = {
+  adapterPrefix: "data:",
+  sources: ["CHANGELOG", "OPENAPI"],
+  allowedDomains: ["localhost", "127.0.0.1", "schema-registry.internal", "data-plane.internal"],
+  allowRedirects: false,
+  maxResponseBytes: 4 * 1024 * 1024,
+  timeoutMs: 15_000,
+  requireSignature: false,
+  evidenceAuthenticity: "UNVERIFIED",
+  evidenceConfidence: "MEDIUM",
+  cadenceMs: 10 * 60 * 1000,
+};
+
+const PROFILES: TrustProfile[] = [
+  NPM_TRUST_PROFILE,
+  GITHUB_TRUST_PROFILE,
+  OPENAPI_TRUST_PROFILE,
+  EVENT_TRUST_PROFILE,
+  DATA_TRUST_PROFILE,
+];
 
 /** Default for unknown adapters: fail closed (no domains, no redirects). */
 const DEFAULT_PROFILE: TrustProfile = {
@@ -176,6 +210,17 @@ export function validateAdapterCursor(adapterSlug: string, cursor: unknown): str
     }
     if ("lastSpec" in entry && entry.lastSpec !== null && typeof entry.lastSpec !== "object") {
       violations.push("openapi cursor lastSpec must be an object|null when present");
+    }
+  } else if (adapterSlug.startsWith("event:") || adapterSlug.startsWith("data:")) {
+    if ("etag" in entry && typeof entry.etag !== "string" && entry.etag !== null) {
+      violations.push(
+        `${adapterSlug.split(":")[0]} cursor etag must be a string|null when present`,
+      );
+    }
+    if ("lastContentHash" in entry && !isStringOrNull(entry.lastContentHash)) {
+      violations.push(
+        `${adapterSlug.split(":")[0]} cursor lastContentHash must be string|null when present`,
+      );
     }
   }
   return violations;

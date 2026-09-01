@@ -2,6 +2,9 @@ import type { WatchtowerAdapter } from "../watchtower";
 import { createAllNpmAdapters } from "../adapters/npm";
 import { createAllGitHubReleasesAdapters } from "../adapters/github-releases";
 import { createOpenAPIAdapters } from "../adapters/openapi";
+import { createAllEventAdapters } from "../adapters/event";
+import { createAllDataAdapters } from "../adapters/data";
+import { createAllSoapAdapters, createAllWebSocketAdapters } from "../adapters/soap";
 
 let cachedAdapters: WatchtowerAdapter[] | null = null;
 
@@ -17,6 +20,10 @@ export function getWatchtowerAdapters(): WatchtowerAdapter[] {
   cachedAdapters = [
     ...createAllNpmAdapters(), // primary: npm packument (ETag, conditional, batch 10)
     ...createOpenAPIAdapters(), // primary: OpenAPI spec diff (apiDiff breaking facts)
+    ...createAllEventAdapters(), // event plane (Kafka/MQTT/AMQP/NATS/PubSub) — env-gated
+    ...createAllDataAdapters(), // data plane (Schema Registry/SQL/Mongo) — env-gated
+    ...createAllSoapAdapters(),
+    ...createAllWebSocketAdapters(),
     ...createAllGitHubReleasesAdapters(), // secondary fallback
   ];
   return cachedAdapters;
