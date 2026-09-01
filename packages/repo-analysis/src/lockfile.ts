@@ -9,6 +9,10 @@ export const LOCKFILE_ORDER = [
   "pom.xml",
   "build.gradle",
   "build.gradle.kts",
+  "packages.lock.json",
+  "go.mod",
+  "Gemfile.lock",
+  "packages.config",
 ] as const;
 
 /** Returns the name of the lockfile/manifest present in rootDir, or null. */
@@ -30,6 +34,9 @@ export function packageManagerFor(lockfileName: string | null): PackageManager {
   if (lockfileName === "yarn.lock") return "yarn";
   if (lockfileName === "pom.xml") return "maven";
   if (lockfileName === "build.gradle" || lockfileName === "build.gradle.kts") return "gradle";
+  if (lockfileName === "packages.lock.json" || lockfileName === "packages.config") return "nuget";
+  if (lockfileName === "go.mod") return "go";
+  if (lockfileName === "Gemfile.lock") return "rubygems";
   return "unknown";
 }
 
@@ -131,6 +138,83 @@ export async function resolveLockfileVersions(rootDir: string): Promise<{
       const version = match[3];
       if (!groupId || !artifactId || !version) continue;
       versions[`${groupId}:${artifactId}`] = version;
+    }
+  } else if (lockfileName === "packages.lock.json") {
+    // NuGet lock file v2: { dependencies: { "<tfm>": { "<package>": { resolved: "1.2.3", ... }}}}
+    try {
+      const parsed = JSON.parse(raw) as {
+        dependencies?: Record<string, Record<string, { resolved?: string; requested?: string }>>;
+      };
+      const deps = parsed.dependencies ?? {};
+      for (const tfm of Object.values(deps)) {
+        for (const [pkg, meta] of Object.entries(tfm)) {
+          const ver = meta.resolved ?? meta.requested;
+          if (!ver) continue;
+          // requested may be "[1.2.3, )" — strip brackets
+          const clean = ver.replace(/^\[|\]|\(|\)|,.*$/g, "").trim();
+          if (clean) versions[pkg.toLowerCase()] = clean;
+        }
+      }
+    } catch {
+      // fallthrough empty
+    }
+  } else if (lockfileName === "go.mod") {
+    // go.mod: `require` block or single lines `require foo/bar v1.2.3`
+    // Handles `retract`, `replace` ignored, only `require` and bare `foo/bar v1.2.3` inside block.
+    const lines = raw.split("\n");
+    let inRequireBlock = false;
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (line.startsWith("//") || line.length === 0) continue;
+      if (line.startsWith("require (")) {
+        inRequireBlock = true;
+        continue;
+      }
+      if (inRequireBlock && line === ")") {
+        inRequireBlock = false;
+        continue;
+      }
+      const target = inRequireBlock
+        ? line
+        : line.startsWith("require ")
+          ? line.slice(8).trim()
+          : null;
+      if (!target && !inRequireBlock) continue;
+      const candidate = target ?? (inRequireBlock ? line : null);
+      if (!candidate) continue;
+      // candidate like `github.com/foo/bar v1.2.3 // indirect` or `github.com/foo/bar v1.2.3`
+      const m = /^(\S+)\s+v?(\S+)/.exec(candidate);
+      if (!m) continue;
+      const mod = m[1] ?? "";
+      const ver = (m[2] ?? "").split(/[ \t]/)[0]?.replace(/^v/, "") ?? "";
+      if (!mod || !ver || ver === "0.0.0") continue;
+      versions[mod] = ver;
+    }
+  } else if (lockfileName === "Gemfile.lock") {
+    // Gemfile.lock: `GEM` section then `specs:` lines `gemName (version)`
+    const gemSection = raw.split("GEM")[1]?.split("\n") ?? [];
+    let inSpecs = false;
+    for (const line of gemSection) {
+      if (line.trim() === "specs:") {
+        inSpecs = true;
+        continue;
+      }
+      if (inSpecs) {
+        if (line.trim().length === 0 || !line.startsWith(" ")) break;
+        const m = /^\s{4}(\S+)\s+\(([^)]+)\)/.exec(line);
+        if (!m) continue;
+        const gem = m[1] ?? "";
+        const ver = m[2] ?? "";
+        if (gem && ver) versions[gem] = ver;
+      }
+    }
+  } else if (lockfileName === "packages.config") {
+    // Legacy NuGet packages.config XML: <package id="Foo" version="1.2.3" />
+    const re = /<package\s+[^>]*id="([^"]+)"\s+[^>]*version="([^"]+)"/gi;
+    for (const m of raw.matchAll(re)) {
+      const id = m[1] ?? "";
+      const ver = m[2] ?? "";
+      if (id && ver) versions[id.toLowerCase()] = ver;
     }
   }
 

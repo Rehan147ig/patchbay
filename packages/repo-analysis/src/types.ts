@@ -46,7 +46,8 @@ export interface PythonManifest {
   devDependencies: Record<string, string>;
 }
 
-export type PackageManager = "pnpm" | "npm" | "yarn" | "maven" | "gradle" | "unknown";
+export type PackageManager =
+  "pnpm" | "npm" | "yarn" | "maven" | "gradle" | "nuget" | "go" | "rubygems" | "unknown";
 
 export interface AnalysisError {
   filePath: string;
