@@ -42,8 +42,8 @@ services:
   # ---------- Next.js Web App (dashboard + API routes) ----------
   web:
     build:
-      context: ./apps/web
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/web/Dockerfile
     container_name: patchbay-web
     restart: unless-stopped
     depends_on:
@@ -69,8 +69,8 @@ services:
   # ---------- Worker (BullMQ job processor, runs 24/7) ----------
   worker:
     build:
-      context: ./apps/worker
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/worker/Dockerfile
     container_name: patchbay-worker
     restart: unless-stopped
     depends_on:
