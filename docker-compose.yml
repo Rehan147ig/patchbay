@@ -1,7 +1,6 @@
 version: "3.9"
 
 services:
-
   # ---------- PostgreSQL (managed by Docker, data persists) ----------
   db:
     image: postgres:15-alpine
@@ -13,9 +12,9 @@ services:
       POSTGRES_PASSWORD: patchbay_dev_only
       POSTGRES_DB: patchbay
     ports:
-      - "5434:5432"  # host:container - matches DATABASE_URL default
+      - "5434:5432" # host:container - matches DATABASE_URL default
     volumes:
-      - pg_data:/var/lib/postgresql/data  # persistent across restarts
+      - pg_data:/var/lib/postgresql/data # persistent across restarts
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U patchbay -d patchbay"]
       interval: 10s
@@ -33,7 +32,7 @@ services:
       --save ""
       --appendonly no
     ports:
-      - "6380:6379"  # host:container - matches REDIS_URL default
+      - "6380:6379" # host:container - matches REDIS_URL default
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a patchbay_dev_only ping"]
       interval: 10s
@@ -60,7 +59,7 @@ services:
       PORT: "3000"
       SANDBOX_RUNTIME: process
     ports:
-      - "3000:3000"  # host port 3000 → container 3000
+      - "3000:3000" # host port 3000 → container 3000
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
       interval: 30s
