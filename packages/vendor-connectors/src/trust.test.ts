@@ -23,7 +23,13 @@ describe("trust profiles", () => {
 
   it("exposes the full profile set for detector health views", () => {
     const profiles = trustProfiles();
-    expect(profiles.map((p) => p.adapterPrefix)).toEqual(["npm:", "github-releases:", "openapi:"]);
+    expect(profiles.map((p) => p.adapterPrefix)).toEqual([
+      "npm:",
+      "github-releases:",
+      "openapi:",
+      "event:",
+      "data:",
+    ]);
     for (const p of profiles) {
       expect(p.maxResponseBytes).toBeGreaterThan(0);
       expect(p.timeoutMs).toBeGreaterThan(0);
@@ -35,7 +41,7 @@ describe("trust profiles", () => {
     expect(authenticityForSource("NPM")).toBe("SOURCE_TRUSTED");
     expect(authenticityForSource("GITHUB_RELEASE")).toBe("SOURCE_TRUSTED");
     expect(authenticityForSource("OPENAPI")).toBe("UNVERIFIED");
-    expect(authenticityForSource("CHANGELOG" as never)).toBe("UNVERIFIED");
+    expect(authenticityForSource("CHANGELOG" as never)).toBe("SOURCE_TRUSTED");
   });
 });
 

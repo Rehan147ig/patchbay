@@ -42,13 +42,14 @@ describe("connector capability registry", () => {
     }
   });
 
-  it("openai/stripe/twilio/anthropic/supabase are certified DRAFT_PR; aws-sdk is PLAN; auth0 is PLAN; the rest are ASSESS", () => {
+  it("openai/stripe/twilio/anthropic/supabase/vercel-ai-sdk are certified DRAFT_PR; aws-sdk is PLAN; auth0 is PLAN; the rest are ASSESS", () => {
     const levelOf = (slug: string): string => getCapability(slug)?.level ?? "none";
     expect(levelOf("openai")).toBe("DRAFT_PR");
     expect(levelOf("stripe")).toBe("DRAFT_PR");
     expect(levelOf("twilio")).toBe("DRAFT_PR");
     expect(levelOf("anthropic")).toBe("DRAFT_PR");
     expect(levelOf("supabase")).toBe("DRAFT_PR");
+    expect(levelOf("vercel-ai-sdk")).toBe("DRAFT_PR");
     expect(levelOf("openai-python")).toBe("ASSESS");
     expect(levelOf("aws-sdk")).toBe("PLAN");
     expect(levelOf("auth0")).toBe("PLAN");
@@ -63,6 +64,7 @@ describe("connector capability registry", () => {
       "supabase",
       "auth0",
       "langchain",
+      "vercel-ai-sdk",
     ]);
     for (const slug of listConnectorSlugs()) {
       if (!certified.has(slug)) {
@@ -111,6 +113,7 @@ describe("connector capability registry", () => {
       "stripe",
       "supabase",
       "twilio",
+      "vercel-ai-sdk",
     ]);
     const plan = listCapabilitiesByLevel("PLAN");
     expect(plan.map((entry: ConnectorCapability) => entry.vendorSlug).sort()).toEqual([
@@ -122,6 +125,7 @@ describe("connector capability registry", () => {
       "stripe",
       "supabase",
       "twilio",
+      "vercel-ai-sdk",
     ]);
   });
 });
