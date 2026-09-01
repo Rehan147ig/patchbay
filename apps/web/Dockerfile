@@ -10,7 +10,7 @@ COPY package.json pnpm-lock.yaml .env.example ./
 COPY packages/ ./packages/
 
 # Install root deps (hoisted, workspaces)
-RUN pnpm install --frozen-lockfile
+RUN pnpm install
 
 # Copy apps/web source
 COPY apps/web/ ./apps/web/
@@ -32,7 +32,7 @@ COPY --from=builder /app/apps/web/package.json ./
 COPY --from=builder /app/apps/web/tsconfig.json ./
 
 # Install only production deps (no dev deps)
-RUN pnpm install --frozen-lockfile --prod
+RUN pnpm install --prod
 
 # Set non-root user (security)
 ENV NODE_ENV=production

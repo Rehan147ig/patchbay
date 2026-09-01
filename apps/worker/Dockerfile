@@ -10,7 +10,7 @@ COPY package.json pnpm-lock.yaml .env.example ./
 COPY packages/ ./packages/
 
 # Install root deps (hoisted, workspaces — includes dev deps for build)
-RUN pnpm install --frozen-lockfile
+RUN pnpm install
 
 # Copy worker source
 COPY apps/worker/ ./apps/worker/
@@ -33,7 +33,7 @@ COPY --from=builder /app/pnpm-lock.yaml ./
 
 # Install ONLY production dependencies (bullmq, ioredis + workspace packages)
 # --prod flags out dev deps like tsx, ts-node, testing frameworks
-RUN pnpm install --frozen-lockfile --prod
+RUN pnpm install --prod
 
 # Copy the compiled worker output (if tsc produced dist/, otherwise copy src)
 # Most of this codebase runs via tsx in dev; for prod we'll copy src and
