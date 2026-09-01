@@ -38,12 +38,20 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
       - run: pnpm install --frozen-lockfile
       - name: Generate Prisma client
         run: pnpm db:generate
       - run: pnpm format:check
       - run: pnpm lint
       - run: pnpm typecheck
+      - name: Python quality gate (pyright)
+        run: pnpm pyright
+      - name: Verify Python AST gate
+        run: pnpm exec tsx packages/repo-analysis/scripts/verify-python-gate.ts
       - name: Eval corpus gate (certification prerequisite)
         run: pnpm test:corpus
       - run: pnpm test

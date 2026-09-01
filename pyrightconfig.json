@@ -1,0 +1,24 @@
+{
+  "typeCheckingMode": "basic",
+  "pythonVersion": "3.10",
+  "pythonPlatform": "All",
+  "include": ["fixtures/repositories/openai-python-legacy"],
+  "exclude": ["**/node_modules", "**/.venv", "**/.next", "**/dist", "**/build"],
+  "reportMissingImports": "warning",
+  "reportMissingTypeStubs": "none",
+  "reportUnknownVariableType": "none",
+  "reportUnknownMemberType": "none",
+  "reportUnknownArgumentType": "none",
+  "reportUnknownParameterType": "none",
+  "reportAttributeAccessIssue": "none",
+  "reportGeneralTypeIssues": "none",
+  "venvPath": ".",
+  "venv": ".venv",
+  "executionEnvironments": [
+    {
+      "root": "fixtures/repositories/openai-python-legacy",
+      "pythonVersion": "3.10",
+      "extraPaths": ["fixtures/repositories/openai-python-legacy/src"]
+    }
+  ]
+}

@@ -24,7 +24,9 @@
     "db:reset": "pnpm --filter @patchbay/db reset",
     "verify:lockfile": "pnpm install --frozen-lockfile",
     "e2e": "playwright test",
-    "test:redis-integration": "vitest run --config vitest.redis.config.ts"
+    "test:redis-integration": "vitest run --config vitest.redis.config.ts",
+    "pyright": "pyright",
+    "verify:python": "pnpm pyright && tsx packages/repo-analysis/scripts/verify-python-gate.ts"
   },
   "devDependencies": {
     "@dodopayments/opencode-plugin": "^0.5.1",
@@ -37,6 +39,7 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "prettier": "^3.5.3",
     "tsx": "^4.19.4",
+    "pyright": "^1.1.399",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.35.0",
     "vitest": "^3.2.0"
