@@ -1,5 +1,7 @@
 export { prisma } from "./client";
 export { withOrgContext, ORG_SCOPED_MODELS } from "./org-scope";
+export { withRlsContext, setRlsContext } from "./rls";
+export { encryptSecret, decryptSecret, isKmsConfigured } from "./kms";
 export type { OrgScopedModel } from "./org-scope";
 export {
   claimTaskParameter,
