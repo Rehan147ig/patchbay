@@ -1,0 +1,12 @@
+{
+  "name": "vercel-ai-sdk-legacy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "ai": "^3.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0"
+  }
+}

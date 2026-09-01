@@ -1,0 +1,13 @@
+lockfileVersion: "9.0"
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+importers:
+  .:
+    dependencies:
+      ai:
+        specifier: ^3.0.0
+        version: 3.0.0
+packages:
+  ai@3.0.0:
+    resolution: { integrity: sha512-placeholder }

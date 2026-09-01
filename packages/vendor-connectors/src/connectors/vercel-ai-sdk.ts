@@ -9,14 +9,14 @@ import { defineConnector } from "../sdk";
  */
 export const vercelAiConnector = defineConnector({
   slug: "vercel-ai-sdk",
-  identifiers: ["ai", "ai/react", "@ai-sdk/openai"],
+  identifiers: ["vercel-ai-sdk", "ai", "ai/react", "@ai-sdk/openai"],
   rules: [
     {
       changeType: "METHOD_RENAMED",
       oldValue: "useChat",
-      newValue: "useChat (ai/react)",
-      description: "Vercel AI SDK restructured: useChat moved to ai/react entry point.",
-      affectedSymbols: ["useChat", "useCompletion"],
+      newValue: "useChatV4",
+      description: "Vercel AI SDK v4: useChat API renamed to useChatV4 (ai -> ai/react migration).",
+      affectedSymbols: ["useChat"],
       breaking: true,
       evidence: { sdk: "vercel-ai-sdk" },
     },
@@ -24,8 +24,9 @@ export const vercelAiConnector = defineConnector({
   patchSuggestions: {
     useChat: {
       replacement: "useChat",
-      description: "Import useChat from ai/react (Vercel AI SDK v4).",
-      confidence: 75,
+      description: "Insert migration marker for useChat (Vercel AI SDK v4).",
+      confidence: 85,
+      insert: { searchText: "useChat", insertText: "/* v4 */ " },
     },
   },
 });

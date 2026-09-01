@@ -81,8 +81,13 @@ export function unifiedDiff(original: string, patched: string, filePath: string)
 
     if (hunk.length === 0) {
       hunk = [...pendingContext];
-      hunkOldStart = hunk[0]!.oldLine;
-      hunkNewStart = hunk[0]!.newLine;
+      if (hunk.length > 0) {
+        hunkOldStart = hunk[0]!.oldLine;
+        hunkNewStart = hunk[0]!.newLine;
+      } else {
+        hunkOldStart = change.oldLine || change.newLine || 1;
+        hunkNewStart = change.newLine || change.oldLine || 1;
+      }
     }
     hunk.push(change);
     pendingContext = [];

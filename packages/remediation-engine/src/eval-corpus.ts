@@ -107,6 +107,7 @@ const TRACKED = [
   "@supabase/supabase-js",
   "langchain",
   "@langchain/openai",
+  "ai",
 ];
 
 export const EVAL_CORPUS: EvalCorpusEntry[] = [
@@ -352,6 +353,32 @@ export const EVAL_CORPUS: EvalCorpusEntry[] = [
     expectedMatched: true,
     expectedFiles: [],
     facts: { breaking: true, requiresHumanReview: true, riskTags: [] },
+    expectedDecision: PolicyDecision.ALLOW_PLAN_ONLY,
+  },
+  {
+    id: "vercel-ai-sdk-3.0.0",
+    vendor: "vercel-ai-sdk",
+    fixture: "vercel-ai-sdk-legacy",
+    packageName: "ai",
+    releaseVersion: "3.0.0",
+    previousVersion: "2.0.0",
+    payload: { sdk: "vercel-ai-sdk" },
+    expectedMatched: true,
+    expectedFiles: ["src/app.ts"],
+    facts: { breaking: true, requiresHumanReview: true, riskTags: [] },
+    expectedDecision: PolicyDecision.REQUIRE_APPROVAL,
+  },
+  {
+    id: "vercel-ai-sdk-4.0.0",
+    vendor: "vercel-ai-sdk",
+    fixture: "vercel-ai-sdk-legacy",
+    packageName: "ai",
+    releaseVersion: "4.0.0",
+    previousVersion: "3.0.0",
+    payload: { fromVersion: "3.x", toVersion: "4.x" },
+    expectedMatched: false,
+    expectedFiles: [],
+    facts: { breaking: false, requiresHumanReview: false, riskTags: [] },
     expectedDecision: PolicyDecision.ALLOW_PLAN_ONLY,
   },
 ];

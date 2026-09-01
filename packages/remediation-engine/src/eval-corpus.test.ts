@@ -126,6 +126,7 @@ describe("H8 per-entry cases", () => {
         "aws-sdk",
         "supabase",
         "langchain",
+        "vercel-ai-sdk",
       ]),
     );
   });
@@ -172,7 +173,14 @@ describe("certified DRAFT_PR patch coverage gate (CI)", () => {
     const checks = await checkCertifiedPatchCoverage();
     const draftPr = checks.filter((check) => check.certifiedDraftPr);
     expect(draftPr.map((check) => check.connector)).toEqual(
-      expect.arrayContaining(["openai", "stripe", "twilio", "anthropic", "supabase"]),
+      expect.arrayContaining([
+        "openai",
+        "stripe",
+        "twilio",
+        "anthropic",
+        "supabase",
+        "vercel-ai-sdk",
+      ]),
     );
     expect(draftPr.length).toBeGreaterThan(0);
     for (const check of draftPr) {
