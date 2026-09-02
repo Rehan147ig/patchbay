@@ -1,16 +1,18 @@
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-# Install pnpm globally
-RUN npm install -g pnpm
+# Install pnpm pinned to repo's packageManager version (10.34.5) - latest breaks lockfile identity
+RUN npm install -g pnpm@10.34.5
 
-# Copy root package files and lockfile
-COPY package.json pnpm-lock.yaml .env.example ./
+# Copy root package files and lockfile + workspace manifests (needed before pnpm install for correct linking)
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .env.example ./
 COPY packages/ ./packages/
+COPY apps/web/package.json ./apps/web/package.json
+COPY apps/worker/package.json ./apps/worker/package.json
 
 # Install root deps (hoisted, workspaces — includes dev deps for build)
-RUN pnpm install
+RUN pnpm install --frozen-lockfile
 
 # Copy worker source
 COPY apps/worker/ ./apps/worker/
@@ -23,9 +25,10 @@ RUN npx tsc --noEmit -p tsconfig.json 2>/dev/null || true
 # For @patchbay/worker, we'll copy src/ and rely on the runtime approach below.
 
 # ---- Production stage ----
-FROM node:20-alpine AS worker-prod
+FROM node:22-alpine AS worker-prod
 
 WORKDIR /app
+RUN npm install -g pnpm@10.34.5
 
 # Copy only package manifest + lock from builder (for prod deps only)
 COPY --from=builder /app/package.json ./
@@ -33,7 +36,7 @@ COPY --from=builder /app/pnpm-lock.yaml ./
 
 # Install ONLY production dependencies (bullmq, ioredis + workspace packages)
 # --prod flags out dev deps like tsx, ts-node, testing frameworks
-RUN pnpm install --prod
+RUN pnpm install --frozen-lockfile --prod
 
 # Copy the compiled worker output (if tsc produced dist/, otherwise copy src)
 # Most of this codebase runs via tsx in dev; for prod we'll copy src and
@@ -60,4 +63,4 @@ USER node
 EXPOSE 3001
 
 # Run the worker using tsx (brings ESM + TypeScript support without compiling)
-CMD ["dotenv", "-e", "../../.env", "tsx", "src/index.ts"]
+CMD ["tsx", "src/index.ts"]
