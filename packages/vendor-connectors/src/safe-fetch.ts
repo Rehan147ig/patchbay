@@ -16,6 +16,7 @@ export type TrustViolationReason =
   | "redirect_rejected"
   | "response_too_large"
   | "request_timeout"
+  | "rate_limited"
   | "non_ok_status";
 
 export class TrustViolationError extends Error {
@@ -99,6 +100,15 @@ export async function fetchWithTrust(
       throw new TrustViolationError("non_ok_status", "unexpected 304 response", 304);
     }
     return { status: 304, headers: response.headers, text: "" };
+  }
+
+  if (response.status === 429) {
+    const retryAfter = response.headers.get("retry-after");
+    throw new TrustViolationError(
+      "rate_limited",
+      `rate limited (429)${retryAfter ? `, retry-after: ${retryAfter}` : ""}`,
+      429,
+    );
   }
 
   if (response.status >= 300 && response.status < 400) {

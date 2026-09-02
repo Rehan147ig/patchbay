@@ -35,6 +35,8 @@ export const PROMPT_TEMPLATE_VERSION = "h3-plan-v1";
 const MODEL_PRICE_CENTS_PER_MILLION: Record<string, { input: number; output: number }> = {
   mock: { input: 0, output: 0 },
   "gpt-4o-mini": { input: 0.15, output: 0.6 },
+  "gpt-4o": { input: 2.5, output: 10 },
+  "gpt-4o-2024-08-06": { input: 2.5, output: 10 },
 };
 
 export class PlanSchemaError extends Error {

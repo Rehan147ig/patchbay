@@ -25,6 +25,7 @@ export type NotificationType = (typeof NotificationType)[keyof typeof Notificati
  */
 export async function createNotification(input: {
   organizationId: string;
+  workspaceId?: string | null;
   type: NotificationType;
   title: string;
   body?: string;
@@ -33,6 +34,7 @@ export async function createNotification(input: {
   const record = await prisma.notification.create({
     data: {
       organizationId: input.organizationId,
+      ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
       type: input.type,
       title: input.title,
       body: input.body ?? null,
@@ -48,7 +50,7 @@ export async function createNotification(input: {
     entityType: "notification",
     entityId: record.id,
     correlationId: input.correlationId ?? null,
-    after: { type: input.type, title: input.title },
+    after: { type: input.type, title: input.title, workspaceId: input.workspaceId ?? null },
   });
   await prisma.auditEvent.create({
     data: {

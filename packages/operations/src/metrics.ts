@@ -17,6 +17,9 @@ export interface MetricsPrisma {
   detectionRun: {
     findMany(args: unknown): Promise<Array<Record<string, unknown>>>;
   };
+  graphIndexJob?: {
+    findMany(args: unknown): Promise<Array<Record<string, unknown>>>;
+  };
   validationRun: {
     groupBy(args: unknown): Promise<Array<Record<string, unknown>>>;
   };
@@ -47,6 +50,10 @@ export interface OrganizationMetrics {
   detection: {
     runCount: number;
     latencyP95Ms: number | null;
+  };
+  graph: {
+    indexP95Ms: number | null;
+    snapshotCount: number;
   };
   sandbox: {
     passed: number;
@@ -103,34 +110,45 @@ export async function computeOrganizationMetrics(
   const since = (input.now ?? new Date()).getTime() - input.windowDays * 86_400_000;
   const sinceDate = new Date(since);
 
-  const [detectionRuns, validationGroups, planGroups, outcomeGroups, outcomeCount, prGroups] =
-    await Promise.all([
-      prisma.detectionRun.findMany({
-        where: { startedAt: { gte: sinceDate } },
-        select: { latencyMs: true },
-      }),
-      prisma.validationRun.groupBy({
-        by: ["status"],
-        where: { organizationId: input.organizationId, createdAt: { gte: sinceDate } },
-        _count: { _all: true },
-      }),
-      prisma.remediationPlan.groupBy({
-        by: ["status"],
-        where: { organizationId: input.organizationId, createdAt: { gte: sinceDate } },
-        _count: { _all: true },
-      }),
-      prisma.prOutcome.groupBy({
-        by: ["classification"],
-        where: { organizationId: input.organizationId, createdAt: { gte: sinceDate } },
-        _count: { _all: true },
-      }),
-      prisma.prOutcome.count({ where: { organizationId: input.organizationId } }),
-      prisma.pullRequest.groupBy({
-        by: ["status"],
-        where: { organizationId: input.organizationId, createdAt: { gte: sinceDate } },
-        _count: { _all: true },
-      }),
-    ]);
+  const [
+    detectionRuns,
+    graphIndexJobs,
+    validationGroups,
+    planGroups,
+    outcomeGroups,
+    outcomeCount,
+    prGroups,
+  ] = await Promise.all([
+    prisma.detectionRun.findMany({
+      where: { startedAt: { gte: sinceDate } },
+      select: { latencyMs: true },
+    }),
+    prisma.graphIndexJob?.findMany({
+      where: { organizationId: input.organizationId, createdAt: { gte: sinceDate } },
+      select: { durationMs: true },
+    }) ?? Promise.resolve([]),
+    prisma.validationRun.groupBy({
+      by: ["status"],
+      where: { organizationId: input.organizationId, createdAt: { gte: sinceDate } },
+      _count: { _all: true },
+    }),
+    prisma.remediationPlan.groupBy({
+      by: ["status"],
+      where: { organizationId: input.organizationId, createdAt: { gte: sinceDate } },
+      _count: { _all: true },
+    }),
+    prisma.prOutcome.groupBy({
+      by: ["classification"],
+      where: { organizationId: input.organizationId, createdAt: { gte: sinceDate } },
+      _count: { _all: true },
+    }),
+    prisma.prOutcome.count({ where: { organizationId: input.organizationId } }),
+    prisma.pullRequest.groupBy({
+      by: ["status"],
+      where: { organizationId: input.organizationId, createdAt: { gte: sinceDate } },
+      _count: { _all: true },
+    }),
+  ]);
 
   const [agentGroups, costAggregate, terminalCases] = await Promise.all([
     prisma.agentRun.groupBy({
@@ -160,6 +178,11 @@ export async function computeOrganizationMetrics(
 
   const latencies = (detectionRuns as Array<{ latencyMs: number | null }>)
     .map((run) => run.latencyMs)
+    .filter((v): v is number => v !== null)
+    .sort((a, b) => a - b);
+
+  const graphLatencies = (graphIndexJobs as Array<{ durationMs: number | null }>)
+    .map((run) => run.durationMs)
     .filter((v): v is number => v !== null)
     .sort((a, b) => a - b);
 
@@ -220,6 +243,10 @@ export async function computeOrganizationMetrics(
     detection: {
       runCount: detectionRuns.length,
       latencyP95Ms: latencies.length > 0 ? percentile(latencies, 95) : null,
+    },
+    graph: {
+      indexP95Ms: graphLatencies.length > 0 ? percentile(graphLatencies, 95) : null,
+      snapshotCount: graphIndexJobs.length,
     },
     sandbox: {
       passed: sandboxPassed,

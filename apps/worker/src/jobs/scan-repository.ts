@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { prisma, createNotification, NotificationType } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
-import { ActorType, ScanStatus, logger } from "@patchbay/domain";
+import { ActorType, RepositoryStatus, ScanStatus, logger } from "@patchbay/domain";
 import { analyzeRepository } from "@patchbay/repo-analysis";
 import { assertJobPayloadSize, enqueue, JobType } from "@patchbay/queue";
 import type { Job } from "bullmq";
@@ -57,6 +57,9 @@ export async function processScanRepository(job: Job): Promise<ScanRepositoryRes
   ]);
   if (!repository) {
     throw new Error(`repository not found: ${repositoryId}`);
+  }
+  if (repository.status === RepositoryStatus.ARCHIVED) {
+    throw new Error(`repository ${repositoryId} is archived and opted out of scanning`);
   }
   if (!scan) {
     throw new Error(`scan not found: ${scanId}`);

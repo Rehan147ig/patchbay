@@ -92,7 +92,9 @@ async function main(): Promise<void> {
       // Acquire per-org and global concurrency slots before job execution.
       // If either fails, the job is deferred (throws, BullMQ will retry later
       // per its attempts/backoff config, or the job can explicitly defer).
-      const orgLimit = Number(process.env.ORG_CONCURRENCY_LIMIT ?? "4");
+      const orgLimit = Number(
+        process.env.SANDBOX_CONCURRENCY ?? process.env.ORG_CONCURRENCY_LIMIT ?? "4",
+      );
       const globalLimit = Number(process.env.GLOBAL_CONCURRENCY_LIMIT ?? "10");
 
       const orgResult = await acquireOrgConcurrency(job.data.organizationId ?? "unknown", orgLimit);
