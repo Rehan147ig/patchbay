@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@patchbay/ui";
+import { Button, Input, Select } from "@patchbay/ui";
 import { apiFetch } from "@/lib/client-fetch";
 
 export interface ConnectInstallation {
@@ -47,40 +47,40 @@ export function ConnectRepositoryForm({ installations }: { installations: Connec
   }
 
   return (
-    <form action={connect} className="space-y-3">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <label className="text-xs text-ink-400">
-          GitHub installation
-          <select
-            name="installationId"
-            required
-            defaultValue={String(installations[0]?.installationId ?? "")}
-            className="mt-1 block w-full rounded-md border border-ink-600 bg-ink-800/60 px-3 py-2 text-sm focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/30"
-          >
-            {installations.map((installation) => (
-              <option key={installation.installationId} value={installation.installationId}>
-                {installation.accountLogin} ({installation.accountType}) ·{" "}
-                {installation.installationId}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="text-xs text-ink-400">
-          Repository (owner/repo)
-          <input
-            name="repositoryFullName"
-            required
-            placeholder="acme/billing-service"
-            className="mt-1 block w-full rounded-md border border-ink-600 px-3 py-2 text-sm focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/30"
-          />
-        </label>
+    <form action={connect} className="space-y-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Select
+          label="GitHub installation"
+          name="installationId"
+          required
+          defaultValue={String(installations[0]?.installationId ?? "")}
+          className="h-10 rounded-xl"
+        >
+          {installations.map((installation) => (
+            <option key={installation.installationId} value={installation.installationId}>
+              {installation.accountLogin} ({installation.accountType}) ·{" "}
+              {installation.installationId}
+            </option>
+          ))}
+        </Select>
+        <Input
+          label="Repository (owner/repo)"
+          name="repositoryFullName"
+          required
+          placeholder="acme/billing-service"
+          className="h-10 rounded-xl"
+        />
       </div>
       <div className="flex items-center gap-3">
-        <Button type="submit" loading={pending}>
+        <Button
+          type="submit"
+          loading={pending}
+          className="rounded-full bg-[#0071e3] hover:bg-[#0077ed]"
+        >
           Connect repository
         </Button>
         {error ? (
-          <p role="alert" className="text-xs text-red-600">
+          <p role="alert" className="text-xs font-medium text-[#ff3b30]">
             {error}
           </p>
         ) : null}

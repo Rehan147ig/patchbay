@@ -65,16 +65,17 @@ export function CapabilityGateControl({
           onChange={(event) => setReason(event.target.value)}
           placeholder="Suspension reason (optional)"
           maxLength={500}
-          className="rounded-md border border-ink-700/60 bg-ink-800/60 px-2 py-1 text-xs text-gray-200"
+          className="h-7 rounded-xl border border-zinc-200 bg-white px-2.5 text-xs text-[#1d1d1f] placeholder:text-zinc-400 shadow-sm focus:border-[#0071e3] focus:outline-none focus:ring-2 focus:ring-[#0071e3]/20"
         />
       ) : null}
       {isAdmin ? (
         suspended ? (
           <Button
-            variant="secondary"
+            variant="primary"
             size="sm"
             onClick={() => changeGate("restore")}
             loading={pending}
+            className="rounded-full bg-[#0071e3] hover:bg-[#0077ed]"
           >
             Restore
           </Button>
@@ -84,14 +85,15 @@ export function CapabilityGateControl({
             size="sm"
             onClick={() => changeGate("suspend")}
             loading={pending}
+            className="rounded-full"
           >
             Suspend
           </Button>
         )
       ) : null}
-      {status ? <span className="text-xs text-ink-400">{status}</span> : null}
+      {status ? <span className="text-xs font-medium text-zinc-500">{status}</span> : null}
       {suspended && gate.reason ? (
-        <span className="text-xs text-red-600">Reason: {gate.reason}</span>
+        <span className="text-xs font-medium text-[#ff3b30]">Reason: {gate.reason}</span>
       ) : null}
     </div>
   );

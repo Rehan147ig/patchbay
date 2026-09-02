@@ -35,36 +35,36 @@ export default async function LoginPage() {
   const oauthEnabled = isGitHubOAuthConfigured();
 
   return (
-    <div className="flex min-h-screen bg-ink-900">
-      {/* Left: brand panel */}
-      <div className="relative hidden w-1/2 flex-col justify-center overflow-hidden border-r border-ink-700/70 bg-[#0d0e11] p-12 lg:flex">
+    <div className="flex min-h-screen bg-[#fbfbfd] font-sans antialiased">
+      {/* Left: brand panel — Apple dark */}
+      <div className="relative hidden w-1/2 flex-col justify-center overflow-hidden bg-[#1d1d1f] p-12 text-white lg:flex">
         <div
           aria-hidden="true"
-          className="absolute size-96 rounded-full bg-accent-500/10 blur-3xl animate-drift"
+          className="absolute -top-24 -left-24 size-[520px] rounded-full bg-[#0071e3]/15 blur-3xl"
         />
         <div
           aria-hidden="true"
-          className="absolute -bottom-32 right-0 size-80 rounded-full bg-mint-400/5 blur-3xl animate-drift"
+          className="absolute -bottom-32 -right-24 size-[420px] rounded-full bg-white/5 blur-3xl"
         />
         <div className="relative z-10">
           <div className="mb-8 flex items-center gap-3">
-            <span className="flex size-14 items-center justify-center rounded-2xl bg-gradient-to-br from-accent-500 to-accent-600 text-2xl font-black text-white shadow-[0_0_40px_rgba(99,102,241,0.4)]">
+            <span className="flex size-14 items-center justify-center rounded-2xl bg-white text-2xl font-semibold tracking-tight text-[#1d1d1f] shadow-[0_8px_24px_rgba(0,0,0,0.12)]">
               P
             </span>
-            <h1 className="text-3xl font-bold tracking-tight text-white">Patch</h1>
+            <h1 className="text-3xl font-semibold tracking-tight text-white">Patch</h1>
           </div>
-          <p className="max-w-md text-lg leading-relaxed text-ink-300">
+          <p className="max-w-md text-lg leading-relaxed text-zinc-300">
             Governed API-change remediation. Zero source code stored.
           </p>
           <ul className="mt-12 space-y-6">
             {PILLARS.map((pillar) => (
               <li key={pillar.title} className="flex items-start gap-4">
-                <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg border border-ink-700 bg-ink-800 text-accent-400">
+                <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-white/10 text-white ring-1 ring-white/10">
                   <pillar.icon className="size-4" aria-hidden="true" />
                 </span>
                 <div>
-                  <p className="text-sm font-semibold text-gray-100">{pillar.title}</p>
-                  <p className="mt-0.5 max-w-sm text-xs leading-relaxed text-ink-400">
+                  <p className="text-sm font-semibold tracking-tight text-white">{pillar.title}</p>
+                  <p className="mt-0.5 max-w-sm text-xs leading-relaxed text-zinc-400">
                     {pillar.body}
                   </p>
                 </div>
@@ -72,18 +72,21 @@ export default async function LoginPage() {
             ))}
           </ul>
         </div>
+        <p className="relative z-10 mt-auto pt-12 text-xs leading-relaxed text-zinc-500">
+          Patch — You build. We maintain. Draft PRs only, never auto-merge.
+        </p>
       </div>
 
-      {/* Right: sign-in form */}
-      <div className="flex w-full items-center justify-center p-8 lg:w-1/2">
+      {/* Right: sign-in form — Apple light */}
+      <div className="flex w-full items-center justify-center bg-[#fbfbfd] p-6 lg:w-1/2 lg:p-8">
         <div className="w-full max-w-sm animate-slide-up">
           <div className="mb-8 flex items-center gap-2.5 lg:hidden">
-            <span className="flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-accent-500 to-accent-600 text-base font-black text-white shadow-[0_0_28px_rgba(99,102,241,0.35)]">
+            <span className="flex size-9 items-center justify-center rounded-xl bg-[#1d1d1f] text-base font-semibold text-white shadow-sm">
               P
             </span>
-            <span className="text-lg font-bold tracking-tight text-white">Patch</span>
+            <span className="text-lg font-semibold tracking-tight text-[#1d1d1f]">Patch</span>
           </div>
-          <Card className="border-ink-700/60 bg-ink-800/50 backdrop-blur-xl">
+          <Card className="rounded-[24px] border-zinc-200 bg-white shadow-[0_20px_60px_rgba(0,0,0,0.08)]">
             <CardHeader>
               <CardTitle className="text-base">Sign in to Patch</CardTitle>
               <CardDescription>
@@ -96,17 +99,17 @@ export default async function LoginPage() {
               {oauthEnabled ? (
                 <>
                   <GitHubSignInButton />
-                  <div className="flex items-center gap-3 text-xs text-ink-500">
-                    <span className="h-px flex-1 bg-ink-700" />
+                  <div className="flex items-center gap-3 text-xs font-medium text-zinc-400">
+                    <span className="h-px flex-1 bg-zinc-200" />
                     or
-                    <span className="h-px flex-1 bg-ink-700" />
+                    <span className="h-px flex-1 bg-zinc-200" />
                   </div>
                 </>
               ) : null}
               <LoginForm />
             </CardContent>
           </Card>
-          <p className="mt-6 text-center text-[11px] leading-relaxed text-ink-500">
+          <p className="mt-6 text-center text-[11px] leading-relaxed text-zinc-500">
             Local development MVP — the bundled sandbox and dev auth are not hardened multi-tenant
             infrastructure.
           </p>

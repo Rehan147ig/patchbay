@@ -112,26 +112,26 @@ export function VendorAgentKeyControl({
   }
 
   return (
-    <div className="flex flex-col items-end gap-1">
+    <div className="flex flex-col items-end gap-1.5">
       {issued ? (
-        <div className="w-64 rounded-md border border-amber-300 bg-amber-50 p-2">
-          <p className="text-xs font-medium text-amber-800">Store this key now — shown once</p>
-          <code className="mt-1 block break-all rounded bg-white px-1.5 py-1 font-mono text-[11px] text-slate-800">
+        <div className="w-64 rounded-[16px] border border-amber-200 bg-amber-50 p-3 shadow-sm">
+          <p className="text-xs font-semibold text-amber-800">Store this key now — shown once</p>
+          <code className="mt-1.5 block break-all rounded-xl border border-amber-200 bg-white px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-[#1d1d1f]">
             {issued.agentKey}
           </code>
-          <p className="mt-1 text-[11px] text-amber-700">{issued.note}</p>
-          <div className="mt-1.5 flex items-center gap-2">
+          <p className="mt-1.5 text-[11px] leading-relaxed text-amber-700">{issued.note}</p>
+          <div className="mt-2 flex items-center gap-2">
             <button
               type="button"
               onClick={() => void navigator.clipboard?.writeText(issued.agentKey)}
-              className="rounded bg-amber-200 px-1.5 py-0.5 text-[11px] font-medium text-amber-900"
+              className="rounded-full bg-[#1d1d1f] px-3 py-1 text-[11px] font-medium text-white shadow-sm transition-colors hover:bg-zinc-800"
             >
               Copy
             </button>
             <button
               type="button"
               onClick={() => setIssued(null)}
-              className="rounded bg-white px-1.5 py-0.5 text-[11px] font-medium text-amber-800"
+              className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-[11px] font-medium text-zinc-600 shadow-sm transition-colors hover:bg-zinc-50"
             >
               Dismiss
             </button>
@@ -140,19 +140,31 @@ export function VendorAgentKeyControl({
       ) : (
         <>
           <div className="flex items-center gap-2">
-            <Button variant="secondary" size="sm" onClick={issueKey} loading={pending}>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={issueKey}
+              loading={pending}
+              className="rounded-full"
+            >
               {hasKey ? "Rotate key" : "Issue key"}
             </Button>
             {hasKey ? (
               confirmingRevoke ? (
                 <>
-                  <Button variant="danger" size="sm" onClick={revokeKey} loading={pending}>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={revokeKey}
+                    loading={pending}
+                    className="rounded-full"
+                  >
                     Confirm revoke
                   </Button>
                   <button
                     type="button"
                     onClick={() => setConfirmingRevoke(false)}
-                    className="text-[11px] text-slate-500 underline"
+                    className="text-[11px] font-medium text-zinc-500 underline decoration-zinc-300 underline-offset-2 hover:text-zinc-700"
                   >
                     cancel
                   </button>
@@ -161,7 +173,7 @@ export function VendorAgentKeyControl({
                 <button
                   type="button"
                   onClick={() => setConfirmingRevoke(true)}
-                  className="text-[11px] text-red-600 underline"
+                  className="text-[11px] font-medium text-[#ff3b30] underline decoration-[#ff3b30]/30 underline-offset-2 hover:text-[#d70015]"
                 >
                   Revoke
                 </button>
@@ -169,13 +181,16 @@ export function VendorAgentKeyControl({
             ) : null}
           </div>
           {hasKey && entry.legacyKey ? (
-            <span className="text-[11px] text-amber-700" title="sha256 seed/legacy hash">
+            <span
+              className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700"
+              title="sha256 seed/legacy hash"
+            >
               legacy — rotate
             </span>
           ) : null}
         </>
       )}
-      {status ? <span className="text-xs text-slate-600">{status}</span> : null}
+      {status ? <span className="text-xs font-medium text-zinc-500">{status}</span> : null}
     </div>
   );
 }

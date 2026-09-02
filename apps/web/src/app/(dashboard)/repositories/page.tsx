@@ -52,19 +52,19 @@ export default async function RepositoriesPage() {
   const canConnect = user.role === "ADMIN" || user.role === "MEMBER";
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 bg-[#fbfbfd] font-sans antialiased">
       <PageHeader
         title="Connected Repositories"
         description="Source code repositories monitored for upstream SDK breaking changes and integration callsite usages."
         badge={
-          <Badge tone="blue" dot>
+          <Badge tone="blue" variant="subtle" dot>
             {repositories.length} Repositories
           </Badge>
         }
         actions={
           <Link
             href="/settings/github"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-ink-700 bg-transparent px-3 py-1.5 text-xs font-medium text-gray-300 hover:bg-ink-800 hover:text-white transition-colors"
+            className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white px-4 py-1.5 text-xs font-medium text-zinc-600 shadow-sm transition-colors hover:border-zinc-300 hover:bg-zinc-50 hover:text-[#1d1d1f]"
           >
             <Plus className="size-3.5" />
             <span>Configure GitHub App</span>
@@ -74,13 +74,13 @@ export default async function RepositoriesPage() {
 
       {repositories.length === 0 ? (
         <EmptyState
-          icon={<GitBranch className="size-6 text-accent-400" />}
+          icon={<GitBranch className="size-6 text-[#0071e3]" />}
           title="No repositories connected yet"
           description="Connect a GitHub repository or use the demo setup to start indexing AST usages and monitoring releases."
           action={
             <Link
               href="/settings/github"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-accent-400/30 bg-gradient-to-r from-accent-600 to-accent-500 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:from-accent-500 hover:to-accent-400 transition-all"
+              className="inline-flex items-center gap-1.5 rounded-full bg-[#0071e3] px-4 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-[#0077ed]"
             >
               Install GitHub App
             </Link>
@@ -106,20 +106,24 @@ export default async function RepositoriesPage() {
                   <TableCell>
                     <Link
                       href={`/repositories/${repository.id}`}
-                      className="font-semibold text-accent-400 hover:text-accent-300 hover:underline flex items-center gap-1.5"
+                      className="flex items-center gap-1.5 text-[13px] font-semibold tracking-tight text-[#0071e3] hover:underline"
                     >
                       <span>{repository.name}</span>
                     </Link>
-                    <p className="text-xs text-ink-400 font-mono mt-0.5">{repository.fullName}</p>
+                    <p className="mt-0.5 font-mono text-xs text-zinc-500">{repository.fullName}</p>
                   </TableCell>
                   <TableCell>
-                    <Badge tone={repository.provider === "GITHUB" ? "blue" : "neutral"} size="sm">
+                    <Badge
+                      tone={repository.provider === "GITHUB" ? "blue" : "neutral"}
+                      size="sm"
+                      variant="subtle"
+                    >
                       {repository.provider}
                     </Badge>
                   </TableCell>
-                  <TableCell className="tabular-nums font-semibold text-gray-200">
+                  <TableCell className="tabular-nums text-[13px] font-semibold text-[#1d1d1f]">
                     {repository._count.usages}{" "}
-                    <span className="text-xs font-normal text-ink-400">calls</span>
+                    <span className="text-xs font-normal text-zinc-500">calls</span>
                   </TableCell>
                   <TableCell>
                     {latestScan ? (
@@ -128,16 +132,16 @@ export default async function RepositoriesPage() {
                         tone={SCAN_STATUS_TONE[latestScan.status]}
                       />
                     ) : (
-                      <span className="text-xs text-ink-500">Never scanned</span>
+                      <span className="text-xs text-zinc-500">Never scanned</span>
                     )}
                   </TableCell>
-                  <TableCell className="text-xs text-ink-400">
+                  <TableCell className="text-xs text-zinc-500">
                     {formatDate(repository.createdAt)}
                   </TableCell>
                   <TableCell>
                     <Link
                       href={`/repositories/${repository.id}`}
-                      className="flex size-7 items-center justify-center rounded-lg text-ink-500 opacity-0 transition-all group-hover:opacity-100 group-hover:bg-ink-800 group-hover:text-accent-300"
+                      className="flex size-7 items-center justify-center rounded-full border border-transparent text-zinc-400 opacity-0 transition-all group-hover:opacity-100 group-hover:border-zinc-200 group-hover:bg-white group-hover:text-[#0071e3] group-hover:shadow-sm"
                     >
                       <ArrowRight className="size-3.5" />
                     </Link>
@@ -150,7 +154,7 @@ export default async function RepositoriesPage() {
       )}
 
       {canConnect ? (
-        <Card>
+        <Card className="rounded-[20px] border-zinc-200 bg-white">
           <CardHeader>
             <CardTitle>Connect a GitHub repository</CardTitle>
             <CardDescription>
@@ -161,12 +165,12 @@ export default async function RepositoriesPage() {
           <CardContent>
             {installations.length === 0 ? (
               <div className="flex flex-wrap items-center justify-between gap-3 p-2">
-                <p className="text-xs text-ink-400">
+                <p className="text-xs text-zinc-500">
                   No GitHub App installations found for this workspace.
                 </p>
                 <Link
                   href="/settings/github"
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-accent-400/30 bg-gradient-to-r from-accent-600 to-accent-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:from-accent-500 hover:to-accent-400 transition-all"
+                  className="inline-flex items-center gap-1.5 rounded-full bg-[#0071e3] px-4 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-[#0077ed]"
                 >
                   Install GitHub App
                 </Link>

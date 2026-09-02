@@ -209,8 +209,8 @@ export function PipelineShowcase() {
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
     >
-      {/* Step list */}
-      <div className="order-2 space-y-2 lg:order-1">
+      {/* Step list — Apple 3-step Cards */}
+      <div className="order-2 space-y-3 lg:order-1">
         {STAGES.map((item, index) => {
           const isActive = index === active;
           return (
@@ -222,30 +222,30 @@ export function PipelineShowcase() {
                 setTick((t) => t + 1);
               }}
               aria-current={isActive}
-              className={`w-full rounded-xl border p-5 text-left transition-all duration-300 ${
+              className={`w-full rounded-[20px] border p-5 text-left transition-all duration-300 ${
                 isActive
-                  ? "border-accent-500/60 bg-white shadow-[0_8px_30px_-12px_rgba(79,70,229,0.25)]"
-                  : "border-transparent bg-transparent hover:border-gray-200 hover:bg-white"
+                  ? "border-[#0071e3]/20 bg-white shadow-[0_8px_24px_rgba(0,0,0,0.06)]"
+                  : "border-zinc-200/60 bg-white hover:border-zinc-300 hover:shadow-sm"
               }`}
             >
               <div className="flex items-center gap-3">
                 <span
-                  className={`font-mono text-sm font-semibold ${
-                    isActive ? "text-accent-600" : "text-gray-400"
+                  className={`font-mono text-sm font-semibold tracking-tight ${
+                    isActive ? "text-[#0071e3]" : "text-zinc-400"
                   }`}
                 >
                   {item.number}
                 </span>
                 <span
-                  className={`text-base font-semibold ${
-                    isActive ? "text-gray-900" : "text-gray-500"
+                  className={`text-[15px] font-semibold tracking-tight ${
+                    isActive ? "text-[#1d1d1f]" : "text-zinc-500"
                   }`}
                 >
                   {item.title}
                 </span>
                 {isActive && (
-                  <span className="ml-auto flex items-center gap-1.5 rounded-full bg-accent-500/10 px-2.5 py-1 text-[11px] font-medium text-accent-600">
-                    <span className="size-1.5 animate-pulse rounded-full bg-accent-500" />
+                  <span className="ml-auto flex items-center gap-1.5 rounded-full bg-[#0071e3]/10 px-2.5 py-1 text-[11px] font-medium tracking-tight text-[#0071e3]">
+                    <span className="size-1.5 animate-pulse rounded-full bg-[#0071e3]" />
                     live
                   </span>
                 )}
@@ -255,7 +255,9 @@ export function PipelineShowcase() {
                   isActive ? "mt-2 grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
                 }`}
               >
-                <p className="overflow-hidden text-sm leading-relaxed text-gray-600">{item.body}</p>
+                <p className="overflow-hidden text-[13px] leading-relaxed text-zinc-500">
+                  {item.body}
+                </p>
               </div>
             </button>
           );

@@ -31,12 +31,12 @@ export default async function AuditPage() {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 bg-[#fbfbfd] font-sans antialiased">
       <PageHeader
         title="Immutable Audit Log"
         description="WORM-compliant append-only ledger tracking all policy evaluations, repository scans, agent runs, and user actions. Secrets are cryptographically redacted before storage."
         badge={
-          <Badge tone="blue" dot>
+          <Badge tone="blue" variant="subtle" dot>
             {events.length} Entries Recorded
           </Badge>
         }
@@ -44,7 +44,7 @@ export default async function AuditPage() {
 
       {events.length === 0 ? (
         <EmptyState
-          icon={<FileText className="size-6 text-accent-400" />}
+          icon={<FileText className="size-6 text-[#0071e3]" />}
           title="No audit events recorded"
           description="Workspace events and governed actions will appear in this immutable trail."
         />
@@ -63,40 +63,40 @@ export default async function AuditPage() {
           <TableBody>
             {events.map((event) => (
               <TableRow key={event.id} className="group">
-                <TableCell className="whitespace-nowrap text-xs text-ink-400 font-mono">
+                <TableCell className="whitespace-nowrap font-mono text-xs text-zinc-500">
                   {formatDate(event.createdAt)}
                 </TableCell>
                 <TableCell>
-                  <span className="font-mono text-xs font-semibold text-gray-200 bg-ink-800/80 px-2 py-0.5 rounded border border-ink-700">
+                  <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 font-mono text-xs font-semibold tracking-tight text-[#1d1d1f]">
                     {event.action}
                   </span>
                 </TableCell>
                 <TableCell className="text-xs">
                   {event.actorType === ActorType.SYSTEM ? (
-                    <Badge tone="slate" size="sm">
+                    <Badge tone="neutral" variant="subtle" size="sm">
                       system
                     </Badge>
                   ) : event.actorType === ActorType.AGENT ? (
-                    <Badge tone="purple" size="sm" dot>
+                    <Badge tone="purple" variant="subtle" size="sm" dot>
                       agent
                     </Badge>
                   ) : (
-                    <span className="font-mono text-gray-300 font-medium">
+                    <span className="font-mono text-xs font-medium text-[#1d1d1f]">
                       {event.actorId?.replace("user-", "") ?? "—"}
                     </span>
                   )}
                 </TableCell>
-                <TableCell className="font-mono text-xs text-ink-400">
-                  <span className="text-gray-300">{event.entityType}</span>
-                  <span className="text-ink-600">:</span>
+                <TableCell className="font-mono text-xs text-zinc-500">
+                  <span className="font-medium text-[#1d1d1f]">{event.entityType}</span>
+                  <span className="text-zinc-300">:</span>
                   <span>{event.entityId ?? "—"}</span>
                 </TableCell>
-                <TableCell className="font-mono text-xs text-ink-500 truncate max-w-[120px]">
+                <TableCell className="max-w-[140px] truncate font-mono text-xs text-zinc-400">
                   {event.correlationId ?? "—"}
                 </TableCell>
                 <TableCell className="max-w-xs">
-                  <details className="text-xs group">
-                    <summary className="cursor-pointer font-semibold text-accent-400 transition-colors hover:text-accent-300 flex items-center gap-1">
+                  <details className="group text-xs">
+                    <summary className="flex cursor-pointer items-center gap-1 font-semibold text-[#0071e3] transition-colors hover:text-[#0077ed]">
                       <span>View payload</span>
                       <ChevronDown className="size-3 transition-transform group-open:rotate-180" />
                     </summary>

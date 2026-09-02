@@ -184,30 +184,43 @@ export class GitHubAppProvider implements GitProvider {
     Array<{ fullName: string; defaultBranch: string; externalId: string; isPrivate: boolean }>
   > {
     const token = await this.createInstallationToken();
-    const response = await this.fetchImpl(`${this.apiUrl}/installation/repositories?per_page=100`, {
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${token}`,
-        "X-GitHub-Api-Version": "2022-11-28",
-      },
-    });
-    if (!response.ok) {
-      if (response.status === 401) this.tokenCache.delete(this.config.installationId);
-      throw new Error(
-        redactGitHubSecrets(
-          `listing installation repositories failed: ${response.status} ${response.statusText}`,
-        ),
-      );
+    let url: string | null = `${this.apiUrl}/installation/repositories?per_page=100`;
+    const allRepos: Array<{
+      full_name: string;
+      default_branch: string;
+      id: number;
+      private: boolean;
+    }> = [];
+    while (url) {
+      const response: Response = await this.fetchImpl(url, {
+        headers: {
+          Accept: "application/vnd.github+json",
+          Authorization: `Bearer ${token}`,
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+      });
+      if (!response.ok) {
+        if (response.status === 401) this.tokenCache.delete(this.config.installationId);
+        throw new Error(
+          redactGitHubSecrets(
+            `listing installation repositories failed: ${response.status} ${response.statusText}`,
+          ),
+        );
+      }
+      const data = (await response.json()) as {
+        repositories?: Array<{
+          full_name: string;
+          default_branch: string;
+          id: number;
+          private: boolean;
+        }>;
+      };
+      allRepos.push(...(data.repositories ?? []));
+      const link: string | null = response.headers.get("link");
+      const match: RegExpMatchArray | null = link?.match(/<([^>]+)>;\s*rel="next"/) ?? null;
+      url = match?.[1] ?? null;
     }
-    const data = (await response.json()) as {
-      repositories?: Array<{
-        full_name: string;
-        default_branch: string;
-        id: number;
-        private: boolean;
-      }>;
-    };
-    return (data.repositories ?? []).map((repo) => ({
+    return allRepos.map((repo) => ({
       fullName: repo.full_name,
       defaultBranch: repo.default_branch,
       externalId: String(repo.id),

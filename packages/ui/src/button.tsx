@@ -5,17 +5,17 @@ type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "success" | 
 
 const VARIANT_CLASSES: Record<ButtonVariant, string> = {
   primary:
-    "bg-gradient-to-r from-accent-600 to-accent-500 text-white shadow-[0_0_20px_-6px_rgba(99,102,241,0.6)] hover:from-accent-500 hover:to-accent-400 hover:shadow-[0_0_28px_-4px_rgba(99,102,241,0.8)] focus-visible:outline-accent-500 border border-accent-400/30",
+    "bg-[#0071e3] text-white border border-transparent shadow-sm hover:bg-[#0077ed] active:bg-[#0058b0] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3]/30 focus-visible:ring-offset-0",
   secondary:
-    "bg-ink-800 text-gray-200 border border-ink-700/80 hover:bg-ink-700 hover:text-white hover:border-ink-600 focus-visible:outline-accent-500 shadow-sm",
+    "bg-zinc-900 text-white border border-zinc-900 shadow-sm hover:bg-zinc-800 active:bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900/20",
   outline:
-    "bg-transparent text-gray-300 border border-ink-700 hover:bg-ink-800/80 hover:text-white hover:border-ink-600 focus-visible:outline-accent-500",
+    "bg-white text-zinc-700 border border-zinc-200 shadow-sm hover:bg-zinc-50 hover:text-zinc-900 hover:border-zinc-300 active:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-200",
   ghost:
-    "bg-transparent text-ink-300 hover:bg-ink-800 hover:text-gray-100 focus-visible:outline-accent-500",
+    "bg-transparent text-zinc-600 border border-transparent hover:bg-zinc-100 hover:text-zinc-900 active:bg-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-200",
   danger:
-    "bg-red-600/90 text-white hover:bg-red-500 shadow-[0_0_20px_-6px_rgba(239,68,68,0.5)] focus-visible:outline-red-600 border border-red-500/30",
+    "bg-[#ff3b30] text-white border border-transparent shadow-sm hover:bg-[#ff453a] active:bg-[#d70015] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff3b30]/30",
   success:
-    "bg-emerald-600/90 text-white hover:bg-emerald-500 shadow-[0_0_20px_-6px_rgba(52,211,153,0.5)] focus-visible:outline-emerald-600 border border-emerald-500/30",
+    "bg-[#34c759] text-white border border-transparent shadow-sm hover:bg-[#30d158] active:bg-[#248a3d] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#34c759]/30",
 };
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -39,19 +39,21 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   ref,
 ) {
   const sizeClasses = {
-    xs: icon ? "size-6 p-1 text-xs" : "px-2 py-1 text-xs gap-1",
-    sm: icon ? "size-8 p-1.5 text-xs" : "px-3 py-1.5 text-xs gap-1.5",
-    md: icon ? "size-9 p-2 text-sm" : "px-4 py-2 text-sm gap-2",
-    lg: icon ? "size-11 p-2.5 text-base" : "px-5 py-2.5 text-base gap-2.5",
+    xs: icon ? "size-6 p-0 text-[11px] rounded-full" : "h-6 px-2.5 text-[11px] gap-1 rounded-full",
+    sm: icon ? "size-7 p-0 text-xs rounded-full" : "h-7 px-3 text-xs gap-1.5 rounded-full",
+    md: icon ? "size-9 p-0 text-[13px] rounded-full" : "h-9 px-5 text-[13px] gap-2 rounded-full",
+    lg: icon
+      ? "size-11 p-0 text-[15px] rounded-full"
+      : "h-11 px-6 text-[15px] gap-2.5 rounded-full",
   };
 
   return (
     <button
       ref={ref}
       className={cn(
-        "inline-flex items-center justify-center rounded-lg font-medium transition-all duration-150 active:scale-[0.98]",
-        "focus-visible:outline-2 focus-visible:outline-offset-2",
-        "disabled:pointer-events-none disabled:opacity-45",
+        "inline-flex items-center justify-center font-medium tracking-tight transition-colors duration-150 active:scale-[0.98]",
+        "font-sans antialiased",
+        "focus-visible:outline-none disabled:pointer-events-none disabled:opacity-45",
         sizeClasses[size],
         VARIANT_CLASSES[variant],
         className,

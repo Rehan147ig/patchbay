@@ -44,18 +44,24 @@ export function BillingActions({ upgradeableTiers, hasStripeCustomer }: Props) {
             size="sm"
             onClick={() => openBilling("checkout", tier)}
             loading={pending}
+            className="rounded-full bg-[#0071e3] hover:bg-[#0077ed]"
           >
             Upgrade to {tier}
           </Button>
         ))}
         {hasStripeCustomer ? (
-          <Button variant="secondary" size="sm" onClick={() => openBilling("portal")}>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => openBilling("portal")}
+            className="rounded-full"
+          >
             Manage billing
           </Button>
         ) : null}
       </div>
       {error ? (
-        <p role="alert" className="text-xs text-red-600">
+        <p role="alert" className="text-xs font-medium text-[#ff3b30]">
           {error}
         </p>
       ) : null}

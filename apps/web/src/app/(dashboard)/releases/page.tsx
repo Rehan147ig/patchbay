@@ -53,24 +53,30 @@ export default async function ReleasesPage() {
   const countByRelease = new Map(matchCounts.map((row) => [row.releaseRecordId, row._count._all]));
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-start justify-between">
+    <div className="space-y-6 bg-[#fbfbfd] font-sans antialiased">
+      <div className="flex items-start justify-between gap-4 border-b border-zinc-200/60 pb-6">
         <div>
-          <h1 className="text-xl font-semibold text-white">Releases</h1>
-          <p className="text-sm text-slate-500">
+          <h1 className="text-[24px] font-semibold tracking-tight text-[#1d1d1f] antialiased">
+            Releases
+          </h1>
+          <p className="mt-1.5 max-w-3xl text-[13px] leading-relaxed text-zinc-500">
             Observed upstream releases, deterministic classification, and affected repositories.
           </p>
         </div>
         <RecordReleaseForm />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
           {releases.length === 0 ? (
-            <EmptyState
-              title="No releases observed"
-              description="Record an upstream release to classify it and match affected repositories."
-            />
+            <Card className="rounded-[20px] border-zinc-200 bg-white">
+              <CardContent className="px-6 py-8">
+                <EmptyState
+                  title="No releases observed"
+                  description="Record an upstream release to classify it and match affected repositories."
+                />
+              </CardContent>
+            </Card>
           ) : (
             <Table>
               <TableHead>
@@ -93,49 +99,55 @@ export default async function ReleasesPage() {
                       ? ((classification.factsJson as { breaking?: boolean }).breaking ?? null)
                       : null;
                   return (
-                    <TableRow key={release.id}>
+                    <TableRow key={release.id} className="group">
                       <TableCell>
                         <Link
                           href={`/releases/${release.id}`}
-                          className="font-medium text-accent-400 hover:underline"
+                          className="text-[13px] font-semibold tracking-tight text-[#0071e3] hover:underline"
                         >
                           {release.product.packageName}
                         </Link>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-xs text-slate-500">
+                        <div className="mt-1 flex items-center gap-1.5">
+                          <span className="text-[11px] font-medium tracking-wide text-zinc-500">
                             {release.product.vendor.slug}
                           </span>
-                          <Badge tone={AUTHENTICITY_TONE[release.authenticity]}>
+                          <Badge tone={AUTHENTICITY_TONE[release.authenticity]} variant="subtle">
                             {AUTHENTICITY_LABEL[release.authenticity]}
                           </Badge>
                         </div>
                       </TableCell>
-                      <TableCell className="tabular-nums">{release.version}</TableCell>
-                      <TableCell className="text-xs text-slate-500">
+                      <TableCell className="text-[13px] font-medium tabular-nums tracking-tight text-[#1d1d1f]">
+                        {release.version}
+                      </TableCell>
+                      <TableCell className="text-[12px] text-zinc-500">
                         {release.previousVersion ?? "—"}
                       </TableCell>
                       <TableCell>
                         {classification ? (
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-1.5">
                             <StatusPill
                               label={release.status}
                               tone={RELEASE_STATUS_TONE[release.status]}
                             />
                             {breaking !== null && breaking ? (
-                              <Badge tone="red">breaking</Badge>
+                              <Badge tone="red" variant="subtle">
+                                breaking
+                              </Badge>
                             ) : null}
                             {classification.requiresHumanReview ? (
-                              <Badge tone="amber">review</Badge>
+                              <Badge tone="amber" variant="subtle">
+                                review
+                              </Badge>
                             ) : null}
                           </div>
                         ) : (
-                          <span className="text-xs text-slate-400">Unclassified</span>
+                          <span className="text-[12px] text-zinc-400">Unclassified</span>
                         )}
                       </TableCell>
-                      <TableCell className="tabular-nums">
+                      <TableCell className="text-[13px] font-medium tabular-nums text-[#1d1d1f]">
                         {countByRelease.get(release.id) ?? 0}
                       </TableCell>
-                      <TableCell className="text-xs text-slate-500">
+                      <TableCell className="text-[12px] text-zinc-500">
                         {formatDate(release.publishedAt)}
                       </TableCell>
                     </TableRow>
@@ -146,7 +158,7 @@ export default async function ReleasesPage() {
           )}
         </div>
 
-        <Card className="h-fit">
+        <Card className="h-fit rounded-[20px] border-zinc-200 bg-white shadow-[0_4px_24px_rgba(0,0,0,0.04)]">
           <CardHeader>
             <CardTitle>Watchtower detection runs</CardTitle>
             <CardDescription>

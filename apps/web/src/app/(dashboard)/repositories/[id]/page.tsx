@@ -70,22 +70,28 @@ export default async function RepositoryDetailPage({
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <p className="text-sm text-slate-500">
-          <Link href="/repositories" className="text-accent-400 hover:underline">
+    <div className="space-y-6 bg-[#fbfbfd] font-sans antialiased">
+      <div className="border-b border-zinc-200/60 pb-6">
+        <p className="text-xs font-medium tracking-tight text-zinc-400">
+          <Link
+            href="/repositories"
+            className="text-zinc-500 transition-colors hover:text-[#0071e3] hover:underline"
+          >
             Repositories
           </Link>{" "}
-          /
+          <span className="text-zinc-300">/</span>{" "}
+          <span className="text-zinc-900">{repository.name}</span>
         </p>
-        <h1 className="text-xl font-semibold text-white">{repository.name}</h1>
-        <p className="text-sm text-slate-500">
+        <h1 className="mt-1 text-[24px] font-semibold tracking-tight text-[#1d1d1f] antialiased">
+          {repository.name}
+        </h1>
+        <p className="mt-1 text-[13px] leading-relaxed text-zinc-500">
           {repository.fullName} · {repository.provider} · default branch {repository.defaultBranch}
         </p>
       </div>
 
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-slate-500">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-[13px] text-zinc-500">
           {repository.usages.length} indexed usage
           {repository.usages.length === 1 ? "" : "s"} · last scan{" "}
           {repository.scans[0] ? formatDate(repository.scans[0].completedAt) : "never"}
@@ -94,20 +100,24 @@ export default async function RepositoryDetailPage({
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <Card>
+        <Card className="rounded-[20px] border-zinc-200 bg-white">
           <CardHeader>
             <CardTitle>Vendor dependencies</CardTitle>
             <CardDescription>Detected vendor SDK usage in this repository.</CardDescription>
           </CardHeader>
           <CardContent>
             {vendorsByUsage.size === 0 ? (
-              <p className="text-sm text-slate-500">No vendor usages detected.</p>
+              <p className="text-sm text-zinc-500">No vendor usages detected.</p>
             ) : (
-              <ul className="divide-y divide-slate-100">
+              <ul className="divide-y divide-zinc-100">
                 {[...vendorsByUsage.entries()].map(([slug, info]) => (
-                  <li key={slug} className="flex items-center justify-between py-2">
-                    <span className="text-sm font-medium text-slate-800">{info.name}</span>
-                    <Badge tone="neutral">{info.count} usages</Badge>
+                  <li key={slug} className="flex items-center justify-between py-2.5">
+                    <span className="text-[13px] font-medium tracking-tight text-[#1d1d1f]">
+                      {info.name}
+                    </span>
+                    <Badge tone="neutral" variant="subtle">
+                      {info.count} usages
+                    </Badge>
                   </li>
                 ))}
               </ul>
@@ -115,14 +125,14 @@ export default async function RepositoryDetailPage({
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="rounded-[20px] border-zinc-200 bg-white">
           <CardHeader>
             <CardTitle>Latest scans</CardTitle>
             <CardDescription>Repository analysis history.</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
             {repository.scans.length === 0 ? (
-              <p className="px-4 py-3 text-sm text-slate-500">No scans yet.</p>
+              <p className="px-6 py-4 text-sm text-zinc-500">No scans yet.</p>
             ) : (
               <Table className="rounded-none border-0 shadow-none">
                 <TableHead>
@@ -138,10 +148,10 @@ export default async function RepositoryDetailPage({
                       <TableCell>
                         <StatusPill label={scan.status} tone={SCAN_STATUS_TONE[scan.status]} />
                       </TableCell>
-                      <TableCell className="text-xs text-slate-500">
+                      <TableCell className="text-xs text-zinc-500">
                         {formatDate(scan.completedAt)}
                       </TableCell>
-                      <TableCell className="tabular-nums">
+                      <TableCell className="tabular-nums text-[13px] text-[#1d1d1f]">
                         {scan.summary &&
                         typeof scan.summary === "object" &&
                         "usageCount" in scan.summary
@@ -157,7 +167,7 @@ export default async function RepositoryDetailPage({
         </Card>
       </div>
 
-      <Card>
+      <Card className="rounded-[20px] border-zinc-200 bg-white">
         <CardHeader>
           <CardTitle>Graph index</CardTitle>
           <CardDescription>
@@ -166,7 +176,7 @@ export default async function RepositoryDetailPage({
         </CardHeader>
         <CardContent className="p-0">
           {repository.graphIndexJobs.length === 0 ? (
-            <p className="px-4 py-3 text-sm text-slate-500">
+            <p className="px-6 py-4 text-sm text-zinc-500">
               No graph snapshots yet — they are built automatically after each scan.
             </p>
           ) : (
@@ -191,11 +201,13 @@ export default async function RepositoryDetailPage({
                           tone={GRAPH_INDEX_STATUS_TONE[job.status] ?? "neutral"}
                         />
                       </TableCell>
-                      <TableCell className="text-xs">{job.mode}</TableCell>
-                      <TableCell className="text-xs text-slate-500">
+                      <TableCell className="text-xs font-medium text-zinc-600">
+                        {job.mode}
+                      </TableCell>
+                      <TableCell className="text-xs text-zinc-500">
                         {formatDate(job.completedAt)}
                       </TableCell>
-                      <TableCell className="tabular-nums">
+                      <TableCell className="tabular-nums text-[13px] text-[#1d1d1f]">
                         {timings && "nodeCount" in timings ? String(timings.nodeCount) : "—"}
                       </TableCell>
                     </TableRow>
@@ -207,14 +219,14 @@ export default async function RepositoryDetailPage({
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="rounded-[20px] border-zinc-200 bg-white">
         <CardHeader>
           <CardTitle>Usage inventory</CardTitle>
           <CardDescription>Indexed integration usages from the latest scan.</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           {repository.usages.length === 0 ? (
-            <div className="px-4 py-3">
+            <div className="px-6 py-4">
               <EmptyState
                 title="No certified SDK call sites found"
                 description="Run a scan to index TypeScript and Python call sites. Repositories without vendor SDK usage stay empty."
@@ -236,29 +248,35 @@ export default async function RepositoryDetailPage({
               <TableBody>
                 {repository.usages.map((usage) => (
                   <TableRow key={usage.id}>
-                    <TableCell className="font-mono text-xs">
+                    <TableCell className="font-mono text-xs text-zinc-700">
                       {usage.filePath}
                       {usage.astLocation &&
                       typeof usage.astLocation === "object" &&
                       "line" in usage.astLocation ? (
-                        <span className="text-slate-400">:{String(usage.astLocation.line)}</span>
+                        <span className="text-zinc-400">:{String(usage.astLocation.line)}</span>
                       ) : null}
                     </TableCell>
-                    <TableCell className="font-mono text-xs">{usage.vendor.slug}</TableCell>
-                    <TableCell className="font-mono text-xs">{usage.symbol}</TableCell>
-                    <TableCell className="text-xs">{usageTypeLabel(usage.usageType)}</TableCell>
-                    <TableCell className="text-xs">{usage.ownerHint}</TableCell>
+                    <TableCell className="font-mono text-xs text-zinc-600">
+                      {usage.vendor.slug}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-[#1d1d1f]">
+                      {usage.symbol}
+                    </TableCell>
+                    <TableCell className="text-xs text-zinc-600">
+                      {usageTypeLabel(usage.usageType)}
+                    </TableCell>
+                    <TableCell className="text-xs text-zinc-500">{usage.ownerHint}</TableCell>
                     <TableCell>
                       <span className="flex flex-wrap gap-1">
                         {(usage.riskTags as RiskTag[]).map((tag) => (
-                          <Badge key={tag} tone={RISK_TAG_TONE[tag]}>
+                          <Badge key={tag} tone={RISK_TAG_TONE[tag]} variant="subtle" size="sm">
                             {RISK_TAG_LABEL[tag]}
                           </Badge>
                         ))}
                       </span>
                     </TableCell>
                     <TableCell className="max-w-xs">
-                      <CodeBlock maxHeight="6rem" className="whitespace-pre-wrap break-all">
+                      <CodeBlock maxHeight="6rem" className="whitespace-pre-wrap break-all text-xs">
                         {usage.codeExcerpt &&
                         typeof usage.codeExcerpt === "object" &&
                         "text" in usage.codeExcerpt
@@ -274,14 +292,14 @@ export default async function RepositoryDetailPage({
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="rounded-[20px] border-zinc-200 bg-white">
         <CardHeader>
           <CardTitle>Related impact assessments</CardTitle>
           <CardDescription>Change events assessed against this repository.</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           {repository.impactAssessments.length === 0 ? (
-            <p className="px-4 py-3 text-sm text-slate-500">
+            <p className="px-6 py-4 text-sm text-zinc-500">
               No impact assessments yet. Assessments appear once change events are analyzed.
             </p>
           ) : (
@@ -300,14 +318,18 @@ export default async function RepositoryDetailPage({
                     <TableCell>
                       <Link
                         href={`/changes/${assessment.changeEventId}`}
-                        className="text-accent-400 hover:underline"
+                        className="text-[13px] font-medium text-[#0071e3] hover:underline"
                       >
                         {assessment.changeEvent.title}
                       </Link>
                     </TableCell>
-                    <TableCell className="tabular-nums">{assessment.score}</TableCell>
-                    <TableCell className="tabular-nums">{assessment.confidence}</TableCell>
-                    <TableCell className="text-xs text-slate-500">
+                    <TableCell className="tabular-nums text-sm text-[#1d1d1f]">
+                      {assessment.score}
+                    </TableCell>
+                    <TableCell className="tabular-nums text-sm text-zinc-600">
+                      {assessment.confidence}
+                    </TableCell>
+                    <TableCell className="text-xs text-zinc-500">
                       {formatDateOnly(assessment.createdAt)}
                     </TableCell>
                   </TableRow>

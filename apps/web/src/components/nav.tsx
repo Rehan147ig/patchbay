@@ -18,29 +18,30 @@ import {
 import { cn } from "@patchbay/ui";
 
 const MONITOR_LINKS = [
-  { href: "/overview", label: "Overview", icon: LayoutDashboard },
-  { href: "/repositories", label: "Repositories", icon: GitBranch },
-  { href: "/releases", label: "Releases", icon: Package },
-  { href: "/cases", label: "Cases", icon: AlertTriangle },
-  { href: "/changes", label: "Changes", icon: Zap },
-  { href: "/remediations", label: "Remediations", icon: Wrench },
+  { href: "/overview", label: "Overview", icon: LayoutDashboard, id: "tour-overview-nav" },
+  { href: "/repositories", label: "Repositories", icon: GitBranch, id: "tour-repositories-nav" },
+  { href: "/releases", label: "Releases", icon: Package, id: "tour-releases-nav" },
+  { href: "/cases", label: "Cases", icon: AlertTriangle, id: "tour-cases-nav" },
+  { href: "/changes", label: "Changes", icon: Zap, id: "tour-changes-nav" },
+  { href: "/remediations", label: "Remediations", icon: Wrench, id: "tour-remediations-nav" },
 ] as const;
 
 const GOVERN_LINKS = [
-  { href: "/policies", label: "Policies", icon: Shield },
-  { href: "/outcomes", label: "Outcomes", icon: BarChart3 },
-  { href: "/audit", label: "Audit Log", icon: FileText },
+  { href: "/policies", label: "Policies", icon: Shield, id: "tour-policies-nav" },
+  { href: "/outcomes", label: "Outcomes", icon: BarChart3, id: "tour-outcomes-nav" },
+  { href: "/audit", label: "Audit Log", icon: FileText, id: "tour-audit-nav" },
 ] as const;
 
 const SYSTEM_LINKS = [
-  { href: "/demo", label: "Interactive Demo", icon: PlayCircle },
-  { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/demo", label: "Interactive Demo", icon: PlayCircle, id: "tour-demo-nav" },
+  { href: "/settings", label: "Settings", icon: Settings, id: "tour-settings-nav" },
 ] as const;
 
 interface NavItem {
   href: string;
   label: string;
   icon: typeof LayoutDashboard;
+  id?: string;
 }
 
 function NavLinkItem({ link, pathname }: { link: NavItem; pathname: string }) {
@@ -49,29 +50,24 @@ function NavLinkItem({ link, pathname }: { link: NavItem; pathname: string }) {
   const Icon = link.icon;
   return (
     <Link
+      id={link.id}
       href={link.href}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "group relative mx-2.5 flex items-center gap-3 rounded-lg px-3 py-2 text-xs font-medium transition-all duration-150",
+        "group relative mx-2 flex items-center gap-3 rounded-full px-3.5 py-2 text-[13px] font-medium tracking-tight transition-all duration-150",
         active
-          ? "bg-accent-500/15 text-accent-300 font-semibold shadow-[inset_0_1px_1px_rgba(255,255,255,0.08),0_0_12px_rgba(99,102,241,0.2)]"
-          : "text-ink-300 hover:bg-ink-800/80 hover:text-gray-100",
+          ? "bg-[#1d1d1f] text-white shadow-[0_1px_2px_rgba(0,0,0,0.08)]"
+          : "text-zinc-500 hover:bg-zinc-100 hover:text-[#1d1d1f]",
       )}
     >
       <Icon
         className={cn(
-          "size-4 shrink-0 transition-colors duration-150",
-          active ? "text-accent-400" : "text-ink-400 group-hover:text-gray-200",
+          "size-[16px] shrink-0 transition-colors duration-150",
+          active ? "text-white" : "text-zinc-400 group-hover:text-zinc-600",
         )}
         aria-hidden="true"
       />
       <span className="flex-1 truncate">{link.label}</span>
-      {active ? (
-        <span
-          aria-hidden="true"
-          className="size-1.5 rounded-full bg-accent-400 shadow-[0_0_8px_rgba(129,140,248,0.9)]"
-        />
-      ) : null}
     </Link>
   );
 }
@@ -86,11 +82,11 @@ function NavSection({
   pathname: string;
 }) {
   return (
-    <div className="py-2">
-      <p className="px-5 pb-1.5 text-[10px] font-bold uppercase tracking-wider text-ink-500">
+    <div className="space-y-1">
+      <p className="px-5 py-2 text-[11px] font-semibold uppercase tracking-widest text-zinc-400">
         {label}
       </p>
-      <div role="group" className="space-y-0.5">
+      <div className="space-y-0.5">
         {links.map((link) => (
           <NavLinkItem key={link.href} link={link} pathname={pathname} />
         ))}
@@ -102,51 +98,59 @@ function NavSection({
 export function SideNav() {
   const pathname = usePathname();
   return (
-    <nav
-      aria-label="Primary"
-      className="flex flex-1 flex-col overflow-y-auto py-3 scrollbar-none divide-y divide-ink-800/50"
-    >
-      <NavSection label="Remediation" links={MONITOR_LINKS} pathname={pathname} />
-      <NavSection label="Governance" links={GOVERN_LINKS} pathname={pathname} />
-      <NavSection label="Workspace" links={SYSTEM_LINKS} pathname={pathname} />
+    <nav aria-label="Primary" className="space-y-6 py-2">
+      <NavSection label="Monitor" links={MONITOR_LINKS} pathname={pathname} />
+      <NavSection label="Govern" links={GOVERN_LINKS} pathname={pathname} />
+      <NavSection label="System" links={SYSTEM_LINKS} pathname={pathname} />
+      <div className="mx-2 mt-4 rounded-2xl bg-zinc-900 px-4 py-3 text-white">
+        <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400">
+          Codebase management
+        </p>
+        <p className="mt-1 text-[12px] font-medium leading-snug tracking-tight">
+          You build. We maintain. 34/34 corpus.
+        </p>
+        <Link
+          href="/cases"
+          className="mt-2 inline-flex text-[11px] font-medium tracking-wide text-white underline decoration-white/30 underline-offset-4 hover:decoration-white"
+        >
+          View cases ?
+        </Link>
+      </div>
     </nav>
   );
 }
 
-/** Backwards-compatible alias for any consumer still importing `Nav`. */
-export const Nav = SideNav;
-
-const ALL_LINKS = [...MONITOR_LINKS, ...GOVERN_LINKS, ...SYSTEM_LINKS] as const;
-
-/** Compact horizontal rail for small screens (fixed to the viewport bottom). */
 export function MobileNav() {
   const pathname = usePathname();
+  const allLinks = [...MONITOR_LINKS, ...GOVERN_LINKS, ...SYSTEM_LINKS];
   return (
-    <nav
-      aria-label="Primary mobile"
-      className="scrollbar-none flex items-center gap-1.5 overflow-x-auto px-3 py-2.5"
-    >
-      {ALL_LINKS.map((link) => {
-        const active =
-          link.href === "/overview" ? pathname === "/overview" : pathname.startsWith(link.href);
-        const Icon = link.icon;
-        return (
-          <Link
-            key={link.href}
-            href={link.href}
-            aria-current={active ? "page" : undefined}
-            className={cn(
-              "flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-all",
-              active
-                ? "bg-accent-500/20 text-accent-300 ring-1 ring-inset ring-accent-500/40"
-                : "text-ink-400 hover:bg-ink-800 hover:text-gray-200",
-            )}
-          >
-            <Icon className="size-3.5" aria-hidden="true" />
-            {link.label}
-          </Link>
-        );
-      })}
-    </nav>
+    <details className="group relative lg:hidden">
+      <summary className="flex list-none items-center gap-2 rounded-full bg-white px-3.5 py-2 text-[13px] font-medium tracking-tight text-[#1d1d1f] shadow-sm border border-zinc-200">
+        <span>Menu</span>
+        <span className="text-zinc-400">�</span>
+      </summary>
+      <div className="absolute right-0 top-full z-50 mt-2 w-64 rounded-2xl border border-zinc-200 bg-white p-3 shadow-[0_8px_24px_rgba(0,0,0,0.08)]">
+        <nav className="space-y-1">
+          {allLinks.map((link) => {
+            const active =
+              link.href === "/overview" ? pathname === "/overview" : pathname.startsWith(link.href);
+            const Icon = link.icon;
+            return (
+              <Link
+                key={link.href}
+                href={link.href}
+                className={cn(
+                  "flex items-center gap-3 rounded-full px-3 py-2 text-[13px] font-medium",
+                  active ? "bg-[#1d1d1f] text-white" : "text-zinc-600 hover:bg-zinc-50",
+                )}
+              >
+                <Icon className="size-4" aria-hidden="true" />
+                {link.label}
+              </Link>
+            );
+          })}
+        </nav>
+      </div>
+    </details>
   );
 }

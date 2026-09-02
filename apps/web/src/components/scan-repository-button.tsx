@@ -218,10 +218,17 @@ export function ScanRepositoryButton({
 
   return (
     <div className="flex items-center gap-3">
-      <Button variant="secondary" size="sm" onClick={scan} loading={pending} disabled={disabled}>
+      <Button
+        variant="primary"
+        size="sm"
+        onClick={scan}
+        loading={pending}
+        disabled={disabled}
+        className="rounded-full bg-[#0071e3] hover:bg-[#0077ed]"
+      >
         Scan now
       </Button>
-      {status ? <span className="text-xs text-ink-400">{status}</span> : null}
+      {status ? <span className="text-xs text-zinc-500">{status}</span> : null}
     </div>
   );
 }

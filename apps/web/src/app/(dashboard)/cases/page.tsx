@@ -120,32 +120,31 @@ export default async function CasesPage({
     return typeof score === "number" ? score : 0;
   };
 
-  const severityBorder: Record<string, string> = {
-    CRITICAL: "border-l-2 border-red-500",
-    HIGH: "border-l-2 border-amber-500",
-    MEDIUM: "border-l-2 border-accent-500",
-    LOW: "border-l-2 border-ink-600",
-  };
-
   return (
-    <div className="space-y-4">
-      <div className="flex items-start justify-between gap-4">
+    <div className="space-y-6 bg-[#fbfbfd] font-sans antialiased">
+      <div className="flex items-start justify-between gap-4 border-b border-zinc-200/60 pb-6">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-white">Remediation cases</h1>
-          <p className="mt-1 text-sm text-ink-400">
+          <h1 className="text-[24px] font-semibold tracking-tight text-[#1d1d1f] antialiased">
+            Remediation cases
+          </h1>
+          <p className="mt-1.5 max-w-3xl text-[13px] leading-relaxed text-zinc-500">
             One case per affected (release, repository, dependency). Cases that cannot be automated
             stay visible with their reason instead of disappearing.
           </p>
         </div>
-        <Card className="w-36 shrink-0">
-          <CardContent className="p-3">
-            <p className="text-2xl font-bold tabular-nums text-white">{activeCount}</p>
-            <p className="text-xs text-ink-400">active cases</p>
+        <Card className="w-36 shrink-0 rounded-[16px] border-zinc-200 bg-white px-0 py-0">
+          <CardContent className="p-4 text-center">
+            <p className="text-[20px] font-semibold tracking-tight tabular-nums text-[#1d1d1f]">
+              {activeCount}
+            </p>
+            <p className="mt-0.5 text-[11px] font-medium uppercase tracking-widest text-zinc-500">
+              active cases
+            </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Filter pills (server-driven via searchParams) */}
+      {/* Filter pills (server-driven via searchParams) — Apple rounded-full pills */}
       <div className="flex flex-wrap items-center gap-2">
         {[
           { label: "All", href: "/cases", active: !filterActive },
@@ -157,14 +156,16 @@ export default async function CasesPage({
             aria-current={pill.active ? "true" : undefined}
             className={
               pill.active
-                ? "rounded-full border border-accent-500/30 bg-accent-500/20 px-3 py-1 text-xs font-medium text-accent-400"
-                : "rounded-full bg-ink-700 px-3 py-1 text-xs font-medium text-ink-300 transition-colors hover:bg-ink-600 hover:text-gray-100"
+                ? "inline-flex items-center rounded-full bg-[#0071e3] px-4 py-1.5 text-[13px] font-medium tracking-tight text-white shadow-sm transition-colors hover:bg-[#0077ed]"
+                : "inline-flex items-center rounded-full border border-zinc-200 bg-white px-4 py-1.5 text-[13px] font-medium tracking-tight text-zinc-600 shadow-sm transition-colors hover:border-zinc-300 hover:bg-zinc-50 hover:text-[#1d1d1f]"
             }
           >
             {pill.label}
           </Link>
         ))}
-        <Badge tone="blue">{cases.length} shown</Badge>
+        <Badge tone="blue" variant="subtle">
+          {cases.length} shown
+        </Badge>
       </div>
 
       {cases.length === 0 ? (
@@ -183,29 +184,27 @@ export default async function CasesPage({
               <TableHeaderCell>Blast radius</TableHeaderCell>
               <TableHeaderCell>Capability</TableHeaderCell>
               <TableHeaderCell>Updated</TableHeaderCell>
+              <TableHeaderCell aria-hidden="true" className="w-10"></TableHeaderCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {cases.map((remediationCase) => {
               const severity = severityOf(remediationCase.blastRadius);
               return (
-                <TableRow
-                  key={remediationCase.id}
-                  className={"group " + (severityBorder[severity] ?? "border-l-2 border-ink-600")}
-                >
+                <TableRow key={remediationCase.id} className="group">
                   <TableCell>
                     <Link
                       href={`/cases/${remediationCase.id}`}
-                      className="group flex items-center gap-2 font-medium text-accent-400 hover:underline"
+                      className="group/link flex items-center gap-2 text-[13px] font-semibold tracking-tight text-[#0071e3] hover:underline"
                     >
                       {remediationCase.release.product.packageName}
                     </Link>
-                    <div className="text-xs text-ink-400">
+                    <div className="mt-0.5 text-[11px] font-medium tracking-wide text-zinc-500">
                       {remediationCase.release.product.vendor.slug} v
                       {remediationCase.release.version}
                     </div>
                   </TableCell>
-                  <TableCell className="text-sm text-gray-300">
+                  <TableCell className="text-[13px] font-medium tracking-tight text-[#1d1d1f]">
                     {remediationCase.repository.fullName}
                   </TableCell>
                   <TableCell>
@@ -214,7 +213,7 @@ export default async function CasesPage({
                       tone={STATUS_TONE[remediationCase.status] ?? "neutral"}
                     />
                   </TableCell>
-                  <TableCell className="text-xs text-ink-400">
+                  <TableCell className="text-[12px] text-zinc-500">
                     {REASON_LABEL[remediationCase.reasonCode] ?? remediationCase.reasonCode}
                   </TableCell>
                   <TableCell>
@@ -222,18 +221,19 @@ export default async function CasesPage({
                       tone={
                         severity === "CRITICAL" ? "red" : severity === "HIGH" ? "amber" : "blue"
                       }
+                      variant="subtle"
                     >
                       {severity} · {scoreOf(remediationCase.blastRadius)}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-xs text-ink-400">
+                  <TableCell className="text-[12px] font-medium text-zinc-500">
                     {remediationCase.capabilityLevel}
                   </TableCell>
-                  <TableCell className="text-xs text-ink-400">
+                  <TableCell className="text-[12px] text-zinc-500">
                     {formatDate(remediationCase.updatedAt)}
                   </TableCell>
                   <TableCell aria-hidden="true">
-                    <span className="block opacity-0 transition-opacity group-hover:opacity-100">
+                    <span className="flex size-7 items-center justify-center rounded-full border border-transparent text-zinc-400 opacity-0 transition-all group-hover:opacity-100 group-hover:border-zinc-200 group-hover:bg-white group-hover:text-[#0071e3] group-hover:shadow-sm">
                       →
                     </span>
                   </TableCell>
@@ -244,7 +244,7 @@ export default async function CasesPage({
         </Table>
       )}
 
-      <Card>
+      <Card className="rounded-[20px] border-zinc-200 bg-white">
         <CardHeader>
           <CardTitle>How cases work</CardTitle>
           <CardDescription>

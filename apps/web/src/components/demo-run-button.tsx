@@ -40,10 +40,17 @@ export function DemoRunButton({ scenario, disabled }: { scenario: string; disabl
 
   return (
     <div className="flex items-center gap-3">
-      <Button variant="secondary" size="sm" onClick={run} loading={pending} disabled={disabled}>
+      <Button
+        variant="primary"
+        size="sm"
+        onClick={run}
+        loading={pending}
+        disabled={disabled}
+        className="rounded-full bg-[#0071e3] hover:bg-[#0077ed]"
+      >
         Run demo change
       </Button>
-      {status ? <span className="text-xs text-ink-400">{status}</span> : null}
+      {status ? <span className="text-xs font-medium text-zinc-500">{status}</span> : null}
     </div>
   );
 }

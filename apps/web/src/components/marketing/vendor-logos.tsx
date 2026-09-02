@@ -157,7 +157,7 @@ function LogoRow({
         {doubled.map((vendor, index) => (
           <span
             key={`${vendor.name}-${index}`}
-            className="group flex shrink-0 items-center gap-2.5 text-xl font-semibold tracking-tight text-gray-300 transition-colors duration-300 hover:text-[var(--brand)]"
+            className="group flex shrink-0 items-center gap-2.5 text-xl font-semibold tracking-tight text-zinc-300 transition-colors duration-300 hover:text-[var(--brand)]"
             style={{ "--brand": vendor.color } as React.CSSProperties}
           >
             <VendorMark mark={vendor.mark} />
@@ -170,13 +170,13 @@ function LogoRow({
 }
 
 /**
- * Wall of supported SDK/API vendors: two opposing marquees, monochrome until
+ * Wall of supported SDK/API vendors: two opposing marquees, muted until
  * hover reveals each brand's color.
  */
 export function VendorLogoWall() {
   return (
-    <section aria-label="Supported SDKs and APIs" className="border-y border-gray-100 bg-white">
-      <p className="pt-12 text-center text-sm font-medium text-gray-400">
+    <section aria-label="Supported SDKs and APIs" className="border-y border-zinc-200/60 bg-white">
+      <p className="pt-12 text-center text-sm font-medium tracking-tight text-zinc-400">
         Certified migration kits and live detection for the SDKs your team ships with
       </p>
       <div className="mt-8 space-y-6 pb-12 [mask-image:linear-gradient(to_right,transparent,black_12%,black_88%,transparent)]">

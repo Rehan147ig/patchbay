@@ -56,7 +56,7 @@ export function PrivateVendorForm() {
       className="space-y-3"
     >
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <label className="text-xs text-ink-400">
+        <label className="text-xs font-medium text-zinc-600">
           Slug (lowercase, dashes)
           <input
             name="slug"
@@ -65,46 +65,55 @@ export function PrivateVendorForm() {
             maxLength={64}
             pattern="[a-z0-9][a-z0-9-]*[a-z0-9]"
             placeholder="jpmc-auth-sdk"
-            className="mt-1 block w-full rounded-md border border-ink-600 bg-ink-800 px-3 py-2 text-sm text-gray-200 focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/30"
+            className="mt-1 block h-10 w-full rounded-xl border border-zinc-200 bg-white px-3.5 text-[13px] text-[#1d1d1f] placeholder:text-zinc-400 shadow-sm focus:border-[#0071e3] focus:outline-none focus:ring-2 focus:ring-[#0071e3]/20"
           />
         </label>
-        <label className="text-xs text-ink-400">
+        <label className="text-xs font-medium text-zinc-600">
           Display name
           <input
             name="name"
             required
             maxLength={100}
             placeholder="JPMC Auth SDK"
-            className="mt-1 block w-full rounded-md border border-ink-600 bg-ink-800 px-3 py-2 text-sm text-gray-200 focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/30"
+            className="mt-1 block h-10 w-full rounded-xl border border-zinc-200 bg-white px-3.5 text-[13px] text-[#1d1d1f] placeholder:text-zinc-400 shadow-sm focus:border-[#0071e3] focus:outline-none focus:ring-2 focus:ring-[#0071e3]/20"
           />
         </label>
-        <label className="text-xs text-ink-400">
+        <label className="text-xs font-medium text-zinc-600">
           Category
           <input
             name="category"
             maxLength={50}
             placeholder="Internal SDK"
-            className="mt-1 block w-full rounded-md border border-ink-600 bg-ink-800 px-3 py-2 text-sm text-gray-200 focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/30"
+            className="mt-1 block h-10 w-full rounded-xl border border-zinc-200 bg-white px-3.5 text-[13px] text-[#1d1d1f] placeholder:text-zinc-400 shadow-sm focus:border-[#0071e3] focus:outline-none focus:ring-2 focus:ring-[#0071e3]/20"
           />
         </label>
-        <label className="text-xs text-ink-400">
+        <label className="text-xs font-medium text-zinc-600">
           Docs URL (optional)
           <input
             name="docsUrl"
             type="url"
             maxLength={500}
             placeholder="https://internal.example.com/docs"
-            className="mt-1 block w-full rounded-md border border-ink-600 bg-ink-800 px-3 py-2 text-sm text-gray-200 focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/30"
+            className="mt-1 block h-10 w-full rounded-xl border border-zinc-200 bg-white px-3.5 text-[13px] text-[#1d1d1f] placeholder:text-zinc-400 shadow-sm focus:border-[#0071e3] focus:outline-none focus:ring-2 focus:ring-[#0071e3]/20"
           />
         </label>
       </div>
-      <Button type="submit" size="sm" loading={pending}>
+      <Button
+        type="submit"
+        size="sm"
+        loading={pending}
+        className="rounded-full bg-[#0071e3] hover:bg-[#0077ed]"
+      >
         Register private vendor
       </Button>
       {message ? (
         <p
           role={message.tone === "error" ? "alert" : undefined}
-          className={message.tone === "ok" ? "text-xs text-mint-400" : "text-xs text-red-400"}
+          className={
+            message.tone === "ok"
+              ? "text-xs font-medium text-[#34c759]"
+              : "text-xs font-medium text-[#ff3b30]"
+          }
         >
           {message.text}
         </p>

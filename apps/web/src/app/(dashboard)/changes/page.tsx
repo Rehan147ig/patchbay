@@ -37,12 +37,12 @@ export default async function ChangesPage() {
   ).length;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 bg-[#fbfbfd] font-sans antialiased">
       <PageHeader
         title="Detected Change Events"
         description="Vendor API deprecations, breaking SDK changes, and release diffs ingested via Watchtower and GitHub feeds."
         badge={
-          <Badge tone={breakingCount > 0 ? "red" : "neutral"} dot>
+          <Badge tone={breakingCount > 0 ? "red" : "neutral"} variant="subtle" dot>
             {breakingCount} Breaking Detected
           </Badge>
         }
@@ -50,34 +50,40 @@ export default async function ChangesPage() {
 
       {events.length > 0 ? (
         <div className="grid grid-cols-2 gap-4">
-          <Card className="border-red-500/30 bg-red-500/5 p-4">
+          <Card className="rounded-[20px] border-zinc-200 bg-white px-6 py-5">
             <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-red-400">
+              <span className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
                 Breaking Changes
               </span>
-              <AlertTriangle className="size-4 text-red-400" />
+              <span className="flex size-8 items-center justify-center rounded-xl bg-[#ff3b30]/10 text-[#ff3b30]">
+                <AlertTriangle className="size-4" />
+              </span>
             </div>
-            <p className="mt-2 text-2xl font-bold tabular-nums text-red-400">{breakingCount}</p>
-            <p className="mt-0.5 text-xs text-red-400/80">Requires AST analysis & remediation</p>
+            <p className="mt-3 text-[20px] font-semibold tracking-tight tabular-nums text-[#1d1d1f]">
+              {breakingCount}
+            </p>
+            <p className="mt-1 text-[12px] text-zinc-500">Requires AST analysis & remediation</p>
           </Card>
-          <Card className="p-4">
+          <Card className="rounded-[20px] border-zinc-200 bg-white px-6 py-5">
             <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-ink-400">
+              <span className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
                 Non-Breaking Releases
               </span>
-              <ShieldCheck className="size-4 text-mint-400" />
+              <span className="flex size-8 items-center justify-center rounded-xl bg-[#34c759]/10 text-[#34c759]">
+                <ShieldCheck className="size-4" />
+              </span>
             </div>
-            <p className="mt-2 text-2xl font-bold tabular-nums text-gray-200">
+            <p className="mt-3 text-[20px] font-semibold tracking-tight tabular-nums text-[#1d1d1f]">
               {events.length - breakingCount}
             </p>
-            <p className="mt-0.5 text-xs text-ink-400">Compatible additive modifications</p>
+            <p className="mt-1 text-[12px] text-zinc-500">Compatible additive modifications</p>
           </Card>
         </div>
       ) : null}
 
       {events.length === 0 ? (
         <EmptyState
-          icon={<Zap className="size-6 text-accent-400" />}
+          icon={<Zap className="size-6 text-[#0071e3]" />}
           title="No vendor change events detected"
           description="Watchtower release polling and vendor webhook events will appear here."
         />
@@ -100,37 +106,37 @@ export default async function ChangesPage() {
                 <TableCell>
                   <Link
                     href={`/changes/${event.id}`}
-                    className="font-semibold text-accent-400 hover:text-accent-300 hover:underline flex items-center gap-2"
+                    className="flex items-center gap-2 text-[13px] font-semibold tracking-tight text-[#0071e3] hover:underline"
                   >
                     <span>{event.title}</span>
                     {event.normalizations.some((n) => n.breaking) ? (
-                      <Badge tone="red" size="sm" dot>
+                      <Badge tone="red" variant="subtle" size="sm" dot>
                         breaking
                       </Badge>
                     ) : null}
                   </Link>
                 </TableCell>
-                <TableCell className="text-xs font-medium text-gray-200">
+                <TableCell className="text-xs font-medium tracking-tight text-[#1d1d1f]">
                   {event.vendor.name}
                 </TableCell>
-                <TableCell className="text-xs text-ink-300 font-mono">
+                <TableCell className="font-mono text-[12px] text-zinc-500">
                   {SOURCE_TYPE_LABEL[event.sourceType]}
                 </TableCell>
                 <TableCell>
-                  <Badge tone={SEVERITY_TONE[event.severity]} size="sm">
+                  <Badge tone={SEVERITY_TONE[event.severity]} variant="subtle" size="sm">
                     {event.severity}
                   </Badge>
                 </TableCell>
                 <TableCell>
                   <StatusPill label={event.status} tone={CHANGE_STATUS_TONE[event.status]} />
                 </TableCell>
-                <TableCell className="text-xs text-ink-400">
+                <TableCell className="text-[12px] text-zinc-500">
                   {formatDate(event.detectedAt)}
                 </TableCell>
                 <TableCell>
                   <Link
                     href={`/changes/${event.id}`}
-                    className="flex size-7 items-center justify-center rounded-lg text-ink-500 opacity-0 transition-all group-hover:opacity-100 group-hover:bg-ink-800 group-hover:text-accent-300"
+                    className="flex size-7 items-center justify-center rounded-full border border-transparent text-zinc-400 opacity-0 transition-all group-hover:opacity-100 group-hover:border-zinc-200 group-hover:bg-white group-hover:text-[#0071e3] group-hover:shadow-sm"
                   >
                     <ArrowRight className="size-3.5" />
                   </Link>

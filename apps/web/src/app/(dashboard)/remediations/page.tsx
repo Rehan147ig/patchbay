@@ -3,6 +3,7 @@ import Link from "next/link";
 import { prisma } from "@patchbay/db";
 import {
   Card,
+  CardContent,
   EmptyState,
   StatusPill,
   Table,
@@ -52,48 +53,49 @@ export default async function RemediationsPage() {
   ];
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-white">Remediations</h1>
-        <p className="mt-1 text-sm text-ink-400">
+    <div className="space-y-6 bg-[#fbfbfd] font-sans antialiased">
+      <div className="border-b border-zinc-200/60 pb-6">
+        <h1 className="text-[24px] font-semibold tracking-tight text-[#1d1d1f] antialiased">
+          Remediations
+        </h1>
+        <p className="mt-1.5 max-w-3xl text-[13px] leading-relaxed text-zinc-500">
           Migration plans, patches, validation runs, and pull requests.
         </p>
       </div>
 
-      {/* Funnel visualization */}
-      <Card className="px-5 py-4">
-        <div className="flex flex-wrap items-center gap-y-3">
-          {stages.map((stage, i) => (
-            <div key={stage.label} className="flex items-center">
-              {i > 0 ? (
-                <span aria-hidden="true" className="mx-3 text-ink-600">
-                  →
-                </span>
-              ) : null}
-              <div className="rounded-lg border border-ink-700 bg-ink-800/60 px-4 py-2 text-center transition-colors hover:border-accent-500/40">
-                <p className="text-lg font-bold tabular-nums leading-none text-white">
+      {/* Funnel visualization — Apple segmented control */}
+      <Card className="rounded-[20px] border-zinc-200 bg-white px-6 py-5">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex items-center gap-1 rounded-full bg-zinc-100 p-1">
+            {stages.map((stage) => (
+              <div
+                key={stage.label}
+                className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 shadow-sm ring-1 ring-zinc-200/60"
+              >
+                <span className="text-[13px] font-semibold tracking-tight tabular-nums text-[#1d1d1f]">
                   {stage.count}
-                </p>
-                <p className="mt-1 text-[10px] uppercase tracking-widest text-ink-400">
+                </span>
+                <span className="text-[11px] font-medium uppercase tracking-widest text-zinc-500">
                   {stage.label}
-                </p>
+                </span>
               </div>
-            </div>
-          ))}
-          <span
-            aria-hidden="true"
-            className="ml-3 rounded-md border border-mint-400/20 bg-mint-400/5 px-2 py-1 text-[10px] uppercase tracking-wider text-mint-400"
-          >
+            ))}
+          </div>
+          <span className="inline-flex items-center rounded-full border border-[#34c759]/20 bg-[#34c759]/10 px-3 py-1.5 text-[11px] font-medium uppercase tracking-widest text-[#34c759]">
             Merged → outcomes
           </span>
         </div>
       </Card>
 
       {plans.length === 0 ? (
-        <EmptyState
-          title="No remediation plans yet"
-          description="Run a demo scenario to generate a remediation end to end: analysis, patch, validation, and a mock draft pull request."
-        />
+        <Card className="rounded-[20px] border-zinc-200 bg-white">
+          <CardContent className="px-6 py-8">
+            <EmptyState
+              title="No remediation plans yet"
+              description="Run a demo scenario to generate a remediation end to end: analysis, patch, validation, and a mock draft pull request."
+            />
+          </CardContent>
+        </Card>
       ) : (
         <Table>
           <TableHead>
@@ -115,39 +117,43 @@ export default async function RemediationsPage() {
               )[0];
               const pr = plan.pullRequests[0];
               return (
-                <TableRow key={plan.id}>
+                <TableRow key={plan.id} className="group">
                   <TableCell>
                     <Link
                       href={`/remediations/${plan.id}`}
-                      className="font-medium text-blue-600 hover:underline"
+                      className="text-[13px] font-semibold tracking-tight text-[#0071e3] hover:underline"
                     >
                       {plan.impactAssessment.changeEvent.title}
                     </Link>
                   </TableCell>
-                  <TableCell className="text-xs">{plan.impactAssessment.repository.name}</TableCell>
+                  <TableCell className="text-[12px] font-medium tracking-tight text-[#1d1d1f]">
+                    {plan.impactAssessment.repository.name}
+                  </TableCell>
                   <TableCell>
                     <StatusPill label={plan.status} tone={PLAN_STATUS_TONE[plan.status]} />
                   </TableCell>
-                  <TableCell className="text-xs">{methodLabel(plan)}</TableCell>
-                  <TableCell className="tabular-nums">{plan.confidence}</TableCell>
-                  <TableCell className="text-xs">
+                  <TableCell className="text-[12px] text-zinc-500">{methodLabel(plan)}</TableCell>
+                  <TableCell className="text-[13px] font-medium tabular-nums text-[#1d1d1f]">
+                    {plan.confidence}
+                  </TableCell>
+                  <TableCell className="text-[12px] text-zinc-500">
                     {latestValidation ? latestValidation.status : "—"}
                   </TableCell>
-                  <TableCell className="text-xs">
+                  <TableCell className="text-[12px]">
                     {pr ? (
                       <a
                         href={pr.url}
                         target="_blank"
                         rel="noreferrer"
-                        className="text-blue-600 hover:underline"
+                        className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-medium tracking-wide text-[#0071e3] shadow-sm hover:border-[#0071e3]/20 hover:bg-[#0071e3]/5 hover:text-[#0077ed]"
                       >
                         draft PR
                       </a>
                     ) : (
-                      "—"
+                      <span className="text-zinc-400">—</span>
                     )}
                   </TableCell>
-                  <TableCell className="text-xs text-ink-400">
+                  <TableCell className="text-[12px] text-zinc-500">
                     {formatDate(plan.createdAt)}
                   </TableCell>
                 </TableRow>

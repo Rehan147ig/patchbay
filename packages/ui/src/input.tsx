@@ -24,7 +24,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
       {label ? (
         <label
           htmlFor={inputId}
-          className="block text-xs font-semibold uppercase tracking-wider text-ink-300"
+          className="block text-[11px] font-medium tracking-tight text-zinc-600 font-sans antialiased"
         >
           {label}
         </label>
@@ -33,19 +33,19 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         ref={ref}
         id={inputId}
         className={cn(
-          "w-full rounded-lg border border-ink-700 bg-ink-900/80 px-3.5 py-2 text-sm text-gray-100 placeholder:text-ink-500",
-          "shadow-sm transition-all duration-150 backdrop-blur-sm",
-          "focus:border-accent-500 focus:bg-ink-900 focus:outline-none focus:ring-2 focus:ring-accent-500/20",
-          "disabled:cursor-not-allowed disabled:opacity-50",
-          error ? "border-red-500 focus:border-red-500 focus:ring-red-500/20" : "",
+          "w-full h-10 rounded-xl border border-zinc-200 bg-white px-3.5 text-[13px] leading-none text-[#1d1d1f] placeholder:text-zinc-400",
+          "shadow-sm transition-colors duration-150 font-sans antialiased",
+          "focus:border-[#0071e3] focus:outline-none focus:ring-2 focus:ring-[#0071e3]/20",
+          "disabled:cursor-not-allowed disabled:opacity-50 disabled:bg-zinc-50",
+          error ? "border-[#ff3b30] focus:border-[#ff3b30] focus:ring-[#ff3b30]/20" : "",
           className,
         )}
         {...props}
       />
       {error ? (
-        <p className="text-xs font-medium text-red-400">{error}</p>
+        <p className="text-[12px] font-medium text-[#ff3b30]">{error}</p>
       ) : hint ? (
-        <p className="text-xs text-ink-400">{hint}</p>
+        <p className="text-[12px] text-zinc-500">{hint}</p>
       ) : null}
     </div>
   );
@@ -68,7 +68,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function 
       {label ? (
         <label
           htmlFor={inputId}
-          className="block text-xs font-semibold uppercase tracking-wider text-ink-300"
+          className="block text-[11px] font-medium tracking-tight text-zinc-600 font-sans antialiased"
         >
           {label}
         </label>
@@ -78,19 +78,19 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function 
         id={inputId}
         rows={rows}
         className={cn(
-          "w-full rounded-lg border border-ink-700 bg-ink-900/80 px-3.5 py-2 text-sm text-gray-100 placeholder:text-ink-500",
-          "shadow-sm transition-all duration-150 backdrop-blur-sm",
-          "focus:border-accent-500 focus:bg-ink-900 focus:outline-none focus:ring-2 focus:ring-accent-500/20",
-          "disabled:cursor-not-allowed disabled:opacity-50",
-          error ? "border-red-500 focus:border-red-500 focus:ring-red-500/20" : "",
+          "w-full min-h-[80px] rounded-xl border border-zinc-200 bg-white px-3.5 py-2.5 text-[13px] leading-relaxed text-[#1d1d1f] placeholder:text-zinc-400",
+          "shadow-sm transition-colors duration-150 font-sans antialiased",
+          "focus:border-[#0071e3] focus:outline-none focus:ring-2 focus:ring-[#0071e3]/20",
+          "disabled:cursor-not-allowed disabled:opacity-50 disabled:bg-zinc-50",
+          error ? "border-[#ff3b30] focus:border-[#ff3b30] focus:ring-[#ff3b30]/20" : "",
           className,
         )}
         {...props}
       />
       {error ? (
-        <p className="text-xs font-medium text-red-400">{error}</p>
+        <p className="text-[12px] font-medium text-[#ff3b30]">{error}</p>
       ) : hint ? (
-        <p className="text-xs text-ink-400">{hint}</p>
+        <p className="text-[12px] text-zinc-500">{hint}</p>
       ) : null}
     </div>
   );
@@ -113,7 +113,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
       {label ? (
         <label
           htmlFor={inputId}
-          className="block text-xs font-semibold uppercase tracking-wider text-ink-300"
+          className="block text-[11px] font-medium tracking-tight text-zinc-600 font-sans antialiased"
         >
           {label}
         </label>
@@ -122,11 +122,11 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
         ref={ref}
         id={inputId}
         className={cn(
-          "w-full rounded-lg border border-ink-700 bg-ink-900/80 px-3.5 py-2 text-sm text-gray-100",
-          "shadow-sm transition-all duration-150 backdrop-blur-sm",
-          "focus:border-accent-500 focus:bg-ink-900 focus:outline-none focus:ring-2 focus:ring-accent-500/20",
-          "disabled:cursor-not-allowed disabled:opacity-50",
-          error ? "border-red-500 focus:border-red-500 focus:ring-red-500/20" : "",
+          "w-full h-10 rounded-xl border border-zinc-200 bg-white px-3.5 text-[13px] leading-none text-[#1d1d1f]",
+          "shadow-sm transition-colors duration-150 font-sans antialiased",
+          "focus:border-[#0071e3] focus:outline-none focus:ring-2 focus:ring-[#0071e3]/20",
+          "disabled:cursor-not-allowed disabled:opacity-50 disabled:bg-zinc-50",
+          error ? "border-[#ff3b30] focus:border-[#ff3b30] focus:ring-[#ff3b30]/20" : "",
           className,
         )}
         {...props}
@@ -134,9 +134,9 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select
         {children}
       </select>
       {error ? (
-        <p className="text-xs font-medium text-red-400">{error}</p>
+        <p className="text-[12px] font-medium text-[#ff3b30]">{error}</p>
       ) : hint ? (
-        <p className="text-xs text-ink-400">{hint}</p>
+        <p className="text-[12px] text-zinc-500">{hint}</p>
       ) : null}
     </div>
   );

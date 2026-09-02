@@ -8,19 +8,20 @@ export interface StatusPillProps {
 }
 
 const DOT: Record<StatusPillProps["tone"], string> = {
-  neutral: "bg-ink-500",
-  green: "bg-mint-400",
-  amber: "bg-amber-400",
-  red: "bg-red-400",
-  blue: "bg-accent-500 animate-[pulse_2s_ease-in-out_infinite]",
-  purple: "bg-violet-400",
+  neutral: "bg-zinc-400",
+  green: "bg-[#34c759]",
+  amber: "bg-[#ff9500]",
+  red: "bg-[#ff3b30]",
+  blue: "bg-[#0071e3]",
+  purple: "bg-[#af52de]",
 };
 
 export function StatusPill({ label, tone, className }: StatusPillProps) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full bg-ink-700/60 px-2.5 py-1 text-xs font-medium text-gray-300 ring-1 ring-inset ring-ink-600",
+        "inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-xs font-medium tracking-tight text-zinc-600 shadow-sm",
+        "font-sans antialiased",
         className,
       )}
     >

@@ -92,40 +92,44 @@ export default async function SettingsPage({
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 bg-[#fbfbfd] font-sans antialiased">
       <PageHeader
         title="Workspace Settings"
         description="Configure tenant profile, vendor catalog integration keys, billing tier, and capability kill switches."
         badge={
-          <Badge tone="purple" dot>
+          <Badge tone="purple" variant="subtle" dot>
             {user.role} Access
           </Badge>
         }
       />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <Card>
+        <Card className="rounded-[20px] border-zinc-200 bg-white">
           <CardHeader>
             <CardTitle>Organization Profile</CardTitle>
             <CardDescription>Tenant workspace identity and session context.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
-            <div className="flex items-center justify-between border-b border-ink-800 pb-2">
-              <span className="text-xs text-ink-400">Organization Name</span>
-              <span className="font-semibold text-gray-200">{organization?.name ?? "—"}</span>
+            <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
+              <span className="text-xs font-medium text-zinc-500">Organization Name</span>
+              <span className="text-[13px] font-semibold tracking-tight text-[#1d1d1f]">
+                {organization?.name ?? "—"}
+              </span>
             </div>
-            <div className="flex items-center justify-between border-b border-ink-800 pb-2">
-              <span className="text-xs text-ink-400">Organization ID</span>
-              <span className="font-mono text-xs text-accent-400">{user.organizationId}</span>
+            <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
+              <span className="text-xs font-medium text-zinc-500">Organization ID</span>
+              <span className="font-mono text-xs font-medium text-[#0071e3]">
+                {user.organizationId}
+              </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-xs text-ink-400">Signed-in User</span>
-              <span className="text-xs text-gray-300 font-mono">{user.email}</span>
+              <span className="text-xs font-medium text-zinc-500">Signed-in User</span>
+              <span className="font-mono text-xs text-zinc-600">{user.email}</span>
             </div>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="rounded-[20px] border-zinc-200 bg-white">
           <CardHeader>
             <CardTitle>Monitored vendors</CardTitle>
             <CardDescription>
@@ -137,13 +141,13 @@ export default async function SettingsPage({
           </CardHeader>
           <CardContent>
             <form method="get" className="mb-3 flex items-center gap-2">
-              <label htmlFor="capability-filter" className="text-xs text-ink-400">
+              <label htmlFor="capability-filter" className="text-xs font-medium text-zinc-500">
                 Certified capability
               </label>
               <select
                 id="capability-filter"
                 name="capability"
-                className="rounded-md border border-ink-600 bg-ink-800 px-2 py-1 text-xs text-gray-200"
+                className="h-8 rounded-xl border border-zinc-200 bg-white px-2.5 text-xs font-medium text-[#1d1d1f] shadow-sm focus:border-[#0071e3] focus:outline-none focus:ring-2 focus:ring-[#0071e3]/20"
                 defaultValue={minLevel ?? ""}
               >
                 <option value="">All vendors</option>
@@ -155,15 +159,15 @@ export default async function SettingsPage({
               </select>
               <button
                 type="submit"
-                className="rounded-md bg-accent-600 px-2 py-1 text-xs font-medium text-white transition-colors hover:bg-accent-500"
+                className="h-8 rounded-full bg-[#0071e3] px-3 text-xs font-medium text-white shadow-sm transition-colors hover:bg-[#0077ed]"
               >
                 Filter
               </button>
             </form>
-            <p className="mb-3 text-xs text-ink-400">
+            <p className="mb-3 text-xs leading-relaxed text-zinc-500">
               Catalog membership ≠ auto-PR. DRAFT_PR requires a live certification kit. Entries with
               a{" "}
-              <Badge tone="purple" className="mx-0.5">
+              <Badge tone="purple" variant="subtle" className="mx-0.5">
                 private
               </Badge>{" "}
               badge are your organization&apos;s internal SDKs — invisible to other tenants.
@@ -175,30 +179,36 @@ export default async function SettingsPage({
                 return (
                   <li
                     key={vendor.id}
-                    className="flex items-center justify-between rounded-xl border border-ink-700 bg-ink-800/50 p-4 transition-all hover:border-ink-600"
+                    className="flex items-center justify-between gap-2 rounded-[16px] border border-zinc-200 bg-white p-4 shadow-sm transition-all hover:border-zinc-300 hover:shadow-[0_4px_12px_rgba(0,0,0,0.04)]"
                   >
                     <div className="min-w-0">
-                      <p className="flex items-center gap-2 truncate text-sm font-medium text-white">
+                      <p className="flex items-center gap-2 truncate text-[13px] font-semibold tracking-tight text-[#1d1d1f]">
                         {vendor.name}
-                        {isPrivate ? <Badge tone="purple">private</Badge> : null}
+                        {isPrivate ? (
+                          <Badge tone="purple" variant="subtle">
+                            private
+                          </Badge>
+                        ) : null}
                       </p>
-                      <p className="text-xs text-ink-400">{vendor.category}</p>
+                      <p className="text-xs text-zinc-500">{vendor.category}</p>
                     </div>
                     <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                       {capability ? (
                         <>
-                          <Badge tone={CAPABILITY_BADGE_TONE[capability.level]}>
+                          <Badge tone={CAPABILITY_BADGE_TONE[capability.level]} variant="subtle">
                             {capability.level}
                             {capability.certifiedAt !== null ? " · certified" : ""}
                           </Badge>
-                          <span className="hidden text-[11px] text-ink-500 xl:inline">
+                          <span className="hidden text-[11px] text-zinc-400 xl:inline">
                             {capability.language}
                           </span>
                         </>
                       ) : isPrivate ? (
-                        <Badge tone="neutral">ASSESS</Badge>
+                        <Badge tone="neutral" variant="subtle">
+                          ASSESS
+                        </Badge>
                       ) : null}
-                      <Badge tone={vendor.enabled ? "green" : "neutral"}>
+                      <Badge tone={vendor.enabled ? "green" : "neutral"} variant="subtle">
                         {vendor.enabled ? "enabled" : "off"}
                       </Badge>
                       <VendorAgentKeyControl
@@ -217,15 +227,15 @@ export default async function SettingsPage({
                 );
               })}
               {visibleVendors.length === 0 ? (
-                <li className="py-2 text-sm text-ink-400">No vendors certified at this level.</li>
+                <li className="py-2 text-sm text-zinc-500">No vendors certified at this level.</li>
               ) : null}
             </ul>
             {user.role === "ADMIN" ? (
-              <div className="mt-4 rounded-xl border border-dashed border-ink-700 bg-ink-800/30 p-4">
-                <p className="mb-1 text-sm font-semibold text-gray-100">
+              <div className="mt-4 rounded-[16px] border border-dashed border-zinc-200 bg-zinc-50 p-4">
+                <p className="mb-1 text-[13px] font-semibold tracking-tight text-[#1d1d1f]">
                   Register internal SDK (private vendor)
                 </p>
-                <p className="mb-3 text-xs text-ink-400">
+                <p className="mb-3 text-xs leading-relaxed text-zinc-500">
                   Private vendors are visible only inside your organization and can ingest change
                   events through their own agent key.
                 </p>
@@ -236,7 +246,7 @@ export default async function SettingsPage({
         </Card>
       </div>
 
-      <Card>
+      <Card className="rounded-[20px] border-zinc-200 bg-white">
         <CardHeader>
           <CardTitle>Plan & billing</CardTitle>
           <CardDescription>
@@ -245,13 +255,15 @@ export default async function SettingsPage({
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap items-center gap-3">
-            <Badge tone="blue">{plan.tier}</Badge>
-            <span className="text-sm text-ink-300">
+            <Badge tone="blue" variant="subtle">
+              {plan.tier}
+            </Badge>
+            <span className="text-sm font-medium text-[#1d1d1f]">
               {formatPrice(PLAN_DEFINITIONS[plan.tier].priceCents)}
               {plan.status === "ACTIVE" || plan.status === "PAST_DUE" ? (
                 <>
                   {" · "}
-                  <span className="text-xs text-ink-400">
+                  <span className="text-xs font-normal text-zinc-500">
                     {plan.status === "PAST_DUE" ? "payment past due" : "active"}
                     {plan.currentPeriodEnd ? ` · renews ${formatDate(plan.currentPeriodEnd)}` : ""}
                   </span>
@@ -261,19 +273,19 @@ export default async function SettingsPage({
           </div>
 
           <div>
-            <div className="flex items-center justify-between text-xs text-ink-400">
+            <div className="flex items-center justify-between text-xs font-medium text-zinc-500">
               <span>
                 Repository usage: {capacity.activeCount}
                 {capacity.cap !== null ? ` of ${capacity.cap}` : " (unlimited)"}
               </span>
               {capacity.remaining !== null ? <span>{capacity.remaining} remaining</span> : null}
             </div>
-            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-ink-800 border border-ink-700">
+            <div className="mt-2 h-2 w-full overflow-hidden rounded-full border border-zinc-200 bg-zinc-100">
               <div
                 className={
                   capacity.remaining === 0 && capacity.cap !== null
-                    ? "h-full rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]"
-                    : "h-full rounded-full bg-gradient-to-r from-accent-600 to-accent-400 shadow-[0_0_8px_rgba(99,102,241,0.6)]"
+                    ? "h-full rounded-full bg-[#ff3b30]"
+                    : "h-full rounded-full bg-[#0071e3]"
                 }
                 style={{
                   width:
@@ -284,16 +296,17 @@ export default async function SettingsPage({
               />
             </div>
             {capacity.remaining === 0 && capacity.cap !== null ? (
-              <p className="mt-1 text-xs text-red-400 font-medium">
+              <p className="mt-2 text-xs font-medium text-[#ff3b30]">
                 Repository capacity reached — upgrade to connect more.
               </p>
             ) : null}
           </div>
 
           {!billingConfigured ? (
-            <p className="text-xs text-ink-400">
+            <p className="text-xs leading-relaxed text-zinc-500">
               Billing is not configured for this deployment — every workspace stays on {plan.tier}.
-              Set <code>STRIPE_SECRET_KEY</code> to enable checkout.
+              Set <code className="font-mono text-[#1d1d1f]">STRIPE_SECRET_KEY</code> to enable
+              checkout.
             </p>
           ) : (
             <BillingActions
@@ -304,7 +317,7 @@ export default async function SettingsPage({
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="rounded-[20px] border-zinc-200 bg-white">
         <CardHeader>
           <CardTitle>Capability gates</CardTitle>
           <CardDescription>
@@ -315,7 +328,7 @@ export default async function SettingsPage({
         </CardHeader>
         <CardContent className="p-0">
           {capabilityGates.length === 0 ? (
-            <div className="px-4 py-3 text-sm text-ink-400">
+            <div className="px-6 py-4 text-sm text-zinc-500">
               No gates yet — they appear once pull-request outcomes have been recorded and
               evaluated.
             </div>
@@ -335,17 +348,19 @@ export default async function SettingsPage({
                   const vendor = vendors.find((v) => v.slug === gate.vendorSlug);
                   return (
                     <TableRow key={gate.id}>
-                      <TableCell className="text-sm font-medium text-gray-100">
+                      <TableCell className="text-[13px] font-medium tracking-tight text-[#1d1d1f]">
                         {vendor?.name ?? gate.vendorSlug}
                       </TableCell>
-                      <TableCell className="font-mono text-xs">{gate.level}</TableCell>
+                      <TableCell className="font-mono text-xs text-zinc-600">
+                        {gate.level}
+                      </TableCell>
                       <TableCell>
                         <StatusPill
                           label={gate.status.toLowerCase()}
                           tone={GATE_STATUS_TONE[gate.status]}
                         />
                       </TableCell>
-                      <TableCell className="text-xs text-ink-400">
+                      <TableCell className="text-xs text-zinc-500">
                         {gate.suspendedAt ? formatDate(gate.suspendedAt) : "—"}
                       </TableCell>
                       <TableCell>
@@ -369,16 +384,16 @@ export default async function SettingsPage({
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="rounded-[20px] border-zinc-200 bg-white">
         <CardHeader>
           <CardTitle>Local development notice</CardTitle>
           <CardDescription>Safety boundaries of this MVP.</CardDescription>
         </CardHeader>
-        <CardContent className="text-sm text-ink-300">
-          <ul className="list-disc space-y-1 pl-4">
+        <CardContent className="text-[13px] leading-relaxed text-zinc-600">
+          <ul className="list-disc space-y-1.5 pl-4 marker:text-zinc-300">
             <li>
               Validation mode:{" "}
-              <span className="font-mono text-gray-100">
+              <span className="font-mono text-xs font-medium text-[#1d1d1f]">
                 {process.env.SANDBOX_VALIDATION_MODE ?? "hosted-docker"}
               </span>{" "}
               (
@@ -391,7 +406,7 @@ export default async function SettingsPage({
             </li>
             <li>
               Validation runner runtime:{" "}
-              <span className="font-mono text-gray-100">
+              <span className="font-mono text-xs font-medium text-[#1d1d1f]">
                 {process.env.SANDBOX_RUNTIME ?? "process"}
               </span>{" "}
               (

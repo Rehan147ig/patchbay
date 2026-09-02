@@ -59,21 +59,27 @@ export function LoginForm() {
       {error ? (
         <div
           role="alert"
-          className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3.5 py-2.5 text-xs text-red-400"
+          className="flex items-center gap-2 rounded-xl border border-[#ff3b30]/20 bg-[#ff3b30]/10 px-3.5 py-2.5 text-xs font-medium text-[#ff3b30]"
         >
           <AlertCircle className="size-4 shrink-0" />
           <span>{error}</span>
         </div>
       ) : null}
 
-      <Button type="submit" size="md" className="w-full justify-between" loading={pending}>
+      <Button
+        type="submit"
+        size="md"
+        className="w-full justify-between rounded-full bg-[#0071e3] hover:bg-[#0077ed]"
+        loading={pending}
+      >
         <span>Sign in to console</span>
         <ArrowRight className="size-4" />
       </Button>
 
-      <div className="rounded-lg border border-ink-700/60 bg-ink-900/60 p-3 text-[11px] leading-relaxed text-ink-400">
-        <span className="font-semibold text-gray-300">Demo workspace:</span>{" "}
-        <code>demo@patchbay.dev</code> / <code>dev-only</code>
+      <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-[11px] leading-relaxed text-zinc-500">
+        <span className="font-semibold tracking-tight text-[#1d1d1f]">Demo workspace:</span>{" "}
+        <code className="font-mono text-[#1d1d1f]">demo@patchbay.dev</code> /{" "}
+        <code className="font-mono text-[#1d1d1f]">dev-only</code>
       </div>
     </form>
   );

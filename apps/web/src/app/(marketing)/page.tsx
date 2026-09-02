@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+﻿import type { Metadata } from "next";
 import Link from "next/link";
 import { MarketingNav } from "@/components/marketing/marketing-nav";
 import { HeroMockup } from "@/components/marketing/hero-mockup";
@@ -7,7 +7,7 @@ import { PipelineShowcase } from "@/components/marketing/pipeline-showcase";
 import { Reveal } from "@/components/marketing/reveal";
 
 export const metadata: Metadata = {
-  title: "Patch — Governed API-Change Remediation",
+  title: "Patch â€” Governed API-Change Remediation",
   description:
     "Patch detects breaking API and SDK changes, proves TypeScript usages across your repositories, and opens draft pull requests when certified rule packs exist.",
 };
@@ -17,7 +17,7 @@ const CERTIFIED_MATRIX = [
     vendor: "OpenAI Node SDK",
     package: "openai",
     level: "DRAFT_PR",
-    scope: "createChatCompletion → chat.completions.create, completion.data unwrap",
+    scope: "createChatCompletion â†’ chat.completions.create, completion.data unwrap",
     policyGate: "Auto Draft PR (when validation passes)",
   },
   {
@@ -31,7 +31,7 @@ const CERTIFIED_MATRIX = [
     vendor: "Twilio Node SDK",
     package: "twilio",
     level: "DRAFT_PR",
-    scope: "client.messages.create → client.messages.createV2",
+    scope: "client.messages.create â†’ client.messages.createV2",
     policyGate: "Auto Draft PR (when validation passes)",
   },
   {
@@ -39,14 +39,14 @@ const CERTIFIED_MATRIX = [
     package: "auth0",
     level: "PLAN",
     scope: "Authentication middleware & JWT signature updates",
-    policyGate: "Mandatory Human Approval (AUTH risk) — plan visible, no code patch",
+    policyGate: "Mandatory Human Approval (AUTH risk) â€” plan visible, no code patch",
   },
   {
     vendor: "Generic OpenAPI Diff",
     package: "openapi-spec",
     level: "ASSESS",
     scope: "Schema property & response changes from spec diffs",
-    policyGate: "Observe & assess impact only — no automated code patch",
+    policyGate: "Observe & assess impact only â€” no automated code patch",
   },
 ];
 
@@ -96,13 +96,13 @@ const AUDIT_LINES = [
   {
     case: "c_8f2f",
     event: "PATCH",
-    detail: "applied · sandbox validation passed",
+    detail: "applied Â· sandbox validation passed",
     tone: "text-emerald-300",
   },
   {
     case: "c_8f2f",
     event: "APPROVED",
-    detail: "by e.owens · draft PR #128 opened",
+    detail: "by e.owens Â· draft PR #128 opened",
     tone: "text-emerald-300",
   },
 ];
@@ -111,7 +111,7 @@ const FEATURES = [
   {
     icon: "activity",
     title: "An audit trail you can replay",
-    body: "Every detection, classification, decision, and approval is appended immutably with a correlation ID — the full story behind every draft PR.",
+    body: "Every detection, classification, decision, and approval is appended immutably with a correlation ID â€” the full story behind every draft PR.",
     visual: "audit" as const,
   },
   {
@@ -135,7 +135,7 @@ const FEATURES = [
   {
     icon: "brain",
     title: "Visible agent trail",
-    body: "Analyst → planner → reviewer. You watch every step, every tool call, every verdict.",
+    body: "Analyst â†’ planner â†’ reviewer. You watch every step, every tool call, every verdict.",
     visual: "agents" as const,
   },
   {
@@ -223,7 +223,7 @@ function FeatureVisual({
   if (kind === "draft") {
     return (
       <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 font-mono text-xs text-emerald-700">
-        + draft: true — never auto-merge
+        + draft: true â€” never auto-merge
       </p>
     );
   }
@@ -246,14 +246,14 @@ function FeatureVisual({
       <p className="mt-4 flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 font-mono text-xs text-gray-600">
         <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" />
         pnpm test
-        <span className="ml-auto text-emerald-600">passed ✓</span>
+        <span className="ml-auto text-emerald-600">passed âœ“</span>
       </p>
     );
   }
   if (kind === "agents") {
     return (
       <div className="mt-4 space-y-1.5">
-        {["ANALYST · listening", "PLANNER · composing", "REVIEWER · shaping"].map((step) => (
+        {["ANALYST Â· listening", "PLANNER Â· composing", "REVIEWER Â· shaping"].map((step) => (
           <p key={step} className="flex items-center gap-2 font-mono text-[11px] text-gray-500">
             <span className="size-1.5 rounded-full bg-accent-500" />
             {step}
@@ -271,17 +271,17 @@ function FeatureVisual({
 }
 
 const PRIMARY_BTN =
-  "rounded-full bg-gray-900 px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-gray-700";
+  "inline-flex items-center justify-center rounded-full bg-[#0071e3] px-6 h-11 text-sm font-medium tracking-tight text-white shadow-sm transition-colors hover:bg-[#0077ed]";
 const SECONDARY_BTN =
-  "rounded-full border border-gray-300 bg-white px-6 py-3 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50";
+  "inline-flex items-center justify-center rounded-full border border-zinc-200 bg-white px-6 h-11 text-sm font-medium tracking-tight text-zinc-700 shadow-sm transition-colors hover:bg-zinc-50 hover:border-zinc-300";
 
 export default function LandingPage() {
   return (
-    <div className="flex-1 bg-white text-gray-900">
+    <div className="flex-1 bg-[#fbfbfd] font-sans antialiased text-[#1d1d1f]">
       <MarketingNav />
 
       {/* Hero */}
-      <section className="relative overflow-hidden pb-20 pt-16 sm:pt-24">
+      <section className="relative overflow-hidden bg-[#fbfbfd] pb-20 pt-16 sm:pt-24">
         {/* Ambient animated backdrop */}
         <div aria-hidden className="pointer-events-none absolute inset-0">
           <div
@@ -313,14 +313,14 @@ export default function LandingPage() {
               Governed API-change remediation
             </p>
 
-            <h1 className="mx-auto mt-7 max-w-4xl text-balance text-5xl font-semibold leading-[1.06] tracking-[-0.03em] text-gray-900 sm:text-7xl">
+            <h1 className="mx-auto mt-7 max-w-4xl text-balance text-[32px] font-semibold leading-[1.05] tracking-tight text-[#1d1d1f] sm:text-[48px]">
               Dependabot tells you a version changed.
-              <span className="block bg-gradient-to-r from-accent-600 via-accent-500 to-emerald-500 bg-clip-text text-transparent">
+              <span className="block bg-gradient-to-r from-[#0071e3] to-[#34c759] bg-clip-text text-transparent">
                 Patch drafts the migration.
               </span>
             </h1>
 
-            <p className="mx-auto mt-6 max-w-2xl text-pretty text-lg leading-relaxed text-gray-600">
+            <p className="mx-auto mt-6 max-w-2xl text-pretty text-lg leading-relaxed text-zinc-500">
               A neutral GitHub App that detects SDK and API changes, proves TypeScript usages across
               your repositories, and opens a reviewable draft pull request when a certified rule
               pack exists.
@@ -331,14 +331,14 @@ export default function LandingPage() {
                 Install GitHub App
               </Link>
               <Link href="/login" className={SECONDARY_BTN}>
-                Explore the demo →
+                Explore the demo â†’
               </Link>
             </div>
 
-            <p className="mt-6 text-xs text-gray-400">
+            <p className="mt-6 text-xs text-zinc-400">
               Vendors push change events directly with{" "}
-              <code className="font-mono text-gray-500">pb_agent_*</code> keys to{" "}
-              <code className="font-mono text-gray-500">POST /api/vendors/:slug/events</code>.
+              <code className="font-mono text-zinc-500">pb_agent_*</code> keys to{" "}
+              <code className="font-mono text-zinc-500">POST /api/vendors/:slug/events</code>.
             </p>
           </Reveal>
 
@@ -378,7 +378,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* How it works — live pipeline pictorial */}
+      {/* How it works â€” live pipeline pictorial */}
       <section
         id="how-it-works"
         className="relative overflow-hidden border-y border-gray-100 bg-gray-50/70"
@@ -391,7 +391,7 @@ export default function LandingPage() {
           <Reveal>
             <div className="mx-auto max-w-2xl text-center">
               <h2 className="text-balance text-4xl font-semibold tracking-tight text-gray-900 sm:text-5xl">
-                From release note to reviewed patch — live
+                From release note to reviewed patch â€” live
               </h2>
               <p className="mt-5 text-pretty text-lg text-gray-600">
                 Watch the pipeline work: every stage below is what Patch actually does, in the order
@@ -412,11 +412,12 @@ export default function LandingPage() {
         <Reveal>
           <div className="mx-auto max-w-2xl text-center">
             <h2 className="text-balance text-4xl font-semibold tracking-tight text-gray-900 sm:text-5xl">
-              What Patch can patch — and what it won&apos;t
+              What Patch can patch â€” and what it won&apos;t
             </h2>
             <p className="mt-5 text-pretty text-lg text-gray-600">
-              A 56-connector catalog powers dependency detection and impact assessment. Automated
-              draft PRs are strictly limited to certified rule packs.
+              6 certified for Draft PR (openai, stripe, twilio, anthropic, supabase, vercel-ai-sdk)
+              + 50 at ASSESS via graph + blast-radius. Private SDKs via agent. Automated Draft PRs
+              are strictly limited to certified rule packs + validation + human approval.
             </p>
           </div>
         </Reveal>
@@ -458,7 +459,7 @@ export default function LandingPage() {
         </Reveal>
 
         <p className="mt-5 text-center text-xs text-gray-400">
-          Catalog membership ≠ auto-PR. Automated code patches require a certified rule pack,
+          Catalog membership â‰  auto-PR. Automated code patches require a certified rule pack,
           validation profile, and passing evaluation corpus metrics.
         </p>
       </section>

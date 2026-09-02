@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Patchbay background worker (BullMQ consumer).
  *
  * Job types:
@@ -146,7 +146,7 @@ async function main(): Promise<void> {
         await releaseOrgConcurrency(job.data.organizationId ?? "unknown");
       }
     },
-    { connection, concurrency: 2, limiter: { max: 20, duration: 1_000 } },
+    { connection, concurrency: 4, limiter: { max: 20, duration: 1_000 } }, // 4 slots: GRAPH_INDEX (heavy, 1 at a time) + CREATE_PR/VALIDATE (3) share - 50-repo monorepo queues 10m, not a blocker for demo (1 repo 2s),
   );
 
   const redisPing = await connection.ping();

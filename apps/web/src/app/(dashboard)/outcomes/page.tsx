@@ -68,16 +68,18 @@ export default async function OutcomesPage() {
   );
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold text-white">Outcomes</h1>
-        <p className="text-sm text-slate-500">
+    <div className="space-y-6 bg-[#fbfbfd] font-sans antialiased">
+      <div className="border-b border-zinc-200/60 pb-6">
+        <h1 className="text-[24px] font-semibold tracking-tight text-[#1d1d1f] antialiased">
+          Outcomes
+        </h1>
+        <p className="mt-1 max-w-3xl text-[13px] leading-relaxed text-zinc-500">
           What happened after Patch acted — merged pull requests, human feedback, and the
           capability-health signals derived from them.
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
         <StatCard
           label="PR merge rate"
           value={
@@ -143,30 +145,30 @@ export default async function OutcomesPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <Card>
+        <Card className="rounded-[20px] border-zinc-200 bg-white">
           <CardHeader>
             <CardTitle>Merge rate signal</CardTitle>
             <CardDescription>Actionable pulls with a verdict.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
-            <p className="text-slate-700">
-              <span className="font-medium text-slate-900">{metrics.outcomes.success}</span>{" "}
+            <p className="text-zinc-600">
+              <span className="font-medium text-[#1d1d1f]">{metrics.outcomes.success}</span>{" "}
               success,
-              <span className="font-medium text-slate-900">
+              <span className="font-medium text-[#1d1d1f]">
                 {" "}
                 {metrics.outcomes.falsePositive}
               </span>{" "}
               false positives,
-              <span className="font-medium text-slate-900">
+              <span className="font-medium text-[#1d1d1f]">
                 {" "}
                 {metrics.outcomes.byClassification.UNCLASSIFIED ?? 0}
               </span>{" "}
               unclassified,{" "}
-              <span className="font-medium text-slate-900"> {metrics.outcomes.total}</span> total
+              <span className="font-medium text-[#1d1d1f]"> {metrics.outcomes.total}</span> total
               outcomes in the window.
             </p>
             {metrics.outcomes.classified > 0 ? (
-              <ul className="space-y-1">
+              <ul className="space-y-1.5">
                 {Object.entries(metrics.outcomes.byClassification)
                   .filter(([, count]) => count > 0)
                   .map(([classification, count]) => (
@@ -175,10 +177,11 @@ export default async function OutcomesPage() {
                         tone={
                           PR_OUTCOME_CLASSIFICATION_TONE[classification as PrOutcomeClassification]
                         }
+                        variant="subtle"
                       >
                         {PR_OUTCOME_CLASSIFICATION_LABEL[classification as PrOutcomeClassification]}
                       </Badge>
-                      <span className="text-xs text-slate-500">{count}</span>
+                      <span className="text-xs text-zinc-500">{count}</span>
                     </li>
                   ))}
               </ul>
@@ -186,7 +189,7 @@ export default async function OutcomesPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="rounded-[20px] border-zinc-200 bg-white">
           <CardHeader>
             <CardTitle>Feedback queue</CardTitle>
             <CardDescription>
@@ -195,27 +198,27 @@ export default async function OutcomesPage() {
           </CardHeader>
           <CardContent className="p-0">
             {unclassifiedTerminal.length === 0 ? (
-              <div className="px-4 py-3">
+              <div className="px-6 py-4">
                 <EmptyState
                   title="Nothing to classify"
                   description="Merged and closed pull requests will appear here for feedback."
                 />
               </div>
             ) : (
-              <ul className="divide-y divide-slate-100">
+              <ul className="divide-y divide-zinc-100">
                 {unclassifiedTerminal.map((outcome) => (
                   <li
                     key={outcome.id}
-                    className="flex flex-wrap items-center justify-between gap-2 px-4 py-2"
+                    className="flex flex-wrap items-center justify-between gap-3 px-6 py-3"
                   >
                     <div className="text-xs">
-                      <p className="font-medium text-slate-800">
+                      <p className="font-medium tracking-tight text-[#1d1d1f]">
                         {outcome.pullRequest?.url ? (
                           <a
                             href={outcome.pullRequest.url}
                             target="_blank"
                             rel="noreferrer"
-                            className="text-accent-400 hover:underline"
+                            className="font-semibold text-[#0071e3] hover:underline"
                           >
                             {outcome.pullRequest.branchName}
                           </a>
@@ -223,7 +226,7 @@ export default async function OutcomesPage() {
                           (outcome.pullRequest?.branchName ?? "Pull request")
                         )}
                       </p>
-                      <p className="text-slate-500">
+                      <p className="mt-0.5 text-zinc-500">
                         {outcome.pullRequest.remediationPlan.impactAssessment.repository.name}
                         {outcome.pullRequest.remediationPlan.impactAssessment.changeEvent.vendor
                           ? ` · ${outcome.pullRequest.remediationPlan.impactAssessment.changeEvent.vendor.name}`
@@ -239,7 +242,7 @@ export default async function OutcomesPage() {
         </Card>
       </div>
 
-      <Card>
+      <Card className="rounded-[20px] border-zinc-200 bg-white">
         <CardHeader>
           <CardTitle>Outcome ledger</CardTitle>
           <CardDescription>
@@ -248,7 +251,7 @@ export default async function OutcomesPage() {
         </CardHeader>
         <CardContent className="p-0">
           {outcomes.length === 0 ? (
-            <div className="px-4 py-3">
+            <div className="px-6 py-4">
               <EmptyState
                 title="No outcomes yet"
                 description="Outcomes are recorded when pull requests merge or close, or when you classify them here."
@@ -269,17 +272,17 @@ export default async function OutcomesPage() {
               <TableBody>
                 {outcomes.map((outcome) => (
                   <TableRow key={outcome.id}>
-                    <TableCell className="whitespace-nowrap text-xs text-slate-500">
+                    <TableCell className="whitespace-nowrap text-xs text-zinc-500">
                       {formatDate(outcome.createdAt)}
                     </TableCell>
                     <TableCell className="text-xs">
-                      <p className="font-medium text-slate-800">
+                      <p className="font-medium tracking-tight text-[#1d1d1f]">
                         {outcome.pullRequest?.url ? (
                           <a
                             href={outcome.pullRequest.url}
                             target="_blank"
                             rel="noreferrer"
-                            className="text-accent-400 hover:underline"
+                            className="font-semibold text-[#0071e3] hover:underline"
                           >
                             {outcome.pullRequest.branchName}
                           </a>
@@ -287,27 +290,30 @@ export default async function OutcomesPage() {
                           (outcome.pullRequest?.branchName ?? "—")
                         )}
                       </p>
-                      <p className="text-slate-500">
+                      <p className="text-zinc-500">
                         {outcome.pullRequest?.remediationPlan.impactAssessment.repository.name ??
                           ""}
                       </p>
                     </TableCell>
-                    <TableCell className="text-xs">
+                    <TableCell className="text-xs text-zinc-600">
                       {outcome.pullRequest?.remediationPlan.impactAssessment.changeEvent.vendor
                         ?.name ?? "—"}
                       {outcome.case ? (
-                        <span className="text-slate-400"> · {outcome.case.id.slice(0, 8)}</span>
+                        <span className="text-zinc-400"> · {outcome.case.id.slice(0, 8)}</span>
                       ) : null}
                     </TableCell>
                     <TableCell>
-                      <Badge tone={PR_OUTCOME_CLASSIFICATION_TONE[outcome.classification]}>
+                      <Badge
+                        tone={PR_OUTCOME_CLASSIFICATION_TONE[outcome.classification]}
+                        variant="subtle"
+                      >
                         {PR_OUTCOME_CLASSIFICATION_LABEL[outcome.classification]}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-xs text-slate-500">
+                    <TableCell className="text-xs text-zinc-500">
                       {OUTCOME_SOURCE_LABEL[outcome.source]}
                     </TableCell>
-                    <TableCell className="text-xs text-slate-500">
+                    <TableCell className="text-xs text-zinc-500">
                       {outcome.rulePackVersion ? `rules ${outcome.rulePackVersion}` : ""}
                       {outcome.modelVersion ? ` · model ${outcome.modelVersion}` : ""}
                       {outcome.validationRunId ? " · validated" : ""}
@@ -320,7 +326,7 @@ export default async function OutcomesPage() {
         </CardContent>
       </Card>
 
-      <p className="text-xs text-slate-400">
+      <p className="text-xs text-zinc-400">
         SLO defaults: merge rate below 50%, false positive rate above 50%, or p95 detection latency
         above 60s over a 30-day window suspend the affected capability in Settings.
       </p>
