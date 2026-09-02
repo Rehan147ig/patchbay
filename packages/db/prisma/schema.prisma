@@ -326,6 +326,7 @@ model Organization {
   taskParameters         TaskParameter[]
   vendors                Vendor[]
   workspaces             Workspace[]
+  workspaceMembers       WorkspaceMember[]
   subscription           Subscription?
 }
 
@@ -349,15 +350,18 @@ model Workspace {
 
 model WorkspaceMember {
   id String @id @default(uuid())
+  organizationId String
   workspaceId String
   userId String
   role Role @default(MEMBER)
   createdAt DateTime @default(now())
 
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([workspaceId, userId])
+  @@index([organizationId])
   @@index([workspaceId])
   @@index([userId])
 }
