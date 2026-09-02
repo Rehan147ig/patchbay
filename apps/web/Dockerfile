@@ -28,7 +28,7 @@ RUN pnpm --filter @patchbay/web build
 FROM node:22-alpine AS web-prod
 
 WORKDIR /app
-RUN npm install -g pnpm@10.34.5
+RUN apk add --no-cache curl && npm install -g pnpm@10.34.5
 
 COPY --from=builder /app/pnpm-lock.yaml ./pnpm-lock.yaml
 COPY --from=builder /app/package.json ./package.json

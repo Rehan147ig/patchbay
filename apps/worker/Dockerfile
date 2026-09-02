@@ -28,15 +28,19 @@ RUN npx tsc --noEmit -p tsconfig.json 2>/dev/null || true
 FROM node:22-alpine AS worker-prod
 
 WORKDIR /app
-RUN npm install -g pnpm@10.34.5
+RUN apk add --no-cache curl && npm install -g pnpm@10.34.5
 
-# Copy only package manifest + lock from builder (for prod deps only)
+# Copy manifests from builder (needed before pnpm install for workspace linking)
 COPY --from=builder /app/package.json ./
 COPY --from=builder /app/pnpm-lock.yaml ./
+COPY --from=builder /app/pnpm-workspace.yaml ./pnpm-workspace.yaml
+COPY --from=builder /app/packages ./packages
+COPY --from=builder /app/apps/web/package.json ./apps/web/package.json
+COPY --from=builder /app/apps/worker/package.json ./apps/worker/package.json
 
-# Install ONLY production dependencies (bullmq, ioredis + workspace packages)
-# --prod flags out dev deps like tsx, ts-node, testing frameworks
-RUN pnpm install --frozen-lockfile --prod
+# Install dependencies (need dev deps for prisma generate)
+RUN pnpm install --frozen-lockfile
+RUN pnpm --filter @patchbay/db exec prisma generate
 
 # Copy the compiled worker output (if tsc produced dist/, otherwise copy src)
 # Most of this codebase runs via tsx in dev; for prod we'll copy src and
@@ -63,4 +67,4 @@ USER node
 EXPOSE 3001
 
 # Run the worker using tsx (brings ESM + TypeScript support without compiling)
-CMD ["tsx", "src/index.ts"]
+CMD ["tsx", "apps/worker/src/index.ts"]
