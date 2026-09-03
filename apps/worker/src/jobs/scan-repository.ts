@@ -204,6 +204,7 @@ export async function processScanRepository(job: Job): Promise<ScanRepositoryRes
               packageCount: analysis.packageCount,
               packageManager: analysis.packageManager,
               untrackedUsages: analysis.untrackedUsages,
+              untrackedPackages: analysis.untrackedPackages,
               durationMs: analysis.durationMs,
             },
             error: null,

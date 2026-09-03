@@ -141,6 +141,7 @@ function analysisResult(overrides: Record<string, unknown> = {}) {
     packageCount: 2,
     packageManager: "pnpm",
     untrackedUsages: 0,
+    untrackedPackages: [],
     durationMs: 100,
     ...overrides,
   };

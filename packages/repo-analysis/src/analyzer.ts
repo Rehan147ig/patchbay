@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
-import { analyzeSource, collectBindings } from "./ast";
+import { analyzeSource, collectBindings, collectUntrackedImports } from "./ast";
 import { collectModuleExports, makeRelativeResolver } from "./exports";
 import { extractJavaUsages, parseJavaManifest } from "./java";
 import { resolveLockfileVersions } from "./lockfile";
@@ -176,6 +176,7 @@ export async function analyzeRepository(
     usages: [...usages.usages, ...pythonUsages, ...javaUsages],
     errors,
     untrackedUsages: usages.untrackedUsages,
+    untrackedPackages: usages.untrackedPackages,
   };
 }
 
@@ -192,7 +193,12 @@ async function analyzeUsages(
   trackSet: Set<string>,
   envPrefixes: Record<string, string>,
   workspacePackages: ReadonlyMap<string, WorkspacePackage> = new Map(),
-): Promise<{ usages: AnalyzedUsage[]; untrackedUsages: number; errors: AnalysisError[] }> {
+): Promise<{
+  usages: AnalyzedUsage[];
+  untrackedUsages: number;
+  untrackedPackages: string[];
+  errors: AnalysisError[];
+}> {
   const files = new Set(sourcesByFile.keys());
   let bindingsByFile = new Map<string, Map<string, string>>();
   let exportsByFile = new Map<string, ModuleExports>();
@@ -236,9 +242,20 @@ async function analyzeUsages(
   const resolver = makeRelativeResolver(exportsByFile, files, workspacePackages);
   const usages: AnalyzedUsage[] = [];
   const errors: AnalysisError[] = [];
+  const untrackedPackages = new Set<string>();
   let untrackedUsages = 0;
   for (const [rel, source] of sourcesByFile) {
     try {
+      const sourceFile = ts.createSourceFile(
+        rel,
+        source,
+        ts.ScriptTarget.Latest,
+        true,
+        ts.ScriptKind.TS,
+      );
+      for (const pkg of collectUntrackedImports(sourceFile)) {
+        if (!trackSet.has(pkg) && !workspacePackages.has(pkg)) untrackedPackages.add(pkg);
+      }
       const result = analyzeSource(source, rel, trackSet, envPrefixes, resolver);
       usages.push(...result.usages);
       untrackedUsages += result.untrackedUsages;
@@ -250,7 +267,12 @@ async function analyzeUsages(
   usages.sort(
     (a, b) => a.filePath.localeCompare(b.filePath) || a.line - b.line || a.column - b.column,
   );
-  return { usages, untrackedUsages, errors };
+  return {
+    usages,
+    untrackedUsages,
+    untrackedPackages: [...untrackedPackages].sort().slice(0, 50),
+    errors,
+  };
 }
 
 interface CollectedFiles {

@@ -238,6 +238,86 @@ interface FullBinding extends Binding {
   importNodes: ts.Node[];
 }
 
+/** Node.js builtins that are never third-party packages. */
+const NODE_BUILTINS = new Set([
+  "assert",
+  "buffer",
+  "child_process",
+  "cluster",
+  "crypto",
+  "dgram",
+  "dns",
+  "events",
+  "fs",
+  "http",
+  "https",
+  "net",
+  "os",
+  "path",
+  "process",
+  "querystring",
+  "readline",
+  "stream",
+  "string_decoder",
+  "timers",
+  "tls",
+  "tty",
+  "url",
+  "util",
+  "v8",
+  "vm",
+  "worker_threads",
+  "zlib",
+]);
+
+function normalizePackageName(specifier: string): string | null {
+  if (
+    specifier.startsWith(".") ||
+    specifier.startsWith("/") ||
+    specifier.startsWith("node:") ||
+    specifier === ""
+  ) {
+    return null;
+  }
+  const segments = specifier.split("/");
+  const candidate = specifier.startsWith("@") ? `${segments[0]}/${segments[1]}` : segments[0];
+  if (!candidate || candidate === "@") return null;
+  if (NODE_BUILTINS.has(candidate)) return null;
+  return candidate;
+}
+
+/**
+ * Collects bare third-party import specifiers from a single file, normalized
+ * to package names (`@scope/pkg/sub` -> `@scope/pkg`). Relative imports,
+ * workspace-resolvable names are NOT filtered here (the caller knows the
+ * workspace map); Node builtins are excluded. Deterministic and side-free.
+ * Powers private-SDK auto-discovery: packages imported but not tracked.
+ */
+export function collectUntrackedImports(sourceFile: ts.SourceFile): string[] {
+  const found = new Set<string>();
+  function visit(node: ts.Node): void {
+    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+      const candidate = normalizePackageName(node.moduleSpecifier.text);
+      if (candidate) found.add(candidate);
+    }
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === "require" &&
+      node.arguments.length === 1
+    ) {
+      const firstArg: ts.Node | undefined = node.arguments[0];
+      if (firstArg && ts.isStringLiteral(firstArg)) {
+        const candidate = normalizePackageName(firstArg.text);
+        if (candidate) found.add(candidate);
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(sourceFile);
+  return [...found].sort();
+}
+
 /**
  * Collects local bindings that reference tracked packages:
  * 1. Direct imports/requires of tracked packages.

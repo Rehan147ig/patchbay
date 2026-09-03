@@ -1,8 +1,9 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import ts from "typescript";
 import { analyzeRepository } from "./analyzer";
-import { analyzeSource } from "./ast";
+import { analyzeSource, collectUntrackedImports } from "./ast";
 import type { AnalyzedUsage } from "./types";
 
 const TRACKED = ["stripe", "openai", "twilio", "auth0"];
@@ -531,5 +532,36 @@ describe("analyzeSource - unit level", () => {
     const result = analyzeSource(source, "src/x.ts", new Set(TRACKED), PREFIXES);
     expect(result.usages.some((u) => u.symbol.includes("withAuth"))).toBe(false);
     expect(result.usages.map((u) => u.usageType).filter((t) => t !== "INITIALIZATION")).toEqual([]);
+  });
+});
+
+describe("collectUntrackedImports - private SDK discovery", () => {
+  function parse(source: string): ts.SourceFile {
+    return ts.createSourceFile("src/x.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  }
+
+  it("collects bare imports, scoped subpaths, and require() calls", () => {
+    const source = [
+      'import { Acme } from "@acme/sdk";',
+      'import x from "@acme/sdk/sub";',
+      'const y = require("internal-billing");',
+      'import Stripe from "stripe";',
+    ].join("\n");
+    expect(collectUntrackedImports(parse(source))).toEqual([
+      "@acme/sdk",
+      "internal-billing",
+      "stripe",
+    ]);
+  });
+
+  it("ignores relative imports, node builtins, and node: prefixes", () => {
+    const source = [
+      'import { a } from "./local";',
+      'import { b } from "../lib/util";',
+      'import fs from "fs";',
+      'import path from "node:path";',
+      'const c = require("crypto");',
+    ].join("\n");
+    expect(collectUntrackedImports(parse(source))).toEqual([]);
   });
 });

@@ -69,6 +69,12 @@ export interface RepositoryAnalysis {
   lockfileVersions: Record<string, string>;
   /** CONFIG/ENV usages dropped because no tracked package could be inferred. */
   untrackedUsages: number;
+  /**
+   * Bare third-party packages imported but not in `trackPackages`
+   * (deduplicated, sorted, capped). Powers private-SDK auto-discovery:
+   * unknown imports are candidates for one-click private vendor registration.
+   */
+  untrackedPackages: string[];
   manifests: PackageManifest[];
   pythonManifests: PythonManifest[];
   usages: AnalyzedUsage[];

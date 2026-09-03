@@ -21,6 +21,7 @@ import {
 } from "@patchbay/ui";
 import { requireUser } from "@/lib/auth";
 import { ScanRepositoryButton } from "@/components/scan-repository-button";
+import { UntrackedPackages } from "@/components/untracked-packages";
 import {
   formatDate,
   formatDateOnly,
@@ -61,6 +62,17 @@ export default async function RepositoryDetailPage({
   });
 
   if (!repository) notFound();
+
+  const latestScanSummary = (() => {
+    const summary = repository.scans[0]?.summary;
+    if (typeof summary !== "object" || summary === null) return null;
+    const packages = (summary as { untrackedPackages?: unknown }).untrackedPackages;
+    return Array.isArray(packages)
+      ? packages
+          .filter((pkg): pkg is string => typeof pkg === "string" && pkg.length > 0)
+          .slice(0, 20)
+      : null;
+  })();
 
   const vendorsByUsage = new Map<string, { name: string; count: number }>();
   for (const usage of repository.usages) {
@@ -176,7 +188,10 @@ export default async function RepositoryDetailPage({
             <CardTitle>Vendor dependencies</CardTitle>
             <CardDescription>Detected vendor SDK usage in this repository.</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
+            {latestScanSummary && latestScanSummary.length > 0 ? (
+              <UntrackedPackages packages={latestScanSummary} isAdmin={user.role === "ADMIN"} />
+            ) : null}
             {vendorsByUsage.size === 0 ? (
               <p className="text-sm text-zinc-500">No vendor usages detected.</p>
             ) : (
