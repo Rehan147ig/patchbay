@@ -275,7 +275,9 @@ function normalizePackageName(specifier: string): string | null {
     specifier.startsWith(".") ||
     specifier.startsWith("/") ||
     specifier.startsWith("node:") ||
-    specifier === ""
+    specifier.startsWith("@/") ||
+    specifier === "" ||
+    specifier === "@"
   ) {
     return null;
   }

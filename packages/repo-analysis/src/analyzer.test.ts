@@ -564,4 +564,13 @@ describe("collectUntrackedImports - private SDK discovery", () => {
     ].join("\n");
     expect(collectUntrackedImports(parse(source))).toEqual([]);
   });
+
+  it("ignores @/ path aliases used by tsconfig paths", () => {
+    const source = [
+      'import { Button } from "@/components/ui/button";',
+      'import { cn } from "@/lib/utils";',
+      'import { Acme } from "@acme/sdk";',
+    ].join("\n");
+    expect(collectUntrackedImports(parse(source))).toEqual(["@acme/sdk"]);
+  });
 });
