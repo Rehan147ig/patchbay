@@ -10,6 +10,8 @@ import { extractJavaUsages, parseJavaManifest } from "./java";
 import { resolveLockfileVersions } from "./lockfile";
 import { extractPythonUsages, parsePythonManifest } from "./python";
 import type {
+  AnalysisProgress,
+  AnalysisStage,
   AnalyzeRepositoryOptions,
   AnalysisError,
   AnalyzedUsage,
@@ -43,11 +45,37 @@ export async function analyzeRepository(
   options: AnalyzeRepositoryOptions,
 ): Promise<RepositoryAnalysis> {
   const startedAt = Date.now();
-  const { rootDir, trackPackages } = options;
+  const { rootDir, trackPackages, onProgress } = options;
   const trackSet = new Set(trackPackages);
   const envPrefixes = Object.fromEntries(trackPackages.map((pkg) => [pkg, pkg]));
 
   const files = await collectFiles(rootDir);
+  // Progress reporter for the real-time scan counter: throttled to one
+  // callback per 500ms (plus first/last) so a 7k-file repo emits dozens of
+  // updates, not thousands. `scanned` counts distinct source files fully
+  // extracted; binding/export passes stay silent between PARSING and INDEXING.
+  const progressTotal = files.tsFiles.length + files.pyFiles.length + files.javaFiles.length;
+  let progressScanned = 0;
+  let progressStage: AnalysisStage = "PARSING";
+  let lastProgressEmit = 0;
+  const emitProgress = (force = false): void => {
+    if (!onProgress) return;
+    const now = Date.now();
+    if (!force && progressScanned < progressTotal && now - lastProgressEmit < 500) return;
+    lastProgressEmit = now;
+    try {
+      const progress: AnalysisProgress = {
+        stage: progressStage,
+        scanned: progressScanned,
+        total: progressTotal,
+      };
+      onProgress(progress);
+    } catch {
+      // Progress must never fail a scan.
+    }
+  };
+  progressStage = "PARSING";
+  emitProgress(true);
   const manifests: PackageManifest[] = [];
   const errors: AnalysisError[] = [];
 
@@ -125,13 +153,24 @@ export async function analyzeRepository(
   }
 
   const workspaceEntryFiles = await resolveWorkspacePackages(rootDir, files.tsFiles, manifests);
-  const usages = await analyzeUsages(sourcesByFile, trackSet, envPrefixes, workspaceEntryFiles);
+  const tickIndexed = (): void => {
+    progressScanned = Math.min(progressScanned + 1, progressTotal);
+    emitProgress();
+  };
+  const usages = await analyzeUsages(sourcesByFile, trackSet, envPrefixes, workspaceEntryFiles, {
+    onFileIndexed: tickIndexed,
+    onIndexingStart: () => {
+      progressStage = "INDEXING";
+      emitProgress(true);
+    },
+  });
   errors.push(...usages.errors);
 
   const pythonUsages: AnalyzedUsage[] = [];
   for (const [rel, source] of pythonSourcesByFile) {
     try {
       pythonUsages.push(...(await extractPythonUsages(source, rel, trackSet)));
+      tickIndexed();
     } catch (error) {
       errors.push({ filePath: rel, message: String(error) });
     }
@@ -143,10 +182,12 @@ export async function analyzeRepository(
     try {
       const raw = await fs.readFile(path.join(rootDir, rel), "utf8");
       javaUsages.push(...(await extractJavaUsages(raw, rel, trackSet)));
+      tickIndexed();
     } catch (error) {
       errors.push({ filePath: rel, message: String(error) });
     }
   }
+  emitProgress(true);
 
   const { packageManager, versions } = await resolveLockfileVersions(rootDir);
   const packageCount = manifests.reduce(
@@ -190,11 +231,19 @@ export async function analyzeRepository(
  * later passes let relative imports bind through those exports (fixed-point,
  * capped at 3 iterations; exports can only grow, so it converges deterministically).
  */
+export interface AnalyzeUsagesProgress {
+  /** Called once per TS file completing the final extraction loop. */
+  onFileIndexed: () => void;
+  /** Called once when the final extraction loop starts (stage flips). */
+  onIndexingStart: () => void;
+}
+
 async function analyzeUsages(
   sourcesByFile: Map<string, string>,
   trackSet: Set<string>,
   envPrefixes: Record<string, string>,
   workspacePackages: ReadonlyMap<string, WorkspacePackage> = new Map(),
+  progress?: AnalyzeUsagesProgress,
 ): Promise<{
   usages: AnalyzedUsage[];
   untrackedUsages: number;
@@ -211,6 +260,14 @@ async function analyzeUsages(
         envPrefixes,
         workspacePackages,
         parallelConfig,
+        progress
+          ? {
+              onFilesIndexed: (count: number) => {
+                for (let i = 0; i < count; i += 1) progress.onFileIndexed();
+              },
+              onIndexingStart: progress.onIndexingStart,
+            }
+          : undefined,
       );
     } catch {
       // Worker threads unavailable (constrained hosts, vitest pools):
@@ -259,6 +316,7 @@ async function analyzeUsages(
   const errors: AnalysisError[] = [];
   const untrackedPackages = new Set<string>();
   let untrackedUsages = 0;
+  progress?.onIndexingStart();
   for (const [rel, source] of sourcesByFile) {
     try {
       const sourceFile = parsedByFile.get(rel)!;
@@ -270,6 +328,8 @@ async function analyzeUsages(
       untrackedUsages += result.untrackedUsages;
     } catch (error) {
       errors.push({ filePath: rel, message: String(error) });
+    } finally {
+      progress?.onFileIndexed();
     }
   }
 
@@ -291,12 +351,20 @@ async function analyzeUsages(
  * is byte-identical to the serial path. Throws on any worker failure so the
  * caller falls back to serial.
  */
+export interface ParallelUsagesProgress {
+  /** Called with the file count of each analyze chunk as results arrive. */
+  onFilesIndexed: (count: number) => void;
+  /** Called once before the analyze dispatch starts (stage flips). */
+  onIndexingStart: () => void;
+}
+
 async function analyzeUsagesParallel(
   sourcesByFile: Map<string, string>,
   trackSet: Set<string>,
   envPrefixes: Record<string, string>,
   workspacePackages: ReadonlyMap<string, WorkspacePackage>,
   config: ReturnType<typeof resolveParallelConfig>,
+  progress?: ParallelUsagesProgress,
 ): Promise<{
   usages: AnalyzedUsage[];
   untrackedUsages: number;
@@ -379,6 +447,7 @@ async function analyzeUsagesParallel(
     exportsByFile = nextExports;
   }
 
+  progress?.onIndexingStart();
   const analyzeResults = await dispatchPhase(
     "analyze",
     chunks,
@@ -388,6 +457,11 @@ async function analyzeUsagesParallel(
       bindingsSnapshot: serializeBindings(bindingsByFile),
     },
     config,
+    {
+      onChunkDone: (taskId: number) => {
+        progress?.onFilesIndexed(chunks[taskId]?.length ?? 0);
+      },
+    },
   );
 
   const usages: AnalyzedUsage[] = [];

@@ -91,6 +91,11 @@ interface PendingTask {
   timer: ReturnType<typeof setTimeout>;
 }
 
+export interface DispatchPhaseOptions {
+  /** Called with the taskId each time a chunk result arrives (arrival order). */
+  onChunkDone?: (taskId: number) => void;
+}
+
 /**
  * Dispatches one phase (bindings/exports/analyze) across a disposable pool.
  * Resolves payloads in chunk order. Rejects on any task failure or timeout so
@@ -101,6 +106,7 @@ export async function dispatchPhase(
   chunks: WorkerChunkFile[][],
   shared: WorkerShared,
   config: Required<ParallelConfig> = resolveParallelConfig(),
+  options: DispatchPhaseOptions = {},
 ): Promise<WorkerPayload[]> {
   if (chunks.length === 0) {
     lastStats = { usedWorkers: false, workerCount: 0, chunks: 0 };
@@ -151,6 +157,11 @@ export async function dispatchPhase(
             pending.delete(taskId);
             results[taskId] = payload;
             completed += 1;
+            try {
+              options.onChunkDone?.(taskId);
+            } catch {
+              // Progress must never fail a dispatch.
+            }
             assign(worker);
           },
           reject: (error) => {

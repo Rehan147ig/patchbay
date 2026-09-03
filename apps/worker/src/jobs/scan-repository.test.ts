@@ -195,6 +195,7 @@ describe("processScanRepository", () => {
     expect(analyzeRepository).toHaveBeenCalledWith({
       rootDir: "C:/fixtures/openai-node-legacy",
       trackPackages: expect.arrayContaining(["openai", "stripe"]),
+      onProgress: expect.any(Function),
     });
     expect(prisma.integrationUsage.createMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -273,6 +274,7 @@ describe("processScanRepository", () => {
     expect(analyzeRepository).toHaveBeenCalledWith({
       rootDir: "C:/ws/github-checkout",
       trackPackages: expect.anything(),
+      onProgress: expect.any(Function),
     });
     expect(prisma.integrationUsage.createMany).toHaveBeenCalledWith(
       expect.objectContaining({

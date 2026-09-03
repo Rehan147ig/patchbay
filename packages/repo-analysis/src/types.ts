@@ -85,6 +85,24 @@ export interface AnalyzeRepositoryOptions {
   rootDir: string;
   /** Package names whose usages should be indexed (e.g. ["stripe", "openai"]). */
   trackPackages: string[];
+  /**
+   * Live progress callback for the real-time scan counter UI. Invoked
+   * throttled (time + completion) from per-file loops; `scanned` counts
+   * distinct source files fully extracted and is monotonic within a run.
+   * Never throws: implementations must not fail a scan over progress.
+   */
+  onProgress?: (progress: AnalysisProgress) => void;
+}
+
+/** Coarse scan phase visible to users; worker maps these to progressStage. */
+export type AnalysisStage = "PARSING" | "INDEXING";
+
+export interface AnalysisProgress {
+  stage: AnalysisStage;
+  /** Distinct source files fully processed so far (monotonic, <= total). */
+  scanned: number;
+  /** Total TS + Python + Java source files in this run. */
+  total: number;
 }
 
 /**

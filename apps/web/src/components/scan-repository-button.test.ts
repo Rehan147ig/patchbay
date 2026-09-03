@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   evaluateScanPoll,
+  formatScanProgress,
   MAX_GRAPH_WAIT_POLLS,
   type RepositoryPollData,
 } from "./scan-repository-button";
@@ -157,5 +158,86 @@ describe("evaluateScanPoll", () => {
     expect(resExpired.done).toBe(true);
     expect(resExpired.shouldRefresh).toBe(true);
     expect(resExpired.statusText).toBe("Graph index not queued — reload to refresh.");
+  });
+});
+
+describe("formatScanProgress", () => {
+  const STARTED_AT = "2026-09-04T00:00:00.000Z";
+  const NOW_MS = Date.parse(STARTED_AT) + 10_000;
+
+  it("returns null without progress data or outside RUNNING", () => {
+    expect(formatScanProgress(undefined, NOW_MS)).toBeNull();
+    expect(formatScanProgress({ id: "s-1", status: "RUNNING" }, NOW_MS)).toBeNull();
+    expect(
+      formatScanProgress(
+        {
+          id: "s-1",
+          status: "COMPLETED",
+          progressStage: "COMPLETED",
+          progressScanned: 10,
+          progressTotal: 10,
+        },
+        NOW_MS,
+      ),
+    ).toBeNull();
+  });
+
+  it("shows cloning without a file counter", () => {
+    expect(
+      formatScanProgress({ id: "s-1", status: "RUNNING", progressStage: "CLONING" }, NOW_MS),
+    ).toBe("🟢 Cloning repository…");
+  });
+
+  it("shows the live file counter with a files/sec rate", () => {
+    expect(
+      formatScanProgress(
+        {
+          id: "s-1",
+          status: "RUNNING",
+          progressStage: "PARSING",
+          progressScanned: 1280,
+          progressTotal: 6997,
+          startedAt: STARTED_AT,
+        },
+        NOW_MS,
+      ),
+    ).toBe("🟢 Indexing AST: 1,280 / 6,997 files • 128 files/s");
+  });
+
+  it("omits the rate before any file is indexed", () => {
+    expect(
+      formatScanProgress(
+        {
+          id: "s-1",
+          status: "RUNNING",
+          progressStage: "INDEXING_GRAPH",
+          progressScanned: 0,
+          progressTotal: 6997,
+          startedAt: STARTED_AT,
+        },
+        NOW_MS,
+      ),
+    ).toBe("🟢 Indexing graph: 0 / 6,997 files");
+  });
+
+  it("drives the RUNNING poll text from the scan row", () => {
+    const data: RepositoryPollData = {
+      repository: {
+        scans: [
+          {
+            id: "s-1",
+            status: "RUNNING",
+            progressStage: "PARSING",
+            progressScanned: 1280,
+            progressTotal: 6997,
+            startedAt: STARTED_AT,
+          },
+        ],
+        graphIndexJobs: [],
+      },
+    };
+    const evaluation = evaluateScanPoll(data, 0, NOW_MS);
+    expect(evaluation.done).toBe(false);
+    expect(evaluation.statusText).toBe("🟢 Indexing AST: 1,280 / 6,997 files • 128 files/s");
   });
 });

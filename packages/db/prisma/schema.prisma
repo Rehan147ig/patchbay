@@ -524,6 +524,13 @@ model RepositoryScan {
   completedAt    DateTime?
   summary        Json?
   error          String?
+  /// Live scan progress for the real-time counter UI. Stage is a free-form
+  /// string (CLONING, PARSING, INDEXING_GRAPH) so new stages never require an
+  /// enum migration. progressScanned/progressTotal are file counts; the final
+  /// totals remain in summary.filesScanned. Throttled writes only.
+  progressStage   String?
+  progressScanned Int     @default(0)
+  progressTotal   Int?
   createdAt      DateTime    @default(now())
 
   organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)

@@ -2,6 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { analyzeRepository } from "./analyzer";
+import type { AnalysisProgress } from "./types";
 import { shouldParallelize, splitChunks } from "./parallel";
 
 const FIXTURE = path.resolve(
@@ -54,4 +55,33 @@ describe("parallel vs serial analysis", () => {
     expect(parallel.untrackedUsages).toBe(serial.untrackedUsages);
     expect(parallel.usages.length).toBeGreaterThan(0);
   }, 120_000);
+
+  it.each(["0", "1"])(
+    "emits monotonic progress ending at total (forced %s)",
+    async (force) => {
+      process.env.REPO_ANALYSIS_PARALLEL = force;
+      try {
+        const events: AnalysisProgress[] = [];
+        const analysis = await analyzeRepository({
+          rootDir: FIXTURE,
+          trackPackages: ["openai"],
+          onProgress: (progress) => {
+            events.push(progress);
+          },
+        });
+        expect(events.length).toBeGreaterThan(0);
+        expect(events[0]).toMatchObject({ stage: "PARSING", scanned: 0 });
+        const last = events[events.length - 1]!;
+        expect(last.total).toBe(analysis.typescriptFiles);
+        expect(last.scanned).toBe(last.total);
+        for (let i = 1; i < events.length; i += 1) {
+          expect(events[i]!.scanned).toBeGreaterThanOrEqual(events[i - 1]!.scanned);
+          expect(events[i]!.scanned).toBeLessThanOrEqual(events[i]!.total);
+        }
+      } finally {
+        delete process.env.REPO_ANALYSIS_PARALLEL;
+      }
+    },
+    120_000,
+  );
 });

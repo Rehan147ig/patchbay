@@ -15,6 +15,14 @@ export type GraphStatus = "INDEXING" | "READY" | "FAILED";
 export interface ScanItem {
   id?: string;
   status: ScanStatus;
+  /** Live progress stage written by the worker (CLONING, PARSING, INDEXING_GRAPH). */
+  progressStage?: string | null;
+  /** Distinct source files fully extracted so far. */
+  progressScanned?: number | null;
+  /** Total source files in this run (null until file discovery finishes). */
+  progressTotal?: number | null;
+  /** Scan start time (ISO string) for the live files/sec rate. */
+  startedAt?: string | null;
 }
 
 export interface GraphIndexJobItem {
@@ -40,6 +48,42 @@ export interface PollStateEvaluation {
   nextGraphWaitCount: number;
 }
 
+const SCAN_STAGE_LABEL: Record<string, string> = {
+  CLONING: "Cloning repository",
+  PARSING: "Indexing AST",
+  INDEXING_GRAPH: "Indexing graph",
+};
+
+/**
+ * Renders the real-time scan progress counter from the worker-persisted
+ * progress columns (`🟢 Indexing AST: 4,120 / 6,997 files • 128 files/s`).
+ * Returns null when no progress has been written yet so callers fall back to
+ * the legacy status text. Pure function of the scan row + clock.
+ */
+export function formatScanProgress(scan: ScanItem | undefined, nowMs: number): string | null {
+  if (!scan || scan.status !== "RUNNING") return null;
+  const stage = scan.progressStage;
+  if (!stage) return null;
+  const label = SCAN_STAGE_LABEL[stage] ?? "Scanning";
+  if (stage === "CLONING" || scan.progressTotal == null) {
+    return `🟢 ${label}…`;
+  }
+  const scanned = scan.progressScanned ?? 0;
+  const counter =
+    `🟢 ${label}: ${scanned.toLocaleString("en-US")} / ` +
+    `${scan.progressTotal.toLocaleString("en-US")} files`;
+  const rate = scanRatePerSecond(scan, nowMs);
+  return rate ? `${counter} • ${rate} files/s` : counter;
+}
+
+function scanRatePerSecond(scan: ScanItem, nowMs: number): number | null {
+  const scanned = scan.progressScanned ?? 0;
+  if (scanned <= 0 || !scan.startedAt) return null;
+  const elapsedSec = (nowMs - Date.parse(scan.startedAt)) / 1000;
+  if (!Number.isFinite(elapsedSec) || elapsedSec <= 0) return null;
+  return Math.round(scanned / elapsedSec);
+}
+
 /**
  * Pure evaluation function for repository scan + graph index polling state.
  *
@@ -57,6 +101,7 @@ export interface PollStateEvaluation {
 export function evaluateScanPoll(
   data: RepositoryPollData | undefined,
   graphWaitCount = 0,
+  nowMs: number = Date.now(),
 ): PollStateEvaluation {
   const latestScan = data?.repository?.scans?.[0];
   const latestGraph = data?.repository?.graphIndexJobs?.[0];
@@ -84,9 +129,19 @@ export function evaluateScanPoll(
 
   if (scanStatus === "QUEUED" || scanStatus === "RUNNING") {
     const isIndexing = graphStatus === "INDEXING";
+    const graphSuffix = isIndexing ? " · indexing graph…" : "";
+    const progressText = formatScanProgress(latestScan, nowMs);
+    if (progressText) {
+      return {
+        done: false,
+        statusText: `${progressText}${graphSuffix}`,
+        shouldRefresh: false,
+        nextGraphWaitCount: 0,
+      };
+    }
     return {
       done: false,
-      statusText: `Scanning… (${scanStatus})${isIndexing ? " · indexing graph…" : ""}`,
+      statusText: `Scanning… (${scanStatus})${graphSuffix}`,
       shouldRefresh: false,
       nextGraphWaitCount: 0,
     };

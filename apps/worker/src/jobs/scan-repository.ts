@@ -78,7 +78,13 @@ export async function processScanRepository(job: Job): Promise<ScanRepositoryRes
 
   await prisma.repositoryScan.update({
     where: { id: scanId },
-    data: { status: ScanStatus.RUNNING, startedAt },
+    data: {
+      status: ScanStatus.RUNNING,
+      startedAt,
+      progressStage: "CLONING",
+      progressScanned: 0,
+      progressTotal: null,
+    },
   });
   await writeAuditEvent({
     organizationId,
@@ -110,7 +116,43 @@ export async function processScanRepository(job: Job): Promise<ScanRepositoryRes
       }
       const trackPackages = [...vendorIdByPackage.keys()];
 
-      const analysis = await analyzeRepository({ rootDir, trackPackages });
+      // Live progress for the real-time scan counter UI. The analyzer emits
+      // throttled per-file callbacks; this persists them at most once per
+      // second (plus stage flips and completion) so a 7k-file scan performs
+      // dozens of single-row updates, not thousands. Writes never fail the
+      // scan; the FAILED path below preserves the last progress for forensics.
+      let lastProgressWriteMs = 0;
+      let lastProgressStage = "CLONING";
+      let lastProgressScanned = -1;
+      const analysis = await analyzeRepository({
+        rootDir,
+        trackPackages,
+        onProgress: (progress) => {
+          const stage = progress.stage === "INDEXING" ? "INDEXING_GRAPH" : "PARSING";
+          const now = Date.now();
+          const stageFlipped = stage !== lastProgressStage;
+          const finished = progress.scanned >= progress.total && progress.total > 0;
+          const advanced = progress.scanned - lastProgressScanned >= 100;
+          if (!stageFlipped && !finished && !advanced && now - lastProgressWriteMs < 1000) {
+            return;
+          }
+          lastProgressWriteMs = now;
+          lastProgressStage = stage;
+          lastProgressScanned = progress.scanned;
+          void prisma.repositoryScan
+            .update({
+              where: { id: scanId },
+              data: {
+                progressStage: stage,
+                progressScanned: progress.scanned,
+                progressTotal: progress.total,
+              },
+            })
+            .catch((error: unknown) => {
+              logger.warn("scan progress write failed", { scanId, error: String(error) });
+            });
+        },
+      });
       const commitSha = source.kind === "github" ? source.commitSha : analysis.commitSha;
 
       // Read existing usages (for owner hints) and replace them inside a single
@@ -197,6 +239,9 @@ export async function processScanRepository(job: Job): Promise<ScanRepositoryRes
             status: ScanStatus.COMPLETED,
             commitSha,
             completedAt: new Date(),
+            progressStage: "COMPLETED",
+            progressScanned: analysis.filesScanned,
+            progressTotal: analysis.filesScanned,
             summary: {
               usageCount: nextUsages.length,
               filesScanned: analysis.filesScanned,

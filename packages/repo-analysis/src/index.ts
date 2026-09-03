@@ -1,5 +1,7 @@
 export { analyzeRepository } from "./analyzer";
 export type {
+  AnalysisProgress,
+  AnalysisStage,
   AnalyzeRepositoryOptions,
   AnalysisError,
   AnalyzedUsage,
