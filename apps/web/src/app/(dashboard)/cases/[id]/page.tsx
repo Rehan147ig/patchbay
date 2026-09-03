@@ -16,6 +16,7 @@ import { formatDate } from "@/lib/format";
 import { CaseActions, type CaseAction } from "@/components/case-actions";
 import { PlanRunButton } from "@/components/plan-run-button";
 import { AgentOrbsPanel } from "@/components/agent-orbs-panel";
+import { BlastRadar } from "@/components/blast-radar";
 
 export const metadata: Metadata = {
   title: "Remediation case",
@@ -85,6 +86,17 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
           validations: { orderBy: { createdAt: "desc" } },
           approvals: true,
           pullRequests: true,
+          impactAssessment: {
+            include: {
+              affectedUsages: {
+                include: {
+                  usage: {
+                    include: { vendor: { select: { slug: true } } },
+                  },
+                },
+              },
+            },
+          },
         },
         orderBy: { createdAt: "desc" },
       },
@@ -134,6 +146,58 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
 
   const latestPlan = remediationCase.plans[0];
   const latestPR = latestPlan?.pullRequests[0];
+
+  // Bounded 2-hop blast radar data (server-computed, deterministic):
+  // center = changed package@version, ring 1 = affected usages from the
+  // latest plan's impact assessment (strict exact-symbol matches only),
+  // ring 2 = other indexed usages co-located in the same files.
+  const radarAffected =
+    latestPlan?.impactAssessment?.affectedUsages
+      .map((item) => item.usage)
+      .filter((usage) => typeof usage.symbol === "string" && usage.symbol.length > 0)
+      .slice(0, 40) ?? [];
+  const radarFiles = [...new Set(radarAffected.map((usage) => usage.filePath))];
+  const radarColocated =
+    radarFiles.length === 0
+      ? []
+      : await prisma.integrationUsage.findMany({
+          where: {
+            organizationId: user.organizationId,
+            repositoryId: remediationCase.repository.id,
+            filePath: { in: radarFiles },
+            id: { notIn: radarAffected.map((usage) => usage.id) },
+          },
+          select: {
+            id: true,
+            filePath: true,
+            symbol: true,
+            usageType: true,
+            riskTags: true,
+            vendor: { select: { slug: true } },
+          },
+          orderBy: [{ filePath: "asc" }, { symbol: "asc" }],
+          take: 110,
+        });
+  const radarData = {
+    packageName: remediationCase.release.product.packageName,
+    version: remediationCase.release.version,
+    affected: radarAffected.map((usage) => ({
+      id: usage.id,
+      filePath: usage.filePath,
+      symbol: usage.symbol,
+      usageType: usage.usageType,
+      riskTags: (usage.riskTags as string[]) ?? [],
+      vendorSlug: usage.vendor.slug,
+    })),
+    colocated: radarColocated.map((usage) => ({
+      id: usage.id,
+      filePath: usage.filePath,
+      symbol: usage.symbol,
+      usageType: usage.usageType,
+      riskTags: (usage.riskTags as string[]) ?? [],
+      vendorSlug: usage.vendor.slug,
+    })),
+  };
 
   const orbRuns = remediationCase.agentRuns.map((run) => ({
     id: run.id,
@@ -364,6 +428,9 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
                       </li>
                     ))}
                   </ul>
+                  <div className="border-t border-ink-700/60 pt-3">
+                    <BlastRadar data={radarData} />
+                  </div>
                 </>
               ) : (
                 <p className="text-sm text-ink-400">No blast radius computed.</p>

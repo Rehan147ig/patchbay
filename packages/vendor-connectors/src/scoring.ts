@@ -13,7 +13,9 @@ import type { NormalizedChangeDraft } from "./types";
  * - +5 per additional affected usage beyond the first (cap +15)
  * - +10 when a matched normalization is breaking
  * - +10 when any affected usage carries a high-risk tag (PAYMENT/AUTH/PII/INFRASTRUCTURE)
- * - confidence 92 for exact symbol matches, 78 when only prefix matches
+ * - confidence 92 for exact symbol matches only. Prefix matches
+ *   (e.g. usage `openai.foo.bar` when only `openai.foo` changed) are NOT
+ *   affected: under-detection is safer than false alarms for private beta.
  * - risk level: HIGH for AUTH/PAYMENT/PII/INFRASTRUCTURE tags, else MEDIUM when
  *   breaking or WEBHOOK-tagged, else LOW
  */
@@ -51,10 +53,9 @@ const HIGH_RISK_TAGS: readonly RiskTag[] = [
   RiskTag.INFRASTRUCTURE,
 ];
 
-function matchKind(symbol: string, affectedSymbols: string[]): "exact" | "prefix" | "none" {
+function matchKind(symbol: string, affectedSymbols: string[]): "exact" | "none" {
   for (const affected of affectedSymbols) {
     if (symbol === affected) return "exact";
-    if (symbol.startsWith(`${affected}.`)) return "prefix";
   }
   return "none";
 }
@@ -80,18 +81,14 @@ export function assessImpact(input: ImpactScoringInput): ImpactDraft {
 
   const affectedUsageIds: string[] = [];
   const matchedSymbols = new Set<string>();
-  let prefixOnlyCount = 0;
   const matchedNormalizations: NormalizedChangeDraft[] = [];
 
   for (const usage of usages) {
     const kind = matchKind(usage.symbol, affectedSymbols);
     if (kind === "none") continue;
     affectedUsageIds.push(usage.id);
-    const matched = affectedSymbols.filter((symbol) => usage.symbol.startsWith(symbol));
+    const matched = affectedSymbols.filter((symbol) => usage.symbol === symbol);
     for (const symbol of matched) matchedSymbols.add(symbol);
-    if (kind === "prefix") {
-      prefixOnlyCount += 1;
-    }
   }
 
   if (affectedUsageIds.length === 0) {
@@ -126,9 +123,8 @@ export function assessImpact(input: ImpactScoringInput): ImpactDraft {
   if ([...affectedTags].some((tag) => HIGH_RISK_TAGS.includes(tag))) score += 10;
   score = Math.min(100, score);
 
-  const exactOnly = prefixOnlyCount === 0;
-  const status = exactOnly ? ImpactStatus.AFFECTED : ImpactStatus.POSSIBLY_AFFECTED;
-  const confidence = exactOnly ? 92 : 78;
+  const status = ImpactStatus.AFFECTED;
+  const confidence = 92;
 
   const hasHighRisk = [...affectedTags].some((tag) => HIGH_RISK_TAGS.includes(tag));
   const riskLevel = hasHighRisk

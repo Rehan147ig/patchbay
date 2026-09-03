@@ -64,7 +64,7 @@ describe("assessImpact", () => {
     expect(draft.score).toBe(70);
   });
 
-  it("marks prefix-only matches POSSIBLY_AFFECTED with lower confidence", () => {
+  it("treats prefix-only matches as NOT_AFFECTED (strict matching, no false positives)", () => {
     const prefixInput: ImpactScoringInput = {
       vendorSlug: "openai",
       repositoryName: "ai-assistant-service",
@@ -81,9 +81,9 @@ describe("assessImpact", () => {
       usages: [usage("u1", "completion.data.choices[0].message.content")],
     };
     const draft = assessImpact(prefixInput);
-    expect(draft.status).toBe(ImpactStatus.POSSIBLY_AFFECTED);
-    expect(draft.confidence).toBe(78);
-    expect(draft.affectedUsageIds).toEqual(["u1"]);
+    expect(draft.status).toBe(ImpactStatus.NOT_AFFECTED);
+    expect(draft.score).toBe(0);
+    expect(draft.affectedUsageIds).toEqual([]);
   });
 
   it("raises risk level for high-risk tagged usages", () => {
