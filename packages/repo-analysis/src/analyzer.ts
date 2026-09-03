@@ -4,6 +4,8 @@ import path from "node:path";
 import ts from "typescript";
 import { analyzeSource, collectBindings, collectUntrackedImports } from "./ast";
 import { collectModuleExports, makeRelativeResolver } from "./exports";
+import { dispatchPhase, resolveParallelConfig, shouldParallelize, splitChunks } from "./parallel";
+import type { WorkerShared } from "./analyze-worker";
 import { extractJavaUsages, parseJavaManifest } from "./java";
 import { resolveLockfileVersions } from "./lockfile";
 import { extractPythonUsages, parsePythonManifest } from "./python";
@@ -200,6 +202,21 @@ async function analyzeUsages(
   errors: AnalysisError[];
 }> {
   const files = new Set(sourcesByFile.keys());
+  const parallelConfig = resolveParallelConfig();
+  if (shouldParallelize(sourcesByFile.size, parallelConfig)) {
+    try {
+      return await analyzeUsagesParallel(
+        sourcesByFile,
+        trackSet,
+        envPrefixes,
+        workspacePackages,
+        parallelConfig,
+      );
+    } catch {
+      // Worker threads unavailable (constrained hosts, vitest pools):
+      // fall through to the serial path below. Never fail a scan here.
+    }
+  }
   // Parse once per file and reuse the tree across all binding/export passes
   // and the final analysis: 8 parses per file -> 1 (+1 inside analyzeSource
   // only when the caller does not pass the tree through).
@@ -254,6 +271,135 @@ async function analyzeUsages(
     } catch (error) {
       errors.push({ filePath: rel, message: String(error) });
     }
+  }
+
+  usages.sort(
+    (a, b) => a.filePath.localeCompare(b.filePath) || a.line - b.line || a.column - b.column,
+  );
+  return {
+    usages,
+    untrackedUsages,
+    untrackedPackages: [...untrackedPackages].sort().slice(0, 50),
+    errors,
+  };
+}
+
+/**
+ * Parallel twin of the serial loop in `analyzeUsages`: the 3 fixed-point
+ * passes stay sequential, files within each pass fan out to worker threads.
+ * Merge order is chunk order, and usages are re-sorted at the end, so output
+ * is byte-identical to the serial path. Throws on any worker failure so the
+ * caller falls back to serial.
+ */
+async function analyzeUsagesParallel(
+  sourcesByFile: Map<string, string>,
+  trackSet: Set<string>,
+  envPrefixes: Record<string, string>,
+  workspacePackages: ReadonlyMap<string, WorkspacePackage>,
+  config: ReturnType<typeof resolveParallelConfig>,
+): Promise<{
+  usages: AnalyzedUsage[];
+  untrackedUsages: number;
+  untrackedPackages: string[];
+  errors: AnalysisError[];
+}> {
+  const entries = [...sourcesByFile].map(([rel, source]) => ({ rel, source }));
+  const workerCount = Math.min(config.maxWorkers, entries.length);
+  const chunks = splitChunks(entries, workerCount);
+  const files = [...sourcesByFile.keys()];
+
+  const serializeWorkspace = (): WorkerShared["workspacePackages"] =>
+    [...workspacePackages].map(([name, pkg]) => ({
+      name,
+      entry: pkg.entry,
+      subpaths: [...pkg.subpaths],
+    }));
+  const serializeExports = (
+    map: ReadonlyMap<string, ModuleExports>,
+  ): WorkerShared["exportsSnapshot"] =>
+    [...map].map(([rel, exp]) => ({
+      rel,
+      named: [...exp.named],
+      defaultPackage: exp.defaultPackage,
+    }));
+  const serializeBindings = (
+    map: ReadonlyMap<string, Map<string, string>>,
+  ): WorkerShared["bindingsSnapshot"] =>
+    [...map].map(([rel, bindings]) => ({ rel, bindings: [...bindings] }));
+
+  const baseShared = (): WorkerShared => ({
+    trackPackages: [...trackSet],
+    envPrefixes,
+    files,
+    workspacePackages: serializeWorkspace(),
+    exportsSnapshot: [],
+    bindingsSnapshot: [],
+  });
+
+  let bindingsByFile = new Map<string, Map<string, string>>();
+  let exportsByFile = new Map<string, ModuleExports>();
+
+  for (let pass = 0; pass < 3; pass += 1) {
+    const bindingResults = await dispatchPhase(
+      "bindings",
+      chunks,
+      { ...baseShared(), exportsSnapshot: serializeExports(exportsByFile) },
+      config,
+    );
+    const nextBindings = new Map<string, Map<string, string>>();
+    for (const result of bindingResults) {
+      if (result.kind !== "bindings")
+        throw new Error("unexpected worker payload for bindings phase");
+      for (const entry of result.entries) {
+        nextBindings.set(entry.rel, new Map(entry.bindings));
+      }
+    }
+    bindingsByFile = nextBindings;
+
+    const exportResults = await dispatchPhase(
+      "exports",
+      chunks,
+      {
+        ...baseShared(),
+        exportsSnapshot: serializeExports(exportsByFile),
+        bindingsSnapshot: serializeBindings(nextBindings),
+      },
+      config,
+    );
+    const nextExports = new Map<string, ModuleExports>();
+    for (const result of exportResults) {
+      if (result.kind !== "exports") throw new Error("unexpected worker payload for exports phase");
+      for (const entry of result.entries) {
+        nextExports.set(entry.rel, {
+          named: new Map(entry.named),
+          defaultPackage: entry.defaultPackage,
+        });
+      }
+    }
+    exportsByFile = nextExports;
+  }
+
+  const analyzeResults = await dispatchPhase(
+    "analyze",
+    chunks,
+    {
+      ...baseShared(),
+      exportsSnapshot: serializeExports(exportsByFile),
+      bindingsSnapshot: serializeBindings(bindingsByFile),
+    },
+    config,
+  );
+
+  const usages: AnalyzedUsage[] = [];
+  const errors: AnalysisError[] = [];
+  const untrackedPackages = new Set<string>();
+  let untrackedUsages = 0;
+  for (const result of analyzeResults) {
+    if (result.kind !== "analyze") throw new Error("unexpected worker payload for analyze phase");
+    usages.push(...result.usages);
+    untrackedUsages += result.untrackedUsages;
+    for (const pkg of result.untrackedPackages) untrackedPackages.add(pkg);
+    errors.push(...result.errors);
   }
 
   usages.sort(
