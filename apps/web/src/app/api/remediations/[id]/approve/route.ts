@@ -1,7 +1,9 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import { ActorType, ApprovalDecision, validationFailed } from "@patchbay/domain";
+import { APPROVAL_TTL_MS } from "@patchbay/policy-engine";
 import type { NextRequest } from "next/server";
 import { getCorrelationId, jsonError, jsonOk, writeAuditEvent } from "@/lib/api";
 import { requireRole } from "@/lib/auth";
@@ -35,9 +37,33 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         id,
         impactAssessment: { repository: { organizationId: user.organizationId } },
       },
-      include: { impactAssessment: { include: { repository: true } } },
+      include: {
+        impactAssessment: { include: { repository: true } },
+        patches: { select: { patchedContent: true } },
+      },
     });
     if (!plan) throw validationFailed("Remediation plan not found");
+
+    // Separation of duties: the user who requested the plan cannot approve it.
+    // Plans created before requester tracking have requestedByUserId null and
+    // are exempt (cannot prove who requested them).
+    if (
+      parsed.data.decision === ApprovalDecision.APPROVED &&
+      plan.requestedByUserId !== null &&
+      plan.requestedByUserId === user.id
+    ) {
+      throw validationFailed("Separation of duties: the plan requester cannot approve it");
+    }
+
+    // Bind the approval to the plan's CURRENT patched contents with a 7-day
+    // expiry. A regenerated plan invalidates old approvals instead of
+    // silently reusing them.
+    const patchedHash =
+      parsed.data.decision === ApprovalDecision.APPROVED
+        ? createHash("sha256")
+            .update([...plan.patches.map((patch) => patch.patchedContent)].sort().join("\n"))
+            .digest("hex")
+        : null;
 
     const approval = await prisma.approval.create({
       data: {
@@ -46,6 +72,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         userId: user.id,
         decision: parsed.data.decision,
         note: parsed.data.note,
+        patchedHash,
+        expiresAt:
+          parsed.data.decision === ApprovalDecision.APPROVED
+            ? new Date(Date.now() + APPROVAL_TTL_MS)
+            : null,
       },
     });
 
@@ -57,7 +88,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       entityType: "remediationPlan",
       entityId: plan.id,
       correlationId,
-      after: { approvalId: approval.id, decision: approval.decision, note: approval.note },
+      after: {
+        approvalId: approval.id,
+        decision: approval.decision,
+        note: approval.note,
+        patchedHash,
+        expiresAt: approval.expiresAt,
+      },
     });
 
     return jsonOk(

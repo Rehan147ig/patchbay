@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { PolicyDecision, RiskTag, type ApprovalDecision } from "@patchbay/domain";
 
@@ -129,3 +130,58 @@ export function evaluatePolicy(
 }
 
 export * from "./circuit-breaker";
+
+/** Approvals expire 7 days after recording; stale approvals never unblock PRs. */
+export const APPROVAL_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Deterministic hash of a plan's current patched contents (sorted, joined). */
+export function hashPatchedContents(patchedContents: string[]): string {
+  return createHash("sha256")
+    .update([...patchedContents].sort().join("\n"))
+    .digest("hex");
+}
+
+export interface ApprovalCoverageInput {
+  decision?: ApprovalDecision | null;
+  /** sha256 recorded at approval time; null = legacy approval without binding. */
+  patchedHash?: string | null;
+  expiresAt?: Date | string | null;
+}
+
+export interface ApprovalCoverage {
+  covered: boolean;
+  reason: string | null;
+}
+
+/**
+ * Decides whether a recorded approval still covers the plan's CURRENT patches.
+ * An approval covers only when it is APPROVED, unexpired, and (when bound)
+ * its hash matches the current patched contents. A regenerated plan therefore
+ * invalidates old approvals instead of silently reusing them.
+ */
+export function approvalCoversPatches(
+  approval: ApprovalCoverageInput | null | undefined,
+  patchedContents: string[],
+  now: Date = new Date(),
+): ApprovalCoverage {
+  if (!approval || approval.decision !== "APPROVED") {
+    return { covered: false, reason: "no recorded approval" };
+  }
+  if (approval.expiresAt) {
+    const expiry =
+      approval.expiresAt instanceof Date ? approval.expiresAt : new Date(approval.expiresAt);
+    if (Number.isFinite(expiry.getTime()) && expiry.getTime() <= now.getTime()) {
+      return { covered: false, reason: "approval expired; re-approval required" };
+    }
+  }
+  if (approval.patchedHash !== undefined && approval.patchedHash !== null) {
+    const current = hashPatchedContents(patchedContents);
+    if (current !== approval.patchedHash) {
+      return {
+        covered: false,
+        reason: "plan patches changed since approval; re-approval required",
+      };
+    }
+  }
+  return { covered: true, reason: null };
+}

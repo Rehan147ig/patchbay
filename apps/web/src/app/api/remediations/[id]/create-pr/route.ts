@@ -1,7 +1,7 @@
 import { prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import { ActorType, ValidationStatus, validationFailed } from "@patchbay/domain";
-import { evaluatePolicy } from "@patchbay/policy-engine";
+import { approvalCoversPatches, evaluatePolicy } from "@patchbay/policy-engine";
 import { requireCertified } from "@patchbay/vendor-connectors";
 import { enqueue, JobType } from "@patchbay/queue";
 import type { NextRequest } from "next/server";
@@ -36,7 +36,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             affectedUsages: { include: { usage: true } },
           },
         },
-        patches: { select: { id: true } },
+        patches: { select: { id: true, patchedContent: true } },
         validations: { select: { status: true } },
         approvals: { orderBy: { createdAt: "desc" } },
         pullRequests: true,
@@ -73,6 +73,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
 
     const latestApproval = plan.approvals[0];
+    // Stale approvals (expired or bound to older patches) do not count: the
+    // policy engine then demands fresh approval instead of reusing them.
+    const coverage = approvalCoversPatches(
+      latestApproval
+        ? {
+            decision: latestApproval.decision,
+            patchedHash: latestApproval.patchedHash,
+            expiresAt: latestApproval.expiresAt,
+          }
+        : null,
+      plan.patches.map((patch) => patch.patchedContent),
+    );
     const hasPassingValidation = plan.validations.some(
       (val) => val.status === ValidationStatus.PASSED,
     );
@@ -89,7 +101,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       patchCount: plan.patches.length,
       requiresHumanReview: plan.requiresHumanReview,
       hasPassingValidation,
-      approvalDecision: latestApproval?.decision ?? null,
+      approvalDecision: coverage.covered ? (latestApproval?.decision ?? null) : null,
       riskTags,
     });
 

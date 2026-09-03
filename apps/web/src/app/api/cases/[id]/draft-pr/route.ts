@@ -1,7 +1,7 @@
 import { prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import { ActorType, CaseStatus, notFound, validationFailed, PlanStatus } from "@patchbay/domain";
-import { evaluatePolicy } from "@patchbay/policy-engine";
+import { approvalCoversPatches, evaluatePolicy } from "@patchbay/policy-engine";
 import { requireCertified } from "@patchbay/vendor-connectors";
 import { enqueue, JobType } from "@patchbay/queue";
 import type { NextRequest } from "next/server";
@@ -84,12 +84,23 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         plan.impactAssessment.affectedUsages.flatMap((u) => (u.usage.riskTags as string[]) ?? []),
       ),
     ) as string[];
+    const latestApproval = plan.approvals[0];
+    const coverage = approvalCoversPatches(
+      latestApproval
+        ? {
+            decision: latestApproval.decision,
+            patchedHash: latestApproval.patchedHash,
+            expiresAt: latestApproval.expiresAt,
+          }
+        : null,
+      plan.patches.map((patch) => patch.patchedContent),
+    );
     const policy = evaluatePolicy({
       confidence: plan.confidence,
       patchCount: plan.patches.length,
       requiresHumanReview: plan.requiresHumanReview,
       hasPassingValidation: plan.validations.some((v) => v.status === "PASSED"),
-      approvalDecision: plan.approvals[0]?.decision ?? null,
+      approvalDecision: coverage.covered ? (latestApproval?.decision ?? null) : null,
       riskTags,
     });
     if (!policy.canCreatePR) {

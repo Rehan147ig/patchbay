@@ -18,7 +18,7 @@ import {
 } from "@patchbay/domain";
 import { resolveFixtureDir } from "@patchbay/repo-analysis";
 import { createGitProviderFromEnv } from "@patchbay/git-provider";
-import { evaluatePolicy } from "@patchbay/policy-engine";
+import { approvalCoversPatches, evaluatePolicy } from "@patchbay/policy-engine";
 import { rateLimitRedis } from "@patchbay/queue";
 import type { Job } from "bullmq";
 import { writeAuditEvent } from "../lib/audit";
@@ -216,6 +216,16 @@ async function createDraftPR(
 
   try {
     const latestApproval = plan.approvals[0];
+    const coverage = approvalCoversPatches(
+      latestApproval
+        ? {
+            decision: latestApproval.decision,
+            patchedHash: latestApproval.patchedHash,
+            expiresAt: latestApproval.expiresAt,
+          }
+        : null,
+      plan.patches.map((patch) => patch.patchedContent),
+    );
     const hasPassingValidation = plan.validations.some(
       (val) => val.status === ValidationStatus.PASSED,
     );
@@ -232,7 +242,7 @@ async function createDraftPR(
       patchCount: plan.patches.length,
       requiresHumanReview: plan.requiresHumanReview,
       hasPassingValidation,
-      approvalDecision: latestApproval?.decision ?? null,
+      approvalDecision: coverage.covered ? (latestApproval?.decision ?? null) : null,
       riskTags,
     });
 

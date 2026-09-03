@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluatePolicy } from "./index";
+import { approvalCoversPatches, evaluatePolicy, hashPatchedContents } from "./index";
 import { PolicyDecision, RiskTag } from "@patchbay/domain";
 
 describe("evaluatePolicy", () => {
@@ -89,5 +89,56 @@ describe("evaluatePolicy", () => {
 
     expect(result.decision).toBe(PolicyDecision.ALLOW_DRAFT_PR);
     expect(result.canCreatePR).toBe(true);
+  });
+});
+
+describe("approvalCoversPatches", () => {
+  const contents = ["file-a patched", "file-b patched"];
+  const hash = hashPatchedContents(contents);
+  const future = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const past = new Date(Date.now() - 1000);
+
+  it("covers when approved, unexpired, and hash matches regardless of order", () => {
+    expect(
+      approvalCoversPatches(
+        { decision: "APPROVED", patchedHash: hash, expiresAt: future },
+        [...contents].reverse(),
+      ),
+    ).toEqual({ covered: true, reason: null });
+  });
+
+  it("rejects missing or non-approved decisions", () => {
+    expect(approvalCoversPatches(null, contents).covered).toBe(false);
+    expect(
+      approvalCoversPatches(
+        { decision: "REJECTED", patchedHash: hash, expiresAt: future },
+        contents,
+      ).covered,
+    ).toBe(false);
+  });
+
+  it("rejects expired approvals", () => {
+    const coverage = approvalCoversPatches(
+      { decision: "APPROVED", patchedHash: hash, expiresAt: past },
+      contents,
+    );
+    expect(coverage.covered).toBe(false);
+    expect(coverage.reason).toContain("expired");
+  });
+
+  it("rejects approvals bound to older patches", () => {
+    const coverage = approvalCoversPatches(
+      { decision: "APPROVED", patchedHash: "deadbeef", expiresAt: future },
+      contents,
+    );
+    expect(coverage.covered).toBe(false);
+    expect(coverage.reason).toContain("changed since approval");
+  });
+
+  it("covers legacy approvals without hash or expiry", () => {
+    expect(approvalCoversPatches({ decision: "APPROVED" }, contents)).toEqual({
+      covered: true,
+      reason: null,
+    });
   });
 });

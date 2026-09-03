@@ -140,6 +140,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
               proposedChanges: result.proposedChanges as never,
               confidence: result.confidence,
               requiresHumanReview: result.requiresHumanReview,
+              requestedByUserId: user.id,
             },
           }),
           ...safePatches.map((patch) =>
