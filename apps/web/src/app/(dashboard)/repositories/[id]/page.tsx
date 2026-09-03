@@ -69,6 +69,21 @@ export default async function RepositoryDetailPage({
     vendorsByUsage.set(usage.vendor.slug, entry);
   }
 
+  const latestScan = repository.scans[0] ?? null;
+  const affectedAssessments = repository.impactAssessments.filter(
+    (assessment) => assessment.status === "AFFECTED",
+  );
+  const healthGrade =
+    affectedAssessments.length === 0 ? "A" : affectedAssessments.length <= 2 ? "B" : "C";
+  const healthTone =
+    healthGrade === "A" ? "bg-emerald-500" : healthGrade === "B" ? "bg-amber-500" : "bg-[#ff3b30]";
+  const healthLabel =
+    healthGrade === "A"
+      ? "No breaking changes pending"
+      : healthGrade === "B"
+        ? `${affectedAssessments.length} breaking change${affectedAssessments.length === 1 ? "" : "s"} pending review`
+        : `${affectedAssessments.length} breaking changes need attention`;
+
   return (
     <div className="space-y-6 bg-[#fbfbfd] font-sans antialiased">
       <div className="border-b border-zinc-200/60 pb-6">
@@ -98,6 +113,62 @@ export default async function RepositoryDetailPage({
         </p>
         <ScanRepositoryButton repositoryId={repository.id} />
       </div>
+
+      {latestScan?.status === "COMPLETED" ? (
+        <Card className="overflow-hidden rounded-[20px] border-zinc-200 bg-white shadow-[0_4px_24px_rgba(0,0,0,0.04)]">
+          <CardContent className="flex flex-col gap-6 p-6 sm:flex-row sm:items-center sm:justify-between lg:p-8">
+            <div className="flex items-center gap-5">
+              <span
+                aria-hidden="true"
+                className={`flex size-16 shrink-0 items-center justify-center rounded-[20px] text-[28px] font-semibold tracking-tight text-white ${healthTone}`}
+              >
+                {healthGrade}
+              </span>
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400">
+                  Health &amp; blast-radius radar
+                </p>
+                <p className="mt-0.5 text-[15px] font-semibold tracking-tight text-[#1d1d1f]">
+                  {healthLabel}
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {[...vendorsByUsage.entries()].map(([slug, info]) => (
+                    <Badge key={slug} tone="neutral" variant="subtle">
+                      {slug} · {info.count}
+                    </Badge>
+                  ))}
+                  {vendorsByUsage.size === 0 ? (
+                    <span className="text-[12px] text-zinc-400">No SDK packages detected</span>
+                  ) : null}
+                </div>
+                <p className="mt-2 flex items-center gap-1.5 text-[12px] font-medium tracking-tight text-zinc-500">
+                  <span className="size-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
+                  Patchbay 24/7 Watchtower is now monitoring {vendorsByUsage.size} package
+                  {vendorsByUsage.size === 1 ? "" : "s"} on this repository
+                </p>
+              </div>
+            </div>
+            <div className="shrink-0">
+              {affectedAssessments[0] ? (
+                <Link
+                  href={`/changes/${affectedAssessments[0].changeEventId}`}
+                  className="inline-flex h-10 items-center justify-center rounded-full bg-[#0071e3] px-6 text-[13px] font-medium tracking-tight text-white shadow-sm hover:bg-[#0077ed] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0071e3]/20"
+                >
+                  View {affectedAssessments.length} automated fix
+                  {affectedAssessments.length === 1 ? "" : "es"} →
+                </Link>
+              ) : (
+                <Link
+                  href="/releases"
+                  className="inline-flex h-10 items-center justify-center rounded-full border border-zinc-200 bg-white px-6 text-[13px] font-medium tracking-tight text-[#1d1d1f] shadow-sm hover:bg-zinc-50"
+                >
+                  Browse release watchtower
+                </Link>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card className="rounded-[20px] border-zinc-200 bg-white">
