@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { prisma } from "@patchbay/db";
 import { requireRole } from "@/lib/auth";
 import { OnboardingWizard } from "@/components/onboarding-wizard";
 
@@ -7,8 +8,13 @@ export const metadata: Metadata = {
 };
 
 export default async function OnboardingPage() {
-  await requireRole("MEMBER");
+  const user = await requireRole("MEMBER");
   const appConfigured = Boolean(process.env.GITHUB_APP_SLUG?.trim());
+  const installations = await prisma.gitHubInstallation.findMany({
+    where: { organizationId: user.organizationId, suspendedAt: null },
+    orderBy: { installedAt: "desc" },
+    select: { installationId: true, accountLogin: true, accountType: true },
+  });
 
   return (
     <div className="mx-auto mt-6 w-full max-w-2xl">
@@ -20,7 +26,7 @@ export default async function OnboardingPage() {
           Every step is optional — you can always continue later from Settings.
         </p>
       </div>
-      <OnboardingWizard appConfigured={appConfigured} />
+      <OnboardingWizard appConfigured={appConfigured} installations={installations} />
     </div>
   );
 }

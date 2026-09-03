@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { Button } from "@patchbay/ui";
 import { apiFetch } from "@/lib/client-fetch";
+import { ConnectRepositoryForm, type ConnectInstallation } from "./connect-repository-form";
 
 const STEPS = [
   { number: 1, label: "Install the GitHub App" },
@@ -25,7 +26,13 @@ const CONNECT_STATUS = {
  * the GitHub App environment, step 1 says so explicitly instead of failing
  * silently at install time.
  */
-export function OnboardingWizard({ appConfigured }: { appConfigured: boolean }) {
+export function OnboardingWizard({
+  appConfigured,
+  installations = [],
+}: {
+  appConfigured: boolean;
+  installations?: ConnectInstallation[];
+}) {
   const [step, setStep] = useState(0);
   const [pending, startTransition] = useTransition();
   const [connectStatus, setConnectStatus] = useState<keyof typeof CONNECT_STATUS>("idle");
@@ -168,38 +175,49 @@ export function OnboardingWizard({ appConfigured }: { appConfigured: boolean }) 
             draft PR. You can connect more later from the Repositories page; your plan determines
             how many active repositories Patch may watch.
           </p>
-          <form action={connectRepository} className="space-y-3">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <label className="text-xs text-ink-400">
-                GitHub installation id
-                <input
-                  name="installationId"
-                  type="number"
-                  min={1}
-                  required
-                  placeholder="e.g. 58432107"
-                  className="mt-1 block w-full rounded-md border border-ink-600 px-3 py-2 text-sm focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/30"
-                />
-              </label>
-              <label className="text-xs text-ink-400">
-                Repository (owner/repo)
-                <input
-                  name="repositoryFullName"
-                  required
-                  placeholder="acme/billing-service"
-                  className="mt-1 block w-full rounded-md border border-ink-600 px-3 py-2 text-sm focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/30"
-                />
-              </label>
-            </div>
+          {installations.length > 0 ? (
+            <ConnectRepositoryForm installations={installations} />
+          ) : (
+            <form action={connectRepository} className="space-y-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="text-xs text-ink-400">
+                  GitHub installation id
+                  <input
+                    name="installationId"
+                    type="number"
+                    min={1}
+                    required
+                    placeholder="e.g. 58432107"
+                    className="mt-1 block w-full rounded-md border border-ink-600 px-3 py-2 text-sm focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/30"
+                  />
+                </label>
+                <label className="text-xs text-ink-400">
+                  Repository (owner/repo)
+                  <input
+                    name="repositoryFullName"
+                    required
+                    placeholder="acme/billing-service"
+                    className="mt-1 block w-full rounded-md border border-ink-600 px-3 py-2 text-sm focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/30"
+                  />
+                </label>
+              </div>
+              <div className="flex items-center gap-3">
+                <Button type="submit" loading={pending}>
+                  Connect repository
+                </Button>
+                <Button variant="secondary" type="button" onClick={next}>
+                  Skip for now
+                </Button>
+              </div>
+            </form>
+          )}
+          {installations.length > 0 ? (
             <div className="flex items-center gap-3">
-              <Button type="submit" loading={pending}>
-                Connect repository
-              </Button>
               <Button variant="secondary" type="button" onClick={next}>
                 Skip for now
               </Button>
             </div>
-          </form>
+          ) : null}
           {connectStatus === "ok" ? (
             <p className="text-xs text-mint-400">{CONNECT_STATUS.ok}</p>
           ) : null}
