@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { prisma, createNotification, NotificationType } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import {
@@ -8,7 +10,7 @@ import {
   type ChangeType,
 } from "@patchbay/domain";
 import { getConnector, type NormalizedChangeDraft } from "@patchbay/vendor-connectors";
-import { generatePlan, scanPatches } from "@patchbay/remediation-engine";
+import { generatePlan, scanPatches, sha256Hex } from "@patchbay/remediation-engine";
 import { createAiProvider, type AiPlanDraftInput } from "@patchbay/ai-provider";
 import { resolveFixtureDir } from "@patchbay/repo-analysis";
 import { resolveRepositorySource, type RepositorySource } from "@patchbay/git-provider";
@@ -109,6 +111,20 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           excerpt: usageExcerpt(usage),
         }));
 
+        // TOCTOU guard: hash each affected file as observed right now so the
+        // engine fails closed per file if content drifted since analysis.
+        const expectedFileHashes = new Map<string, string>();
+        for (const file of new Set(usages.map((usage) => usage.filePath))) {
+          try {
+            expectedFileHashes.set(
+              file,
+              sha256Hex(readFileSync(path.join(source.rootDir, file), "utf8")),
+            );
+          } catch {
+            // Unreadable here means the engine will skip it there too.
+          }
+        }
+
         const result = await generatePlan({
           fixtureDir: source.rootDir,
           repositoryName: repository.name,
@@ -116,6 +132,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           patchSuggestions,
           normalizations: drafts,
           assessmentConfidence: assessment.confidence,
+          expectedFileHashes,
         });
 
         // Patches are generated from repository content that may be hostile.
