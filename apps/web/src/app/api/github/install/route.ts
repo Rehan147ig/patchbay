@@ -24,6 +24,6 @@ export async function GET(request: Request) {
     });
     return response;
   } catch {
-    return NextResponse.redirect(new URL("/login", request.url));
+    return NextResponse.redirect(new URL("/settings/github?error=admin_required", request.url));
   }
 }

@@ -147,6 +147,11 @@ export default async function RepositoryDetailPage({
                     <TableRow key={scan.id}>
                       <TableCell>
                         <StatusPill label={scan.status} tone={SCAN_STATUS_TONE[scan.status]} />
+                        {scan.status === "FAILED" && scan.error ? (
+                          <p className="mt-1 max-w-[32ch] text-[11px] leading-snug text-[#ff3b30]">
+                            {scan.error.slice(0, 200)}
+                          </p>
+                        ) : null}
                       </TableCell>
                       <TableCell className="text-xs text-zinc-500">
                         {formatDate(scan.completedAt)}

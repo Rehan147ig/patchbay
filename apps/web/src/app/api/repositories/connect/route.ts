@@ -2,8 +2,9 @@ import { NextRequest } from "next/server";
 import { z } from "zod";
 import { prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
-import { ActorType, RepositoryProvider, validationFailed } from "@patchbay/domain";
+import { ActorType, RepositoryProvider, ScanStatus, validationFailed } from "@patchbay/domain";
 import { createGitHubAppProviderFromStore } from "@patchbay/git-provider";
+import { enqueue, JobType } from "@patchbay/queue";
 import { getSecretStore } from "@patchbay/env";
 import { getCorrelationId, jsonError, jsonOk, parseBodyBounded, writeAuditEvent } from "@/lib/api";
 import { requireRole } from "@/lib/auth";
@@ -93,6 +94,27 @@ export async function POST(request: NextRequest) {
       correlationId,
       after: { fullName: githubRepository.fullName, provider: "GITHUB" },
     });
+
+    // Parity with install-callback flow: queue an initial scan so a manually
+    // connected repo never sits at "Never scanned". Best-effort: connect
+    // succeeds even if scan enqueue fails; the Scan button remains available.
+    try {
+      const scan = await prisma.repositoryScan.create({
+        data: {
+          organizationId: user.organizationId,
+          repositoryId: repository.id,
+          commitSha: "pending",
+          status: ScanStatus.QUEUED,
+        },
+      });
+      await enqueue(JobType.SCAN_REPOSITORY, {
+        repositoryId: repository.id,
+        scanId: scan.id,
+        correlationId,
+      });
+    } catch {
+      // Best-effort only; connect already succeeded.
+    }
 
     return jsonOk(
       { repositoryId: repository.id, fullName: githubRepository.fullName },

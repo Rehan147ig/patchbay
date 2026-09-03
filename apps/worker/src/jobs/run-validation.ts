@@ -370,11 +370,17 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
       durationMs: totalDurationMs,
     };
   } catch (error) {
-    const message = String(error);
+    const message = String(error).slice(0, 4000);
     await prisma.$transaction([
       prisma.validationRun.update({
         where: { id: validationRunId },
-        data: { status: ValidationStatus.FAILED, completedAt: new Date() },
+        data: {
+          status: ValidationStatus.FAILED,
+          completedAt: new Date(),
+          stdout: `validation harness error: ${message}`.slice(0, 4000),
+          stderr: message,
+          exitCode: -1,
+        },
       }),
       prisma.remediationPlan.update({
         where: { id: remediationPlanId },

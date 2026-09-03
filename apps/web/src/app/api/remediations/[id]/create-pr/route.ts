@@ -2,11 +2,13 @@ import { prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import { ActorType, ValidationStatus, validationFailed } from "@patchbay/domain";
 import { evaluatePolicy } from "@patchbay/policy-engine";
+import { requireCertified } from "@patchbay/vendor-connectors";
 import { enqueue, JobType } from "@patchbay/queue";
 import type { NextRequest } from "next/server";
 import { getCorrelationId, jsonError, jsonOk, writeAuditEvent } from "@/lib/api";
 import { requireRole } from "@/lib/auth";
 import { assertCsrfToken } from "@/lib/csrf-server";
+import { assertCapabilityGateOpen } from "@/lib/capability-gates";
 
 /**
  * POST /api/remediations/[id]/create-pr
@@ -30,6 +32,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         impactAssessment: {
           include: {
             repository: true,
+            changeEvent: { include: { vendor: { select: { slug: true } } } },
             affectedUsages: { include: { usage: true } },
           },
         },
@@ -41,6 +44,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     });
 
     if (!plan) throw validationFailed("Remediation plan not found");
+
+    // Parity with cases/[id]/draft-pr: certification + kill-switch gate before
+    // policy evaluation. Closes the fail-open path for suspended vendors.
+    const vendorSlug = plan.impactAssessment.changeEvent.vendor.slug;
+    const certification = requireCertified(vendorSlug, "DRAFT_PR");
+    if (!certification.ok) {
+      throw validationFailed(
+        `Connector ${vendorSlug} is not certified for DRAFT_PR: ${certification.reasons.join("; ")}`,
+      );
+    }
+    await assertCapabilityGateOpen(user.organizationId, vendorSlug, "DRAFT_PR");
 
     // Idempotency check: Return existing PR if already created
     if (plan.pullRequests.length > 0) {

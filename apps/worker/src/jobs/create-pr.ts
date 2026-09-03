@@ -276,12 +276,22 @@ async function createDraftPR(
     const agentVerdict = plan.remediationCaseId
       ? await loadSucceededAgentVerdict(organizationId, plan.remediationCaseId)
       : null;
+    const passingValidation = plan.validations.find(
+      (val) => val.status === ValidationStatus.PASSED,
+    );
     const body = buildPrBody(
       {
         repositoryName: repository.name,
         score: plan.impactAssessment.score,
         confidence: plan.confidence,
         rationale: plan.impactAssessment.rationale,
+        policyDecision: policyResult.decision,
+        policyReasons: policyResult.reasons,
+        approvalDecision: latestApproval?.decision ?? null,
+        validationStatus: passingValidation?.status ?? plan.validations[0]?.status ?? null,
+        riskTags,
+        affectedUsageCount: plan.impactAssessment.affectedUsages.length,
+        patchCount: plan.patches.length,
       },
       agentVerdict,
     );
@@ -426,10 +436,34 @@ function installationIdOf(metadata: unknown): number | null {
 }
 
 function buildPrBody(
-  plan: { repositoryName: string; score: number; confidence: number; rationale: string },
+  plan: {
+    repositoryName: string;
+    score: number;
+    confidence: number;
+    rationale: string;
+    policyDecision: string;
+    policyReasons: string[];
+    approvalDecision: string | null;
+    validationStatus: string | null;
+    riskTags: string[];
+    affectedUsageCount: number;
+    patchCount: number;
+  },
   verdict: AgentVerdictSummary | null,
 ): string {
-  const base = `Automated remediation plan for ${plan.repositoryName}.\n\nImpact score: ${plan.score}\nConfidence: ${plan.confidence}\nRationale: ${plan.rationale}`;
+  const lines = [
+    `Automated remediation plan for ${plan.repositoryName}.`,
+    ``,
+    `Impact score: ${plan.score}`,
+    `Confidence: ${plan.confidence}`,
+    `Rationale: ${plan.rationale}`,
+    `Policy decision: ${plan.policyDecision}${plan.policyReasons.length > 0 ? ` (${plan.policyReasons.join("; ")})` : ""}`,
+    `Approval: ${plan.approvalDecision ?? "none recorded"}`,
+    `Validation: ${plan.validationStatus ?? "no runs"}`,
+    `Risk tags: ${plan.riskTags.length > 0 ? plan.riskTags.join(", ") : "none"}`,
+    `Affected usages: ${plan.affectedUsageCount}, patches: ${plan.patchCount}`,
+  ];
+  const base = lines.join("\n");
   return verdict ? `${base}\n${agentBodySection(verdict)}` : base;
 }
 
