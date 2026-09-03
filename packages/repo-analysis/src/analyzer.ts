@@ -200,20 +200,24 @@ async function analyzeUsages(
   errors: AnalysisError[];
 }> {
   const files = new Set(sourcesByFile.keys());
+  // Parse once per file and reuse the tree across all binding/export passes
+  // and the final analysis: 8 parses per file -> 1 (+1 inside analyzeSource
+  // only when the caller does not pass the tree through).
+  const parsedByFile = new Map<string, ts.SourceFile>();
+  for (const [rel, source] of sourcesByFile) {
+    parsedByFile.set(
+      rel,
+      ts.createSourceFile(rel, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS),
+    );
+  }
   let bindingsByFile = new Map<string, Map<string, string>>();
   let exportsByFile = new Map<string, ModuleExports>();
 
   for (let pass = 0; pass < 3; pass += 1) {
     const resolver = makeRelativeResolver(exportsByFile, files, workspacePackages);
     const nextBindings = new Map<string, Map<string, string>>();
-    for (const [rel, source] of sourcesByFile) {
-      const sourceFile = ts.createSourceFile(
-        rel,
-        source,
-        ts.ScriptTarget.Latest,
-        true,
-        ts.ScriptKind.TS,
-      );
+    for (const [rel] of sourcesByFile) {
+      const sourceFile = parsedByFile.get(rel)!;
       const bindings = collectBindings(sourceFile, rel, trackSet, resolver);
       nextBindings.set(
         rel,
@@ -223,14 +227,8 @@ async function analyzeUsages(
     bindingsByFile = nextBindings;
 
     const nextExports = new Map<string, ModuleExports>();
-    for (const [rel, source] of sourcesByFile) {
-      const sourceFile = ts.createSourceFile(
-        rel,
-        source,
-        ts.ScriptTarget.Latest,
-        true,
-        ts.ScriptKind.TS,
-      );
+    for (const [rel] of sourcesByFile) {
+      const sourceFile = parsedByFile.get(rel)!;
       nextExports.set(
         rel,
         collectModuleExports(sourceFile, bindingsByFile.get(rel) ?? new Map(), resolver),
@@ -246,17 +244,11 @@ async function analyzeUsages(
   let untrackedUsages = 0;
   for (const [rel, source] of sourcesByFile) {
     try {
-      const sourceFile = ts.createSourceFile(
-        rel,
-        source,
-        ts.ScriptTarget.Latest,
-        true,
-        ts.ScriptKind.TS,
-      );
+      const sourceFile = parsedByFile.get(rel)!;
       for (const pkg of collectUntrackedImports(sourceFile)) {
         if (!trackSet.has(pkg) && !workspacePackages.has(pkg)) untrackedPackages.add(pkg);
       }
-      const result = analyzeSource(source, rel, trackSet, envPrefixes, resolver);
+      const result = analyzeSource(source, rel, trackSet, envPrefixes, resolver, sourceFile);
       usages.push(...result.usages);
       untrackedUsages += result.untrackedUsages;
     } catch (error) {

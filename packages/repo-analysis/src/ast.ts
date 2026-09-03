@@ -56,14 +56,11 @@ export function analyzeSource(
   trackPackages: Set<string>,
   envPrefixes: Record<string, string>,
   resolveRelative: RelativeModuleResolver | null = null,
+  parsedSourceFile?: ts.SourceFile,
 ): { usages: AnalyzedUsage[]; untrackedUsages: number } {
-  const sourceFile = ts.createSourceFile(
-    filePath,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS,
-  );
+  const sourceFile =
+    parsedSourceFile ??
+    ts.createSourceFile(filePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
 
   const bindings = collectBindings(sourceFile, filePath, trackPackages, resolveRelative);
   const recorded = new Map<string, AnalyzedUsage>();
