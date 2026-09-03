@@ -183,6 +183,12 @@ export default async function OverviewPage() {
                 >
                   Or go to GitHub App settings
                 </Link>
+                <Link
+                  href="/demo"
+                  className="text-[12px] font-medium tracking-tight text-[#0071e3] hover:underline"
+                >
+                  Or try the 60-second simulation — no install needed →
+                </Link>
               </div>
             </div>
           </CardContent>

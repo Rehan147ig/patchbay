@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@patchbay/ui";
 import { DemoRunButton } from "@/components/demo-run-button";
+import { DemoSimulator } from "@/components/demo-simulator";
 import { requireRole } from "@/lib/auth";
 import {
   FlaskConical,
@@ -96,6 +97,8 @@ export default async function DemoPage() {
           {isProcess ? " (development/local only — not a multi-tenant sandbox)" : " (container)"}
         </p>
       </div>
+
+      <DemoSimulator />
 
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
         {SCENARIOS.map((scenario) => (
