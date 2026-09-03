@@ -3,13 +3,22 @@
  * All demo data is labeled as such in the UI.
  *
  * Baseline includes organization, users, vendors, policies, repositories, completed scans,
- * usage inventory, a few historical change events, and historical audit events.
- * It intentionally creates NO remediations - those are produced by running demo scenarios.
+ * usage inventory, a few historical change events, historical audit events, three
+ * classified demo outcomes (SUCCESS / MANUAL_EDITS / WRONG_PATCH) plus one healthy
+ * capability gate so SLO cards and the kill switch are visible on fresh tenants.
+ * Interactive remediations beyond those are produced by running demo scenarios.
  */
 import { createHash } from "node:crypto";
 import { prisma } from "../src/client";
 import { AuditAction } from "@patchbay/audit";
-import { ActorType, RiskTag, Severity, UsageType, VendorChangeSource } from "@patchbay/domain";
+import {
+  ActorType,
+  RiskLevel,
+  RiskTag,
+  Severity,
+  UsageType,
+  VendorChangeSource,
+} from "@patchbay/domain";
 import type { Prisma } from "@prisma/client";
 
 const ORG_ID = "org-acme";
@@ -65,6 +74,7 @@ async function main(): Promise<void> {
   await seedRepositories();
   await seedSubscription();
   await seedChangeEvents();
+  await seedOutcomes();
   await seedAuditHistory(org.id);
   await seedTaskParameters();
 
@@ -836,6 +846,149 @@ async function seedChangeEvents(): Promise<void> {
   });
 
   console.log("[seed] change events (historical, no active remediations)");
+}
+
+/**
+ * Seeds a small classified outcome ledger plus one healthy capability gate so
+ * fresh tenants see working SLO cards, a feedback queue example, and a
+ * discoverable kill switch instead of all-empty states. Idempotent via fixed
+ * ids; demo-only (labeled in the UI as seeded data).
+ */
+async function seedOutcomes(): Promise<void> {
+  const chains = [
+    {
+      impactId: "seed-ia-stripe",
+      planId: "seed-plan-stripe",
+      prId: "seed-pr-stripe",
+      outcomeId: "seed-outcome-stripe",
+      changeEventId: "c-stripe-ignored",
+      repositoryId: "r-billing",
+      score: 68,
+      riskLevel: RiskLevel.HIGH,
+      prStatus: "MERGED" as const,
+      classification: "SUCCESS" as const,
+      note: "Stripe metadata patch merged without edits.",
+      branch: "patchbay/seed-stripe-metadata",
+    },
+    {
+      impactId: "seed-ia-openai",
+      planId: "seed-plan-openai",
+      prId: "seed-pr-openai",
+      outcomeId: "seed-outcome-openai",
+      changeEventId: "c-openai-feature-adoption",
+      repositoryId: "r-ai",
+      score: 45,
+      riskLevel: RiskLevel.MEDIUM,
+      prStatus: "MERGED" as const,
+      classification: "MANUAL_EDITS" as const,
+      note: "Merged after the reviewer adjusted response_format handling.",
+      branch: "patchbay/seed-openai-structured-outputs",
+    },
+    {
+      impactId: "seed-ia-twilio",
+      planId: "seed-plan-twilio",
+      prId: "seed-pr-twilio",
+      outcomeId: "seed-outcome-twilio",
+      changeEventId: "c-twilio-deprecation",
+      repositoryId: "r-notification",
+      score: 55,
+      riskLevel: RiskLevel.MEDIUM,
+      prStatus: "CLOSED" as const,
+      classification: "WRONG_PATCH" as const,
+      note: "Closed: patch targeted the wrong contentSid overload.",
+      branch: "patchbay/seed-twilio-content-sid",
+    },
+  ] as const;
+
+  for (const chain of chains) {
+    const impact = await prisma.impactAssessment.upsert({
+      where: {
+        changeEventId_repositoryId: {
+          changeEventId: chain.changeEventId,
+          repositoryId: chain.repositoryId,
+        },
+      },
+      update: {},
+      create: {
+        id: chain.impactId,
+        organizationId: ORG_ID,
+        changeEventId: chain.changeEventId,
+        repositoryId: chain.repositoryId,
+        score: chain.score,
+        confidence: 92,
+        affectedUsageCount: 2,
+        riskLevel: chain.riskLevel,
+        rationale: `Seeded demo assessment for ${chain.repositoryId}.`,
+        status: "AFFECTED",
+      },
+    });
+    const plan = await prisma.remediationPlan.upsert({
+      where: { id: chain.planId },
+      update: {},
+      create: {
+        id: chain.planId,
+        organizationId: ORG_ID,
+        impactAssessmentId: impact.id,
+        status: "VALIDATED",
+        strategy: "Seeded rule-based demo plan.",
+        confidence: 90,
+        requiresHumanReview: false,
+      },
+    });
+    const pullRequest = await prisma.pullRequest.upsert({
+      where: { remediationPlanId: plan.id },
+      update: { status: chain.prStatus },
+      create: {
+        id: chain.prId,
+        organizationId: ORG_ID,
+        remediationPlanId: plan.id,
+        provider: "LOCAL",
+        url: `https://example.com/demo/${chain.branch}`,
+        branchName: chain.branch,
+        status: chain.prStatus,
+      },
+    });
+    await prisma.prOutcome.upsert({
+      where: { pullRequestId: pullRequest.id },
+      update: {
+        status: chain.prStatus,
+        classification: chain.classification,
+        note: chain.note,
+      },
+      create: {
+        id: chain.outcomeId,
+        organizationId: ORG_ID,
+        pullRequestId: pullRequest.id,
+        status: chain.prStatus,
+        classification: chain.classification,
+        source: "SYSTEM",
+        note: chain.note,
+        rulePackVersion: "seed-rulepack-1",
+        extractorVersion: "graph-1",
+        recordedBy: "seed",
+      },
+    });
+  }
+
+  await prisma.capabilityGate.upsert({
+    where: {
+      organizationId_vendorSlug_level: {
+        organizationId: ORG_ID,
+        vendorSlug: "stripe",
+        level: "DRAFT_PR",
+      },
+    },
+    update: {},
+    create: {
+      organizationId: ORG_ID,
+      vendorSlug: "stripe",
+      level: "DRAFT_PR",
+      status: "ACTIVE",
+      reason: "Seeded healthy gate for demo SLOs.",
+    },
+  });
+
+  console.log("[seed] outcomes (3 classified) + capability gate (stripe DRAFT_PR ACTIVE)");
 }
 
 async function seedAuditHistory(orgId: string): Promise<void> {

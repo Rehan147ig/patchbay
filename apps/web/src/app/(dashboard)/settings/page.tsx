@@ -53,9 +53,9 @@ const CAPABILITY_BADGE_TONE: Record<CapabilityLevel, "neutral" | "blue" | "purpl
 export default async function SettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ capability?: string }>;
+  searchParams: Promise<{ capability?: string; billing?: string }>;
 }) {
-  const { capability: capabilityFilter } = await searchParams;
+  const { capability: capabilityFilter, billing: billingStatus } = await searchParams;
   const user = await requireUser();
   const [organization, vendors, plan, activeRepositories, capabilityGates] = await Promise.all([
     prisma.organization.findUnique({ where: { id: user.organizationId } }),
@@ -102,6 +102,23 @@ export default async function SettingsPage({
           </Badge>
         }
       />
+
+      {billingStatus === "success" ? (
+        <div
+          role="status"
+          className="rounded-[16px] border border-emerald-200 bg-emerald-50 px-5 py-4 text-[13px] font-medium tracking-tight text-emerald-800"
+        >
+          Subscription updated — your new plan is active. Receipts go to the billing email on file.
+        </div>
+      ) : null}
+      {billingStatus === "cancelled" ? (
+        <div
+          role="status"
+          className="rounded-[16px] border border-zinc-200 bg-zinc-50 px-5 py-4 text-[13px] font-medium tracking-tight text-zinc-600"
+        >
+          Checkout cancelled — your plan is unchanged. You can upgrade anytime below.
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card className="rounded-[20px] border-zinc-200 bg-white">
