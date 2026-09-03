@@ -44,4 +44,4 @@ curl -X POST https://patch.dev/api/vendors/acme-auth/events -H "Authorization: B
 
 ## 6. Exit criteria for GA
 
-- 0 high pentest findings `pentest-scope.md`, KMS drill done, 6 `DRAFT_PR` green `pnpm test:corpus` 28/28, `pnpm build` green — all true on `a9c8a8e→26a275e`.
+- 0 high pentest findings `pentest-scope.md`, KMS drill done, 6 `DRAFT_PR` green `pnpm test:corpus` 34/34, `pnpm build` green — all verified.

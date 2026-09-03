@@ -22,7 +22,7 @@ foundation.
 | AI harness     | provider-neutral planner/reviewer, typed plans, budgets, replay, AgentRun/AgentStep persistence, Mastra-compatible contract               |
 | Delivery       | GitHub App, signed webhooks, short-lived tokens, draft PR lifecycle, append-only audit                                                    |
 | Validation     | allowlisted commands, secret redaction, process/container runtimes, container no-network tests                                            |
-| Quality        | 17-project typecheck and 683 tests in 55 files pass                                                                                       |
+| Quality        | 19-project typecheck and 1,067+ tests in 99 files pass (34/34 eval corpus)                                                                |
 
 ## Non-Negotiable Rules
 

@@ -106,6 +106,18 @@ README updated. Status legend: [x] done, [ ] pending.
 - [x] Agent ingest hardening: oversized payload rejection + rate limiting
 - [x] Verified: 260 tests, typecheck, lint, format, production build, browser E2E
 
+## Phase 10 - Enterprise operations and scale tuning [x]
+
+- [x] Workspace routing: `Workspace` + `WorkspaceMember` models, workspace-scoped
+      repositories/cases/notifications (migration `20260902104521_add_workspace`)
+- [x] Repository opt-out: `ARCHIVED` status enforced in scan; `SANDBOX_CONCURRENCY`
+      alias for org/global BullMQ limits; retention/export verification
+- [x] Graph p95 in org metrics; Watchtower 429 rate-limit handling; AI cost table
+      extended (`gpt-4o`); strict exact-symbol impact matching (no prefix false positives)
+- [x] First-impression wins: searchable repo picker, zero-install demo simulator,
+      blast-radius radar card; billing success toast; seeded outcomes + healthy gate
+- [x] Verified: 19-project typecheck, lint 0 warnings, 34/34 eval corpus, full CI green
+
 ## Definition of Done (overall)
 
 Clone → README steps → docker up → migrate/seed → dashboard shows demo state → OpenAI demo flow

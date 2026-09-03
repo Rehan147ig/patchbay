@@ -279,7 +279,7 @@ released version)`; detail endpoint returns the 4 evidence-linked modules.
 | Unbounded growth of snapshots   | Content hashes + README reuse; retention policy pending (roadmap ops requirement)                                          |
 | Worker idempotency              | `skipDuplicates`, unique content keys, audit on every transition                                                           |
 
-## 8. Next Best Step (from the report in `development-ledger.md`)
+## 8. Next Best Step
 
 1. **Per-file content-hash skip with importer/caller re-extract** for push
    events (roadmap incremental indexing steps 3–4).
@@ -300,5 +300,4 @@ released version)`; detail endpoint returns the 4 evidence-linked modules.
 ---
 
 _Report generated from verified implementation state: all static gates green,
-517 tests passing, live E2E evidence in §5. Companion ledger entry:
-`docs/development-ledger.md` → "Software intelligence graph (roadmap Phases H0–H2)"._
+517 tests passing, live E2E evidence in §5._
