@@ -170,10 +170,9 @@ export const EVAL_CORPUS: EvalCorpusEntry[] = [
       },
     },
     expectedMatched: true,
-    // Demoted to ASSESS: no certified Python patch kit. Zero patches expected.
-    expectedFiles: [],
+    expectedFiles: ["src/chat.py"],
     facts: { breaking: true, requiresHumanReview: true, riskTags: [] },
-    expectedDecision: PolicyDecision.ALLOW_PLAN_ONLY,
+    expectedDecision: PolicyDecision.REQUIRE_APPROVAL,
   },
   {
     id: "openai-python-1.0.0",

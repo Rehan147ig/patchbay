@@ -24,7 +24,7 @@ It is NOT a generic chatbot, changelog summarizer, or OpenAPI diff dashboard.
 - `packages/operations` - WP10 DB-free logic: SLO rollups (`computeOrganizationMetrics`), capability health/auto-suspend, retention purge; uses structural `PrismaLike` types
 - `packages/billing` - Subscription plans/caps, SDK-free Stripe REST client, webhook signature verification
 - `packages/ui` - Accessible Apple Light UI primitives (Card, StatCard, Button, Badge, Table, PageHeader, StatusPill, Input)
-- `packages/vendor-connectors` - 56-connector catalog (6 certified `DRAFT_PR`, 50 `ASSESS`), connector certification registry, defineConnector SDK, strict symbol scoring
+- `packages/vendor-connectors` - connector catalog (7 certified `DRAFT_PR` incl. Python `openai-python`, rest `ASSESS`/`PLAN`), connector certification registry, defineConnector SDK, strict symbol scoring
 - `packages/repo-analysis` - TypeScript compiler AST indexer, Python L1 (web-tree-sitter WASM), graph extractor, integration usage inventory, impact scoring
 - `packages/remediation-engine` - Migration rules, semantic AST edits, CRLF line-ending preservation, patch generation, evaluation corpus
 - `packages/policy-engine` - JSON policy definitions, confidence gates, risk classification (ALLOW/APPROVE/DENY)
@@ -80,7 +80,7 @@ After ANY code change run: `pnpm format` → `pnpm lint` → `pnpm typecheck` �
 
 ## Architecture rules
 
-- **Certification requires the eval corpus green** (`pnpm test:corpus`): Exactly 6 connectors are certified for `DRAFT_PR` (`openai`, `stripe`, `twilio`, `anthropic`, `supabase`, `vercel-ai-sdk`). 50 connectors operate at `ASSESS` (graph inventory & blast-radius analysis). Never promote `ASSESS` → `DRAFT_PR` without all corpus fixtures passing.
+- **Certification requires the eval corpus green** (`pnpm test:corpus`): Exactly 7 connectors are certified for `DRAFT_PR` (`openai`, `stripe`, `twilio`, `anthropic`, `supabase`, `vercel-ai-sdk`, `openai-python`). Uncertified connectors operate at `ASSESS`/`PLAN` (graph inventory & blast-radius analysis). Never promote `ASSESS` → `DRAFT_PR` without all corpus fixtures passing.
 - `packages/domain`, `packages/audit`, `packages/policy-engine`, `packages/remediation-engine`, `packages/operations` must stay DB-free and runnable in plain unit tests (no database, no network).
 - The DB is only touched by `apps/web` route handlers/pages, `apps/worker`, and seed code.
 - Enums are defined once in `packages/domain` and mirrored in `prisma/schema.prisma`. A drift test in `packages/domain` verifies Prisma values stay in sync.

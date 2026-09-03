@@ -181,14 +181,14 @@ describe("python plans (openai-python v0 -> v1)", () => {
     };
   }
 
-  it("produces a plan-only draft for Python (ASSESS-only: no certified patch kit)", async () => {
+  it("produces patches for Python method renames with client bootstrap", async () => {
     const plan = await generatePlan(pythonInput());
 
-    // Demoted to ASSESS: no patch suggestions → plan-only output.
-    expect(plan.patches).toHaveLength(0);
-    expect(plan.requiresHumanReview).toBe(true);
-    expect(plan.confidence).toBe(60);
-    expect(plan.strategy).toContain("Plan-only");
+    expect(plan.patches).toHaveLength(1);
+    expect(plan.patches[0]!.filePath).toBe("src/chat.py");
+    expect(plan.patches[0]!.patched).toContain("client.chat.completions.create");
+    expect(plan.patches[0]!.patched).toContain("from openai import OpenAI");
+    expect(plan.patches[0]!.patched).toContain("client = OpenAI()");
   });
 
   it("rejects broken python via the tree-sitter syntax check", async () => {

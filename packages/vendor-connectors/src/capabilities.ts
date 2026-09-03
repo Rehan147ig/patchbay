@@ -135,12 +135,11 @@ function certified(
  */
 export const CAPABILITY_REGISTRY: readonly ConnectorCapability[] = [
   certified("openai", "openai", "DRAFT_PR"),
-  {
-    ...baseline("openai-python", "openai"),
+  certified("openai-python", "openai", "DRAFT_PR", {
     ecosystem: "pypi",
     language: "python",
     validationProfile: "python-tree-sitter-reparse + container-sandbox",
-  },
+  }),
   certified("stripe", "stripe", "DRAFT_PR"),
   certified("twilio", "twilio", "DRAFT_PR"),
   certified("anthropic", "@anthropic-ai/sdk", "DRAFT_PR"),

@@ -1,10 +1,10 @@
 # Connector Certification — how to add the next DRAFT_PR
 
-Current certified DRAFT_PR (6): `openai`, `stripe`, `twilio`, `anthropic`, `supabase`, `vercel-ai-sdk` (`packages/vendor-connectors/src/capabilities.ts:137`). `aws-sdk`, `auth0`, `langchain` are intentionally `PLAN` — corpus has 0 patchable entries, so promoting them fails loudly by design (`packages/remediation-engine/src/eval-corpus.ts:611` `checkCertifiedPatchCoverage`).
+Current certified DRAFT_PR (7): `openai`, `stripe`, `twilio`, `anthropic`, `supabase`, `vercel-ai-sdk`, `openai-python` (`packages/vendor-connectors/src/capabilities.ts:137`). `aws-sdk`, `auth0`, `langchain` are intentionally `PLAN` — corpus has 0 patchable entries, so promoting them fails loudly by design (`packages/remediation-engine/src/eval-corpus.ts:611` `checkCertifiedPatchCoverage`).
 
 Promoting without a patchable fixture is blocked. Do not bump `level` to `DRAFT_PR` without a green corpus.
 
-## To certify the 7th/8th connector (self-serve via defineConnector)
+## To certify the 8th/9th connector (self-serve via defineConnector)
 
 1. **Scaffold connector** `packages/vendor-connectors/src/connectors/<slug>.ts`:
 
@@ -48,6 +48,6 @@ pnpm -r --parallel typecheck && pnpm lint
 
 5. **Promote** `packages/vendor-connectors/src/capabilities.ts:136` `baseline → certified("my-vendor","my-package","DRAFT_PR")` — only after (4) is green. CI `checkCertifiedPatchCoverage` will enforce: DRAFT_PR must have `patchableEntries>0` and `violations=[]`; PLAN must have 0 suggestions.
 
-## Why 8 DRAFT_PR is not just a bump
+## Why 9 DRAFT_PR is not just a bump
 
 `aws-sdk-2.1691.0` and `langchain-0.1.0` are labeled `expectedFiles:[]` because their renames without imports fail the semantic gate (`TS2304`) — promoting them requires fixing the migration to produce valid TS (import insertion) and updating the corpus label, not just flipping `level`. Use the scaffold above for a net-new vendor (e.g. `vercel-ai-sdk`, `shopify`, `prisma`) instead.

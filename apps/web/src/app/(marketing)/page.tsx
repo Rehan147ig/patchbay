@@ -415,9 +415,10 @@ export default function LandingPage() {
               What Patch can patch â€” and what it won&apos;t
             </h2>
             <p className="mt-5 text-pretty text-lg text-gray-600">
-              6 certified for Draft PR (openai, stripe, twilio, anthropic, supabase, vercel-ai-sdk)
-              + 50 at ASSESS via graph + blast-radius. Private SDKs via agent. Automated Draft PRs
-              are strictly limited to certified rule packs + validation + human approval.
+              7 certified for Draft PR (openai, stripe, twilio, anthropic, supabase, vercel-ai-sdk,
+              openai-python) + the rest at ASSESS via graph + blast-radius. Private SDKs via agent.
+              Automated Draft PRs are strictly limited to certified rule packs + validation + human
+              approval.
             </p>
           </div>
         </Reveal>
