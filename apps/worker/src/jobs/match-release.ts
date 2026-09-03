@@ -238,6 +238,8 @@ async function reconcileCasesForRelease(
         ownerCount,
         riskTags,
         hasSnapshot: snapshot !== null,
+        declaredRange: match.dependency.declaredRange,
+        releaseVersion: release.version,
       },
       classification?.requiresHumanReview ?? false,
       policyEvaluation,

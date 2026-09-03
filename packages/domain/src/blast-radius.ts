@@ -5,6 +5,7 @@
  * A connector is eligible for automated planning only when its certified
  * capability reaches PLAN; nothing else can raise that.
  */
+import { parseVersion, satisfiesRange } from "./semver";
 
 export type BlastSeverity = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 
@@ -19,6 +20,10 @@ export interface BlastRadiusInput {
   capabilityLevel: string;
   /** Validation profile id; non-null only when sandbox validation exists. */
   validationProfile: string | null;
+  /** Declared dependency range (e.g. "^16.0.0"); null when unknown. */
+  declaredRange?: string | null;
+  /** Release version being assessed (e.g. "17.0.0"); null when unknown. */
+  releaseVersion?: string | null;
 }
 
 export interface BlastRadius {
@@ -69,6 +74,20 @@ export function computeBlastRadius(input: BlastRadiusInput): BlastRadius {
   if (input.validationProfile) {
     score -= 5;
     factors.push(`validation profile: ${input.validationProfile}`);
+  }
+
+  // Version gating (under-detection bias): when the declared range provably
+  // excludes the release, the repo cannot auto-install it, so suppress the
+  // score instead of alarming. Unknown or unparseable versions never suppress:
+  // satisfiesRange returns false for garbage, so require a parseable release
+  // version first.
+  if (input.declaredRange && input.releaseVersion && parseVersion(input.releaseVersion)) {
+    if (!satisfiesRange(input.releaseVersion, input.declaredRange)) {
+      score -= 10;
+      factors.push(
+        `declared range ${input.declaredRange} excludes release ${input.releaseVersion}: likely unaffected`,
+      );
+    }
   }
 
   const planEligible = isPlanEligibleLevel(input.capabilityLevel);

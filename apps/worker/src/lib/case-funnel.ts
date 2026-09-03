@@ -26,6 +26,10 @@ export interface FunnelEvidence {
   riskTags: readonly string[];
   /** True when a READY graph snapshot exists at the dependency commit. */
   hasSnapshot: boolean;
+  /** Declared dependency range (e.g. "^16.0.0"); null when unknown. */
+  declaredRange?: string | null;
+  /** Release version being assessed (e.g. "17.0.0"); null when unknown. */
+  releaseVersion?: string | null;
 }
 
 export interface FunnelPolicy {
@@ -133,5 +137,7 @@ function blastRadiusOf(input: FunnelInput) {
     ownerCount: input.evidence.ownerCount,
     capabilityLevel: input.capabilityLevel,
     validationProfile: input.validationProfile,
+    declaredRange: input.evidence.declaredRange ?? null,
+    releaseVersion: input.evidence.releaseVersion ?? null,
   });
 }

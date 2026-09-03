@@ -60,6 +60,55 @@ describe("computeBlastRadius", () => {
     expect(quiet.score).toBe(20);
   });
 
+  it("suppresses when the declared range excludes the release", () => {
+    const suppressed = computeBlastRadius({
+      ...base,
+      capabilityLevel: "DRAFT_PR",
+      affectedUsageCount: 5,
+      declaredRange: "^16.0.0",
+      releaseVersion: "17.0.0",
+    });
+    const unsuppressed = computeBlastRadius({
+      ...base,
+      capabilityLevel: "DRAFT_PR",
+      affectedUsageCount: 5,
+    });
+    expect(suppressed.score).toBe(unsuppressed.score - 10);
+    expect(suppressed.factors).toContain(
+      "declared range ^16.0.0 excludes release 17.0.0: likely unaffected",
+    );
+  });
+
+  it("never suppresses on unknown or unparseable versions", () => {
+    const anchored = computeBlastRadius({
+      ...base,
+      capabilityLevel: "DRAFT_PR",
+      affectedUsageCount: 5,
+      declaredRange: "^16.0.0",
+      releaseVersion: "17.0.0",
+    });
+    for (const input of [
+      { ...base, capabilityLevel: "DRAFT_PR", affectedUsageCount: 5 },
+      {
+        ...base,
+        capabilityLevel: "DRAFT_PR",
+        affectedUsageCount: 5,
+        declaredRange: "^16.0.0",
+        releaseVersion: "not-a-version",
+      },
+      {
+        ...base,
+        capabilityLevel: "DRAFT_PR",
+        affectedUsageCount: 5,
+        declaredRange: "^16.0.0",
+        releaseVersion: "16.5.0",
+      },
+    ]) {
+      const result = computeBlastRadius(input);
+      expect(result.score).toBeGreaterThanOrEqual(anchored.score);
+    }
+  });
+
   it("credits an existing validation profile", () => {
     const withProfile = computeBlastRadius({
       ...base,
