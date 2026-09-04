@@ -3,10 +3,11 @@
  * All demo data is labeled as such in the UI.
  *
  * Baseline includes organization, users, vendors, policies, repositories, completed scans,
- * usage inventory, a few historical change events, historical audit events, three
- * classified demo outcomes (SUCCESS / MANUAL_EDITS / WRONG_PATCH) plus one healthy
- * capability gate so SLO cards and the kill switch are visible on fresh tenants.
- * Interactive remediations beyond those are produced by running demo scenarios.
+ * usage inventory, a few historical change events, historical audit events, a 13-outcome
+ * classified ledger staggered over 14 days plus healthy capability gates and one
+ * SUSPENDED kill-switch demo so SLO cards and the circuit breaker are visible on
+ * fresh tenants. Interactive remediations beyond those are produced by running
+ * demo scenarios.
  */
 import { createHash } from "node:crypto";
 import { prisma } from "../src/client";
@@ -203,6 +204,14 @@ async function seedVendors(): Promise<void> {
       enabled: true,
     },
     {
+      id: "v-vercel-ai-sdk",
+      slug: "vercel-ai-sdk",
+      name: "Vercel AI SDK",
+      category: "AI",
+      docsUrl: "https://sdk.vercel.ai/docs",
+      enabled: true,
+    },
+    {
       id: "v-generic",
       slug: "generic-openapi",
       name: "Generic OpenAPI",
@@ -384,6 +393,13 @@ async function seedRepositories(): Promise<void> {
       fullName: "acme/supabase-backend-service",
       vendor: "v-supabase",
       fixture: "supabase-js-legacy",
+    },
+    {
+      id: "r-vercel",
+      name: "ai-chat-service",
+      fullName: "acme/ai-chat-service",
+      vendor: "v-vercel-ai-sdk",
+      fixture: "vercel-ai-sdk-legacy",
     },
   ] as const;
 
@@ -640,6 +656,19 @@ const USAGE_FIXTURES: Record<
       riskTags: [RiskTag.AUTH],
     },
   ],
+  "vercel-ai-sdk-legacy": [
+    {
+      vendor: "v-vercel-ai-sdk",
+      filePath: "src/app.ts",
+      symbol: "useChat",
+      usageType: UsageType.IMPORT,
+      line: 2,
+      column: 1,
+      excerpt: `import { useChat } from "ai";`,
+      ownerHint: "frontend-team",
+      riskTags: [],
+    },
+  ],
 };
 
 async function seedScanAndUsages(
@@ -845,14 +874,85 @@ async function seedChangeEvents(): Promise<void> {
     },
   });
 
+  // Outcome-ledger change events: vendor-linked releases whose seeded PRs
+  // populate the /outcomes SLO cards (vendor column resolves via vendorId).
+  const ledgerEvents = [
+    {
+      id: "c-anthropic-upgrade",
+      vendorId: "v-anthropic",
+      externalReference: "anthropic-sdk-2026-08-02",
+      title: "Anthropic SDK 0.20: completions.create response envelope",
+      severity: Severity.MEDIUM,
+      normalizationId: "n-anthropic-1",
+      changeType: "RESPONSE_FIELD_TYPE_CHANGED" as const,
+      oldValue: "completion",
+      description: "completions.create response envelope narrowed; call sites updated.",
+    },
+    {
+      id: "c-supabase-upgrade",
+      vendorId: "v-supabase",
+      externalReference: "supabase-js-2026-08-09",
+      title: "Supabase JS 1.35: auth.user() session helper",
+      severity: Severity.MEDIUM,
+      normalizationId: "n-supabase-1",
+      changeType: "METHOD_RENAMED" as const,
+      oldValue: "supabase.auth.user",
+      description: "auth.user() renamed; session helper call sites updated.",
+    },
+    {
+      id: "c-vercel-upgrade",
+      vendorId: "v-vercel-ai-sdk",
+      externalReference: "vercel-ai-sdk-2026-08-16",
+      title: "Vercel AI SDK 3.0: useChat options shape",
+      severity: Severity.MEDIUM,
+      normalizationId: "n-vercel-1",
+      changeType: "PARAMETER_RENAMED" as const,
+      oldValue: "api",
+      description: "useChat options renamed; chat hook call sites updated.",
+    },
+  ] as const;
+  for (const event of ledgerEvents) {
+    await prisma.vendorChangeEvent.upsert({
+      where: { id: event.id },
+      update: { organizationId: "org-acme" },
+      create: {
+        id: event.id,
+        vendorId: event.vendorId,
+        organizationId: "org-acme",
+        externalReference: event.externalReference,
+        sourceType: VendorChangeSource.SDK_RELEASE,
+        detectedAt: new Date("2026-08-01T09:00:00Z"),
+        title: event.title,
+        severity: event.severity,
+        status: "TRIAGED",
+        rawPayload: { demo: true },
+      },
+    });
+    await prisma.normalizedChange.upsert({
+      where: { id: event.normalizationId },
+      update: {},
+      create: {
+        id: event.normalizationId,
+        changeEventId: event.id,
+        changeType: event.changeType,
+        oldValue: event.oldValue,
+        description: event.description,
+        breaking: true,
+        evidence: { fixture: true },
+      },
+    });
+  }
+
   console.log("[seed] change events (historical, no active remediations)");
 }
 
 /**
- * Seeds a small classified outcome ledger plus one healthy capability gate so
- * fresh tenants see working SLO cards, a feedback queue example, and a
- * discoverable kill switch instead of all-empty states. Idempotent via fixed
- * ids; demo-only (labeled in the UI as seeded data).
+ * Seeds a 13-outcome classified ledger (12 MERGED + 1 CLOSED ≈ 92% merge
+ * rate) staggered over the last 14 days plus healthy capability gates and one
+ * SUSPENDED kill-switch demo, so fresh tenants see working SLO cards, a
+ * feedback-queue example, and the circuit breaker in action instead of empty
+ * states. Idempotent via fixed ids (create-only fields like createdAt never
+ * move on re-runs); demo-only (labeled in the UI as seeded data).
  */
 async function seedOutcomes(): Promise<void> {
   const chains = [
@@ -900,6 +1000,219 @@ async function seedOutcomes(): Promise<void> {
     },
   ] as const;
 
+  // Historical ledger: additional plans/PRs/outcomes under the same impacts
+  // (openai/stripe/twilio) plus new vendor impacts, staggered by daysAgo so
+  // the 30-day SLO window and the ledger read as two weeks of production.
+  // daysAgo is create-only: re-runs never shift history.
+  const historyChains = [
+    {
+      impactId: "seed-ia-stripe",
+      planId: "seed-plan-stripe-2",
+      prId: "seed-pr-stripe-2",
+      outcomeId: "seed-outcome-stripe-2",
+      score: 74,
+      riskLevel: RiskLevel.HIGH,
+      prStatus: "MERGED" as const,
+      classification: "SUCCESS" as const,
+      source: "GITHUB_WEBHOOK" as const,
+      note: "Stripe PaymentIntents migration merged; quorum 2/2 verified.",
+      branch: "patchbay/seed-stripe-payment-intents",
+      daysAgo: 3,
+    },
+    {
+      impactId: "seed-ia-stripe",
+      planId: "seed-plan-stripe-3",
+      prId: "seed-pr-stripe-3",
+      outcomeId: "seed-outcome-stripe-3",
+      score: 61,
+      riskLevel: RiskLevel.HIGH,
+      prStatus: "MERGED" as const,
+      classification: "SUCCESS" as const,
+      source: "GITHUB_WEBHOOK" as const,
+      note: "Stripe webhook handler patch merged without edits.",
+      branch: "patchbay/seed-stripe-webhooks",
+      daysAgo: 7,
+    },
+    {
+      impactId: "seed-ia-openai",
+      planId: "seed-plan-openai-2",
+      prId: "seed-pr-openai-2",
+      outcomeId: "seed-outcome-openai-2",
+      score: 52,
+      riskLevel: RiskLevel.MEDIUM,
+      prStatus: "MERGED" as const,
+      classification: "SUCCESS" as const,
+      source: "GITHUB_WEBHOOK" as const,
+      note: "OpenAI v4 chat completions migration merged.",
+      branch: "patchbay/seed-openai-v4-chat",
+      daysAgo: 4,
+    },
+    {
+      impactId: "seed-ia-openai",
+      planId: "seed-plan-openai-3",
+      prId: "seed-pr-openai-3",
+      outcomeId: "seed-outcome-openai-3",
+      score: 48,
+      riskLevel: RiskLevel.MEDIUM,
+      prStatus: "MERGED" as const,
+      classification: "SUCCESS" as const,
+      source: "GITHUB_WEBHOOK" as const,
+      note: "OpenAI embeddings migration merged.",
+      branch: "patchbay/seed-openai-embeddings",
+      daysAgo: 8,
+    },
+    {
+      impactId: "seed-ia-twilio",
+      planId: "seed-plan-twilio-2",
+      prId: "seed-pr-twilio-2",
+      outcomeId: "seed-outcome-twilio-2",
+      score: 58,
+      riskLevel: RiskLevel.MEDIUM,
+      prStatus: "MERGED" as const,
+      classification: "SUCCESS" as const,
+      source: "GITHUB_WEBHOOK" as const,
+      note: "Twilio messaging migration merged.",
+      branch: "patchbay/seed-twilio-messaging",
+      daysAgo: 5,
+    },
+    {
+      impactId: "seed-ia-anthropic",
+      planId: "seed-plan-anthropic-1",
+      prId: "seed-pr-anthropic-1",
+      outcomeId: "seed-outcome-anthropic-1",
+      changeEventId: "c-anthropic-upgrade",
+      repositoryId: "r-claude",
+      score: 57,
+      riskLevel: RiskLevel.MEDIUM,
+      prStatus: "MERGED" as const,
+      classification: "SUCCESS" as const,
+      source: "GITHUB_WEBHOOK" as const,
+      note: "Anthropic completions migration merged.",
+      branch: "patchbay/seed-anthropic-completions",
+      daysAgo: 2,
+    },
+    {
+      impactId: "seed-ia-anthropic",
+      planId: "seed-plan-anthropic-2",
+      prId: "seed-pr-anthropic-2",
+      outcomeId: "seed-outcome-anthropic-2",
+      changeEventId: "c-anthropic-upgrade",
+      repositoryId: "r-claude",
+      score: 49,
+      riskLevel: RiskLevel.MEDIUM,
+      prStatus: "MERGED" as const,
+      classification: "MANUAL_EDITS" as const,
+      source: "GITHUB_WEBHOOK" as const,
+      note: "Merged after the reviewer adjusted the response envelope.",
+      branch: "patchbay/seed-anthropic-envelope",
+      daysAgo: 9,
+    },
+    {
+      impactId: "seed-ia-supabase",
+      planId: "seed-plan-supabase-1",
+      prId: "seed-pr-supabase-1",
+      outcomeId: "seed-outcome-supabase-1",
+      changeEventId: "c-supabase-upgrade",
+      repositoryId: "r-supabase",
+      score: 53,
+      riskLevel: RiskLevel.MEDIUM,
+      prStatus: "MERGED" as const,
+      classification: "SUCCESS" as const,
+      source: "GITHUB_WEBHOOK" as const,
+      note: "Supabase auth helper migration merged.",
+      branch: "patchbay/seed-supabase-auth",
+      daysAgo: 6,
+    },
+    {
+      impactId: "seed-ia-vercel",
+      planId: "seed-plan-vercel-1",
+      prId: "seed-pr-vercel-1",
+      outcomeId: "seed-outcome-vercel-1",
+      changeEventId: "c-vercel-upgrade",
+      repositoryId: "r-vercel",
+      score: 44,
+      riskLevel: RiskLevel.MEDIUM,
+      prStatus: "MERGED" as const,
+      classification: "UNCLASSIFIED" as const,
+      source: "GITHUB_WEBHOOK" as const,
+      note: "Vercel AI SDK migration merged; awaiting human verdict.",
+      branch: "patchbay/seed-vercel-use-chat",
+      daysAgo: 10,
+    },
+    {
+      impactId: "seed-ia-generic",
+      planId: "seed-plan-generic-1",
+      prId: "seed-pr-generic-1",
+      outcomeId: "seed-outcome-generic-1",
+      changeEventId: "c-openapi-generic",
+      repositoryId: "r-supabase",
+      score: 41,
+      riskLevel: RiskLevel.MEDIUM,
+      prStatus: "MERGED" as const,
+      classification: "SUCCESS" as const,
+      source: "GITHUB_WEBHOOK" as const,
+      note: "Internal API response-field migration merged.",
+      branch: "patchbay/seed-generic-billing-address",
+      daysAgo: 12,
+    },
+  ] as const;
+
+  // New vendor impacts for the historical ledger (existing three impacts are
+  // created by the chains loop below via their own changeEventId/repositoryId).
+  const newImpacts = [
+    {
+      id: "seed-ia-anthropic",
+      changeEventId: "c-anthropic-upgrade",
+      repositoryId: "r-claude",
+      score: 57,
+      riskLevel: RiskLevel.MEDIUM,
+    },
+    {
+      id: "seed-ia-supabase",
+      changeEventId: "c-supabase-upgrade",
+      repositoryId: "r-supabase",
+      score: 53,
+      riskLevel: RiskLevel.MEDIUM,
+    },
+    {
+      id: "seed-ia-vercel",
+      changeEventId: "c-vercel-upgrade",
+      repositoryId: "r-vercel",
+      score: 44,
+      riskLevel: RiskLevel.MEDIUM,
+    },
+    {
+      id: "seed-ia-generic",
+      changeEventId: "c-openapi-generic",
+      repositoryId: "r-supabase",
+      score: 41,
+      riskLevel: RiskLevel.MEDIUM,
+    },
+  ] as const;
+  for (const impact of newImpacts) {
+    await prisma.impactAssessment.upsert({
+      where: {
+        changeEventId_repositoryId: {
+          changeEventId: impact.changeEventId,
+          repositoryId: impact.repositoryId,
+        },
+      },
+      update: {},
+      create: {
+        id: impact.id,
+        organizationId: ORG_ID,
+        changeEventId: impact.changeEventId,
+        repositoryId: impact.repositoryId,
+        score: impact.score,
+        confidence: 92,
+        affectedUsageCount: 2,
+        riskLevel: impact.riskLevel,
+        rationale: `Seeded demo assessment for ${impact.repositoryId}.`,
+        status: "AFFECTED",
+      },
+    });
+  }
+
   for (const chain of chains) {
     const impact = await prisma.impactAssessment.upsert({
       where: {
@@ -922,73 +1235,167 @@ async function seedOutcomes(): Promise<void> {
         status: "AFFECTED",
       },
     });
-    const plan = await prisma.remediationPlan.upsert({
-      where: { id: chain.planId },
+    await seedOutcomeChain({
+      planId: chain.planId,
+      prId: chain.prId,
+      outcomeId: chain.outcomeId,
+      impactId: impact.id,
+      prStatus: chain.prStatus,
+      classification: chain.classification,
+      source: "SYSTEM",
+      note: chain.note,
+      branch: chain.branch,
+      daysAgo: null,
+    });
+  }
+
+  for (const chain of historyChains) {
+    await seedOutcomeChain({
+      planId: chain.planId,
+      prId: chain.prId,
+      outcomeId: chain.outcomeId,
+      impactId: chain.impactId,
+      prStatus: chain.prStatus,
+      classification: chain.classification,
+      source: chain.source,
+      note: chain.note,
+      branch: chain.branch,
+      daysAgo: chain.daysAgo,
+    });
+  }
+
+  const gates = [
+    {
+      vendorSlug: "openai",
+      status: "ACTIVE" as const,
+      reason: "Seeded healthy gate for demo SLOs.",
+    },
+    {
+      vendorSlug: "stripe",
+      status: "ACTIVE" as const,
+      reason: "Seeded healthy gate for demo SLOs.",
+    },
+    {
+      vendorSlug: "twilio",
+      status: "ACTIVE" as const,
+      reason: "Seeded healthy gate for demo SLOs.",
+    },
+    {
+      vendorSlug: "anthropic",
+      status: "ACTIVE" as const,
+      reason: "Seeded healthy gate for demo SLOs.",
+    },
+    {
+      vendorSlug: "supabase",
+      status: "ACTIVE" as const,
+      reason: "Seeded healthy gate for demo SLOs.",
+    },
+    {
+      vendorSlug: "vercel-ai-sdk",
+      status: "ACTIVE" as const,
+      reason: "Seeded healthy gate for demo SLOs.",
+    },
+    {
+      vendorSlug: "legacy-custom-crm",
+      status: "SUSPENDED" as const,
+      reason:
+        "Auto-suspended by SLO monitor: merge rate 33% (1/3) fell below the 50% threshold. Requires admin re-certification.",
+    },
+  ];
+  for (const gate of gates) {
+    await prisma.capabilityGate.upsert({
+      where: {
+        organizationId_vendorSlug_level: {
+          organizationId: ORG_ID,
+          vendorSlug: gate.vendorSlug,
+          level: "DRAFT_PR",
+        },
+      },
       update: {},
       create: {
-        id: chain.planId,
         organizationId: ORG_ID,
-        impactAssessmentId: impact.id,
-        status: "VALIDATED",
-        strategy: "Seeded rule-based demo plan.",
-        confidence: 90,
-        requiresHumanReview: false,
-      },
-    });
-    const pullRequest = await prisma.pullRequest.upsert({
-      where: { remediationPlanId: plan.id },
-      update: { status: chain.prStatus },
-      create: {
-        id: chain.prId,
-        organizationId: ORG_ID,
-        remediationPlanId: plan.id,
-        provider: "LOCAL",
-        url: `https://example.com/demo/${chain.branch}`,
-        branchName: chain.branch,
-        status: chain.prStatus,
-      },
-    });
-    await prisma.prOutcome.upsert({
-      where: { pullRequestId: pullRequest.id },
-      update: {
-        status: chain.prStatus,
-        classification: chain.classification,
-        note: chain.note,
-      },
-      create: {
-        id: chain.outcomeId,
-        organizationId: ORG_ID,
-        pullRequestId: pullRequest.id,
-        status: chain.prStatus,
-        classification: chain.classification,
-        source: "SYSTEM",
-        note: chain.note,
-        rulePackVersion: "seed-rulepack-1",
-        extractorVersion: "graph-1",
-        recordedBy: "seed",
+        vendorSlug: gate.vendorSlug,
+        level: "DRAFT_PR",
+        status: gate.status,
+        reason: gate.reason,
+        ...(gate.status === "SUSPENDED"
+          ? { suspendedAt: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+          : {}),
       },
     });
   }
 
-  await prisma.capabilityGate.upsert({
-    where: {
-      organizationId_vendorSlug_level: {
-        organizationId: ORG_ID,
-        vendorSlug: "stripe",
-        level: "DRAFT_PR",
-      },
-    },
+  console.log("[seed] outcomes (13 classified) + capability gates (6 ACTIVE, 1 SUSPENDED)");
+}
+
+/**
+ * One plan → PR → outcome triple. daysAgo staggers createdAt over the last 14
+ * days and is create-only, so re-runs never shift history. Idempotent via the
+ * fixed plan/PR/outcome ids.
+ */
+async function seedOutcomeChain(chain: {
+  planId: string;
+  prId: string;
+  outcomeId: string;
+  impactId: string;
+  prStatus: "MERGED" | "CLOSED";
+  classification: "SUCCESS" | "MANUAL_EDITS" | "WRONG_PATCH" | "UNCLASSIFIED";
+  source: "SYSTEM" | "GITHUB_WEBHOOK";
+  note: string;
+  branch: string;
+  daysAgo: number | null;
+}): Promise<void> {
+  const createdAt =
+    chain.daysAgo === null ? undefined : new Date(Date.now() - chain.daysAgo * 86_400_000);
+  const plan = await prisma.remediationPlan.upsert({
+    where: { id: chain.planId },
     update: {},
     create: {
+      id: chain.planId,
       organizationId: ORG_ID,
-      vendorSlug: "stripe",
-      level: "DRAFT_PR",
-      status: "ACTIVE",
-      reason: "Seeded healthy gate for demo SLOs.",
+      impactAssessmentId: chain.impactId,
+      status: "VALIDATED",
+      strategy: "Seeded rule-based demo plan.",
+      confidence: 90,
+      requiresHumanReview: false,
+      ...(createdAt ? { createdAt } : {}),
     },
   });
-
-  console.log("[seed] outcomes (3 classified) + capability gate (stripe DRAFT_PR ACTIVE)");
+  const pullRequest = await prisma.pullRequest.upsert({
+    where: { remediationPlanId: plan.id },
+    update: { status: chain.prStatus },
+    create: {
+      id: chain.prId,
+      organizationId: ORG_ID,
+      remediationPlanId: plan.id,
+      provider: "LOCAL",
+      url: `https://example.com/demo/${chain.branch}`,
+      branchName: chain.branch,
+      status: chain.prStatus,
+      ...(createdAt ? { createdAt } : {}),
+    },
+  });
+  await prisma.prOutcome.upsert({
+    where: { pullRequestId: pullRequest.id },
+    update: {
+      status: chain.prStatus,
+      classification: chain.classification,
+      note: chain.note,
+    },
+    create: {
+      id: chain.outcomeId,
+      organizationId: ORG_ID,
+      pullRequestId: pullRequest.id,
+      status: chain.prStatus,
+      classification: chain.classification,
+      source: chain.source,
+      note: chain.note,
+      rulePackVersion: "seed-rulepack-1",
+      extractorVersion: "graph-1",
+      recordedBy: "seed",
+      ...(createdAt ? { createdAt } : {}),
+    },
+  });
 }
 
 async function seedAuditHistory(orgId: string): Promise<void> {
