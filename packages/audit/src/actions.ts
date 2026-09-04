@@ -93,5 +93,9 @@ export const AuditAction = {
   SCIM_USER_DEPROVISIONED: "scim.user_deprovisioned",
   SCIM_TOKEN_ISSUED: "scim.token_issued",
   SCIM_TOKEN_REVOKED: "scim.token_revoked",
+  AUDIT_LOG_EXPORTED: "audit.log_exported",
+  AUDIT_EXPORT_TOKEN_ISSUED: "audit.export_token_issued",
+  AUDIT_EXPORT_TOKEN_REVOKED: "audit.export_token_revoked",
+  SIEM_BATCH_FORWARDED: "siem.batch_forwarded",
 } as const;
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];

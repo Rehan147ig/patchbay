@@ -35,6 +35,7 @@ import { isLegacyAgentKeyHash } from "@/lib/agent-keys";
 import { BillingActions } from "@/components/billing-actions";
 import { CapabilityGateControl } from "@/components/capability-gate-control";
 import { PrivateVendorForm } from "@/components/private-vendor-form";
+import { AuditExportControl } from "@/components/audit-export-control";
 import { ScimTokenControl } from "@/components/scim-token-control";
 import { VendorAgentKeyControl } from "@/components/vendor-agent-key-control";
 import { formatDate, GATE_STATUS_TONE } from "@/lib/format";
@@ -173,6 +174,33 @@ export default async function SettingsPage({
                 organization?.scimTokenHash !== null && organization?.scimTokenHash !== undefined
               }
               tokenPrefix={organization?.scimTokenPrefix ?? null}
+              isAdmin={user.role === "ADMIN"}
+            />
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-[20px] border-zinc-200 bg-white">
+          <CardHeader>
+            <CardTitle>SIEM &amp; Compliance Audit Export</CardTitle>
+            <CardDescription>
+              Tamper-evident audit streaming for your SOC: cursor-paginated JSONL or CEF over the
+              export endpoint, HMAC-signed per batch, plus an optional Splunk HEC forwarder. Every
+              export is itself recorded in the audit trail.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
+              <span className="text-xs font-medium text-zinc-500">Status</span>
+              <span className="text-[13px] font-semibold tracking-tight text-[#1d1d1f]">
+                {organization?.auditExportTokenHash ? "Enrolled" : "Not enrolled"}
+              </span>
+            </div>
+            <AuditExportControl
+              hasToken={
+                organization?.auditExportTokenHash !== null &&
+                organization?.auditExportTokenHash !== undefined
+              }
+              tokenPrefix={organization?.auditExportTokenPrefix ?? null}
               isAdmin={user.role === "ADMIN"}
             />
           </CardContent>

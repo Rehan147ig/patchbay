@@ -27,6 +27,7 @@ export const JobType = {
   AGENT_REPLAY: "agent-replay",
   DETECT_RELEASES: "detect-releases",
   EVALUATE_CAPABILITY_HEALTH: "evaluate-capability-health",
+  SIEM_FORWARD: "siem-forward",
 } as const;
 export type JobType = (typeof JobType)[keyof typeof JobType];
 

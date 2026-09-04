@@ -304,6 +304,16 @@ model Organization {
   /// the single candidate row so only one argon2id verify runs per request.
   scimTokenPrefix String?
   scimTokenRotatedAt DateTime?
+  /// argon2id hash of the org's SIEM audit-export bearer token (`pb_audit_`;
+  /// same rotation/prefix contract as the SCIM token above). Null = not enrolled.
+  auditExportTokenHash String?
+  auditExportTokenHashPrevious String?
+  auditExportTokenPrefix String?
+  auditExportTokenRotatedAt DateTime?
+  /// SIEM forwarder config: { enabled, splunkHecUrl, hecToken, lastForwardedAt,
+  /// lastForwardedId }. The HEC token lives here (ADMIN-configured secret,
+  /// never exported); SIEM_FORWARD ships 100-event batches and advances the cursor.
+  auditExportConfig Json?
 
   users                  User[]
   repositories           Repository[]

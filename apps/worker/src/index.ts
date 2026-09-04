@@ -46,6 +46,7 @@ import { processAgentPlan } from "./jobs/agent-plan";
 import { processAgentReplay } from "./jobs/agent-replay";
 import { processDetectReleases } from "./jobs/detect-releases";
 import { processEvaluateCapabilityHealth } from "./jobs/evaluate-capability-health";
+import { processSiemForward } from "./jobs/siem-forward";
 import { registerWatchtowerSchedulers } from "./schedule/watchtower";
 import { purgeExpiredAgentRuns } from "@patchbay/operations";
 import { sweepCapabilityHealth } from "./lib/capability-sweep";
@@ -137,6 +138,8 @@ async function main(): Promise<void> {
             return processDetectReleases(job);
           case JobType.EVALUATE_CAPABILITY_HEALTH:
             return processEvaluateCapabilityHealth(job);
+          case JobType.SIEM_FORWARD:
+            return processSiemForward(job);
           default:
             throw new Error(`unknown job type: ${job.name}`);
         }
