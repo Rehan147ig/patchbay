@@ -349,6 +349,31 @@ model Organization {
   workspaces             Workspace[]
   workspaceMembers       WorkspaceMember[]
   subscription           Subscription?
+  autonomyPolicy         AutonomyPolicy?
+}
+
+model AutonomyPolicy {
+  id String @id @default(uuid())
+  organizationId String @unique
+  /// Max concurrently open autonomous-track cases (Renovate-style
+  /// prConcurrentLimit). New bumps hold at IMPACT_CONFIRMED past the cap.
+  maxOpenAutonomousPRs Int @default(5)
+  /// Minimum release age in days before a bump drafts a PR (Renovate-style
+  /// minimumReleaseAge: lets registries yank malicious releases). CVE fixes
+  /// bypass when vulnBypassStability is true.
+  minimumReleaseAgeDays Int @default(3)
+  /// Group minor bumps per package into fewer PRs (future case-creation use;
+  /// stored now so policy is explicit from day one).
+  groupMinorPatches Boolean @default(true)
+  /// CVE-driven bumps skip the minimum-age wait (security patches must not
+  /// wait for the schedule — Renovate vulnerabilityAlerts principle).
+  vulnBypassStability Boolean @default(true)
+  /// Package names excluded from the autonomous track (exact match).
+  excludedPackages String[] @default([])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 }
 
 model Workspace {

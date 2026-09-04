@@ -232,6 +232,13 @@ export function evaluatePolicy(
 }
 
 export * from "./circuit-breaker";
+export { AUTONOMY_POLICY_DEFAULTS, evaluateAutonomyBump } from "./autonomy";
+export type {
+  AutonomyBumpInput,
+  AutonomyDecision,
+  AutonomyPolicyShape,
+  AutonomyUpdateType,
+} from "./autonomy";
 
 /** Approvals expire 7 days after recording; stale approvals never unblock PRs. */
 export const APPROVAL_TTL_MS = 7 * 24 * 60 * 60 * 1000;

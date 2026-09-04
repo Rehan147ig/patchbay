@@ -97,5 +97,6 @@ export const AuditAction = {
   AUDIT_EXPORT_TOKEN_ISSUED: "audit.export_token_issued",
   AUDIT_EXPORT_TOKEN_REVOKED: "audit.export_token_revoked",
   SIEM_BATCH_FORWARDED: "siem.batch_forwarded",
+  AUTONOMY_POLICY_UPDATED: "autonomy.policy_updated",
 } as const;
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];

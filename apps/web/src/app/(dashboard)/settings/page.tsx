@@ -33,6 +33,7 @@ import { env } from "@/lib/env";
 import { getEffectivePlan } from "@/lib/billing";
 import { isLegacyAgentKeyHash } from "@/lib/agent-keys";
 import { BillingActions } from "@/components/billing-actions";
+import { AutonomyPolicyControl } from "@/components/autonomy-policy-control";
 import { CapabilityGateControl } from "@/components/capability-gate-control";
 import { PrivateVendorForm } from "@/components/private-vendor-form";
 import { AuditExportControl } from "@/components/audit-export-control";
@@ -203,6 +204,21 @@ export default async function SettingsPage({
               tokenPrefix={organization?.auditExportTokenPrefix ?? null}
               isAdmin={user.role === "ADMIN"}
             />
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-[20px] border-zinc-200 bg-white">
+          <CardHeader>
+            <CardTitle>Autonomous dependency updates</CardTitle>
+            <CardDescription>
+              Guardrails for the autonomous track: semver patch/minor bumps for any direct
+              dependency arrive as sandbox-proven draft PRs — never auto-merged. Tune the
+              concurrency cap, minimum release age, CVE bypass, and package exclusions. Every change
+              is audit-logged.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <AutonomyPolicyControl isAdmin={user.role === "ADMIN"} />
           </CardContent>
         </Card>
 

@@ -1,9 +1,21 @@
 import { prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
-import { ActorType, ValidationStatus, validationFailed } from "@patchbay/domain";
-import { approvalCoversPatches, evaluatePolicy } from "@patchbay/policy-engine";
+import {
+  ActorType,
+  CASE_TERMINAL_STATUSES,
+  CaseReasonCode,
+  validationFailed,
+  ValidationStatus,
+} from "@patchbay/domain";
+import {
+  approvalCoversPatches,
+  AUTONOMY_POLICY_DEFAULTS,
+  evaluateAutonomyBump,
+  evaluatePolicy,
+} from "@patchbay/policy-engine";
 import {
   AUTONOMOUS_GENERIC_SLUG,
+  isAutonomousBumpPayload,
   isAutonomousDraftEligible,
   requireCertified,
 } from "@patchbay/vendor-connectors";
@@ -37,7 +49,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           include: {
             repository: true,
             changeEvent: {
-              select: { vendor: { select: { slug: true } }, rawPayload: true },
+              select: { vendor: { select: { slug: true } }, rawPayload: true, detectedAt: true },
             },
             affectedUsages: { include: { usage: true } },
           },
@@ -65,10 +77,37 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     // Parity with cases/[id]/draft-pr: the autonomous strategy kit only
     // covers npm patch/minor manifest bumps. Anything else stays PLAN-only.
     if (vendorSlug === AUTONOMOUS_GENERIC_SLUG) {
-      if (!isAutonomousDraftEligible(plan.impactAssessment.changeEvent.rawPayload)) {
+      const rawPayload = plan.impactAssessment.changeEvent.rawPayload;
+      if (!isAutonomousDraftEligible(rawPayload)) {
         throw validationFailed(
           "Autonomous draft PRs cover npm patch/minor bumps only; this change is PLAN-only",
         );
+      }
+      // Same Renovate-style guardrails as the cases vector. Age is measured
+      // from detection time (fail-safe direction: detection never predates
+      // publication). CVE provenance arrives via the emission layer's
+      // vulnFix flag; absent means conservative (no bypass).
+      const bumpPayload = isAutonomousBumpPayload(rawPayload) ? rawPayload : null;
+      const autonomyPolicy = await prisma.autonomyPolicy.findUnique({
+        where: { organizationId: user.organizationId },
+      });
+      const openAutonomous = await prisma.remediationCase.count({
+        where: {
+          organizationId: user.organizationId,
+          reasonCode: CaseReasonCode.AUTONOMOUS_BUMP,
+          status: { notIn: [...CASE_TERMINAL_STATUSES] },
+        },
+      });
+      const autonomy = evaluateAutonomyBump({
+        updateType: bumpPayload?.updateType ?? "unknown",
+        packageName: bumpPayload?.packageName ?? "",
+        publishedAt: plan.impactAssessment.changeEvent.detectedAt,
+        isVulnFix: (bumpPayload as { vulnFix?: unknown } | null)?.vulnFix === true,
+        openAutonomousCases: openAutonomous,
+        policy: autonomyPolicy ?? AUTONOMY_POLICY_DEFAULTS,
+      });
+      if (!autonomy.ok) {
+        throw validationFailed(`Autonomy policy blocks draft PR: ${autonomy.reasons.join("; ")}`);
       }
     }
 

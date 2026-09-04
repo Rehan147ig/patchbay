@@ -2,13 +2,21 @@ import { prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import {
   ActorType,
+  CASE_TERMINAL_STATUSES,
+  CaseReasonCode,
   CaseStatus,
   classifySemverBump,
   notFound,
   validationFailed,
   PlanStatus,
 } from "@patchbay/domain";
-import { approvalCoversPatches, evaluatePolicy, evaluateQuorum } from "@patchbay/policy-engine";
+import {
+  approvalCoversPatches,
+  AUTONOMY_POLICY_DEFAULTS,
+  evaluateAutonomyBump,
+  evaluatePolicy,
+  evaluateQuorum,
+} from "@patchbay/policy-engine";
 import { AUTONOMOUS_GENERIC_SLUG, requireCertified } from "@patchbay/vendor-connectors";
 import { enqueue, JobType } from "@patchbay/queue";
 import type { NextRequest } from "next/server";
@@ -37,9 +45,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       include: {
         release: {
           select: {
-            product: { select: { vendor: { select: { slug: true } } } },
+            product: {
+              select: { vendor: { select: { slug: true } }, packageName: true },
+            },
             version: true,
             previousVersion: true,
+            publishedAt: true,
           },
         },
         plans: {
@@ -85,6 +96,29 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         throw validationFailed(
           `Autonomous draft PRs cover npm patch/minor bumps only (release ${remediationCase.release.previousVersion ?? "?"} -> ${remediationCase.release.version} classifies as ${bump})`,
         );
+      }
+      // Renovate-style guardrails: exclusions, concurrency cap, minimum
+      // release age. Missing policy row falls back to safe defaults.
+      const autonomyPolicy = await prisma.autonomyPolicy.findUnique({
+        where: { organizationId: user.organizationId },
+      });
+      const openAutonomous = await prisma.remediationCase.count({
+        where: {
+          organizationId: user.organizationId,
+          reasonCode: CaseReasonCode.AUTONOMOUS_BUMP,
+          status: { notIn: [...CASE_TERMINAL_STATUSES] },
+        },
+      });
+      const autonomy = evaluateAutonomyBump({
+        updateType: bump,
+        packageName: remediationCase.release.product.packageName,
+        publishedAt: remediationCase.release.publishedAt,
+        isVulnFix: false,
+        openAutonomousCases: openAutonomous,
+        policy: autonomyPolicy ?? AUTONOMY_POLICY_DEFAULTS,
+      });
+      if (!autonomy.ok) {
+        throw validationFailed(`Autonomy policy blocks draft PR: ${autonomy.reasons.join("; ")}`);
       }
     }
 
