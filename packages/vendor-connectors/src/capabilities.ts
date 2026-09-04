@@ -26,7 +26,7 @@ export const CAPABILITY_LEVEL_INDEX: Record<CapabilityLevel, number> = {
   DRAFT_PR: 4,
 };
 
-export type CapabilityEcosystem = "npm" | "pypi" | "openapi" | "github-releases";
+export type CapabilityEcosystem = "npm" | "pypi" | "openapi" | "github-releases" | "mcp";
 export type PolicyClass = "PLAN_ONLY" | "APPROVAL_REQUIRED" | "REVIEW_REQUIRED";
 
 /** Corpus metrics proving the certified level (WP9 certification kit). */
@@ -269,6 +269,18 @@ export const CAPABILITY_REGISTRY: readonly ConnectorCapability[] = [
     validationProfile: "node-ts-reparse + container-sandbox",
     requiredPolicyClass: "APPROVAL_REQUIRED",
     corpus: AUTONOMOUS_SEMVER_CORPUS,
+    certifiedAt: AUTONOMOUS_CERTIFIED_AT,
+  },
+  // MCP tool-contract track: deterministic tools/list diffs for any MCP
+  // server. PLAN-only (reviewable diff facts, rename suggestions); removals,
+  // param breaks, and privileged additions require human-authored migration.
+  {
+    ...baseline("mcp-generic", "mcp-tools-list"),
+    ecosystem: "mcp",
+    level: "PLAN",
+    rulePackVersion: "mcp-diff/1.0.0",
+    validationProfile: "node-ts-reparse",
+    corpus: H8_CORPUS,
     certifiedAt: AUTONOMOUS_CERTIFIED_AT,
   },
 ];

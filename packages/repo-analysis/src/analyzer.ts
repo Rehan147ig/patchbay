@@ -13,6 +13,12 @@ import { dispatchPhase, resolveParallelConfig, shouldParallelize, splitChunks } 
 import type { WorkerShared } from "./analyze-worker";
 import { extractJavaUsages, parseJavaManifest } from "./java";
 import { resolveLockfileVersions } from "./lockfile";
+import {
+  findMcpSdkPackages,
+  isMcpClientConfigPath,
+  parseMcpClientConfig,
+  type McpClientConfig,
+} from "./mcp";
 import { extractPythonUsages, parsePythonManifest } from "./python";
 import type {
   AnalysisProgress,
@@ -195,6 +201,33 @@ export async function analyzeRepository(
   emitProgress(true);
 
   const { packageManager, versions } = await resolveLockfileVersions(rootDir);
+
+  // MCP client configs pin agent servers; invalid ones are recorded as
+  // analysis errors (same contract as bad package.json files).
+  const mcpConfigs: McpClientConfig[] = [];
+  for (const rel of files.jsonFiles) {
+    if (!isMcpClientConfigPath(rel)) continue;
+    try {
+      const raw = await fs.readFile(path.join(rootDir, rel), "utf8");
+      const parsed = parseMcpClientConfig(rel, raw);
+      if (parsed) {
+        mcpConfigs.push(parsed);
+      } else {
+        errors.push({
+          filePath: rel,
+          message: "invalid MCP client config: bad JSON or missing mcpServers map",
+        });
+      }
+    } catch (error) {
+      errors.push({ filePath: rel, message: String(error) });
+    }
+  }
+  mcpConfigs.sort((a, b) => a.path.localeCompare(b.path));
+  const mcpSdkPackages = findMcpSdkPackages(
+    [...manifests.map((m) => m.dependencies), ...manifests.map((m) => m.devDependencies)],
+    versions,
+  );
+
   const packageCount = manifests.reduce(
     (sum, manifest) =>
       sum +
@@ -225,6 +258,8 @@ export async function analyzeRepository(
     errors,
     untrackedUsages: usages.untrackedUsages,
     untrackedPackages: usages.untrackedPackages,
+    mcpConfigs,
+    mcpSdkPackages,
   };
 }
 

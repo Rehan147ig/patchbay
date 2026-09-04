@@ -39,3 +39,10 @@ export type { InvalidationInput, InvalidationResult } from "./invalidation";
 export { mergeIncrementalExtraction, nodeComparisonKey, edgeComparisonKey } from "./merge";
 export { findHttpCallsites } from "./http-matcher";
 export type { CanonicalHttpCallsite } from "./http-matcher";
+export {
+  findMcpSdkPackages,
+  isMcpClientConfigPath,
+  MCP_SDK_SCOPE,
+  parseMcpClientConfig,
+} from "./mcp";
+export type { McpClientConfig, McpConfigSource } from "./mcp";

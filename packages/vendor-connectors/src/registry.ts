@@ -27,6 +27,7 @@ import { keycloakConnector } from "./connectors/keycloak";
 import { kubernetesConnector } from "./connectors/kubernetes";
 import { langchainConnector } from "./connectors/langchain";
 import { lemonSqueezyConnector } from "./connectors/lemon-squeezy";
+import { mcpGenericConnector } from "./connectors/mcp";
 import { mistralConnector } from "./connectors/mistral";
 import { mongodbConnector } from "./connectors/mongodb";
 import { mongooseConnector } from "./connectors/mongoose";
@@ -74,6 +75,8 @@ export const connectors: readonly VendorConnector[] = [
   genericOpenapiConnector,
   // Autonomous universal track (no per-vendor rule pack needed)
   autonomousGenericConnector,
+  // MCP tool-contract track (deterministic tools/list diffing)
+  mcpGenericConnector,
   // AI / LLM
   anthropicConnector,
   geminiConnector,
