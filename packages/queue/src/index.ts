@@ -65,6 +65,15 @@ export const globalConcurrencyRedis = new Redis(RAW_REDIS_URL, {
   enableOfflineQueue: false,
 });
 
+// Cross-job analysis cache (scan -> graph-index handoff). Lazy for the same
+// fail-fast reason: cache misses or outages fall back to cold extraction,
+// never fail a job. Values are content-keyed analysis JSON (MB-scale).
+export const cacheRedis = new Redis(RAW_REDIS_URL, {
+  lazyConnect: true,
+  maxRetriesPerRequest: 1,
+  enableOfflineQueue: false,
+});
+
 export const queue = new Queue(QUEUE_NAME, {
   connection,
   defaultJobOptions: {

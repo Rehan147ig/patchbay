@@ -4,9 +4,10 @@ import { prisma, createNotification, NotificationType } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import { ActorType, RepositoryStatus, ScanStatus, logger } from "@patchbay/domain";
 import { analyzeRepository } from "@patchbay/repo-analysis";
-import { assertJobPayloadSize, enqueue, JobType } from "@patchbay/queue";
+import { assertJobPayloadSize, cacheRedis, enqueue, JobType } from "@patchbay/queue";
 import type { Job } from "bullmq";
 import { writeAuditEvent } from "../lib/audit";
+import { writeAnalysisCache } from "../lib/analysis-cache";
 import { resolveRepositorySource } from "../lib/repository-source";
 import { getCapability } from "@patchbay/vendor-connectors";
 
@@ -309,6 +310,11 @@ export async function processScanRepository(job: Job): Promise<ScanRepositoryRes
       // Next job in the pipeline: index the graph snapshot for the same source.
       // A chaining failure must not fail the scan — the snapshot can be re-run
       // from the repository page.
+      // Share the just-computed analysis with the graph-index job through the
+      // Redis analysis cache (keyed by snapshot commit SHA): the graph job
+      // skips its duplicate analysis pass on a hit and falls back to cold
+      // extraction otherwise. Best-effort — never fails the scan.
+      await writeAnalysisCache(cacheRedis, commitSha, trackPackages, analysis);
       await enqueueGraphIndex(
         organizationId,
         repositoryId,

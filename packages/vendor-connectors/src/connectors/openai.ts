@@ -10,6 +10,12 @@ import type { NormalizedChangeDraft, PatchSuggestion, VendorConnector } from "..
  * Also recognizes newly launched capabilities (feature adoption): a `capabilities` array
  * with deterministic adopt rules that the remediation engine can apply as line inserts.
  *
+ * And model retirements (facade era): a `modelRetirements` array mapping a retired
+ * model id to its replacement. These normalize to affected symbols of the form
+ * `openai:<model>` — the exact symbols the facade-aware AST tracker records for
+ * `openai('gpt-4o')` inside `generateText({ model })` — so a model retirement
+ * matches the true blast radius instead of zero usages.
+ *
  * Expected raw payload (produced by the demo runner / SDK release ingestion):
  * ```json
  * {
@@ -20,6 +26,7 @@ import type { NormalizedChangeDraft, PatchSuggestion, VendorConnector } from "..
  *     "methodRenames": [{ "from": "openai.createChatCompletion", "to": "openai.chat.completions.create" }],
  *     "responseChanges": [{ "symbol": "completion.data", "description": "..." }]
  *   },
+ *   "modelRetirements": [{ "model": "gpt-4o", "replacement": "gpt-4o-mini" }],
  *   "capabilities": [{
  *     "symbol": "openai.createChatCompletion",
  *     "feature": "Structured outputs (JSON mode)",
@@ -47,6 +54,12 @@ interface Capability {
   insertText: string;
 }
 
+interface ModelRetirement {
+  model: string;
+  replacement: string;
+  description?: string;
+}
+
 interface OpenAiMigrationPayload {
   sdk: string;
   fromVersion?: string;
@@ -56,6 +69,7 @@ interface OpenAiMigrationPayload {
     responseChanges?: ResponseChange[];
   };
   capabilities?: Capability[];
+  modelRetirements?: ModelRetirement[];
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -67,7 +81,8 @@ function isOpenAiPayload(payload: unknown): payload is OpenAiMigrationPayload {
   if (!isObject(payload.migration)) {
     return (
       payload.fromVersion !== undefined ||
-      (Array.isArray(payload.capabilities) && payload.capabilities.length > 0)
+      (Array.isArray(payload.capabilities) && payload.capabilities.length > 0) ||
+      (Array.isArray(payload.modelRetirements) && payload.modelRetirements.length > 0)
     );
   }
   return true;
@@ -143,6 +158,22 @@ export const openaiConnector: VendorConnector = {
       });
     }
 
+    for (const retirement of payload.modelRetirements ?? []) {
+      if (!retirement.model || !retirement.replacement) continue;
+      const symbol = `openai:${retirement.model}`;
+      drafts.push({
+        changeType: "METHOD_REMOVED",
+        oldValue: symbol,
+        newValue: `openai:${retirement.replacement}`,
+        description:
+          retirement.description ??
+          `Model ${retirement.model} was retired; use ${retirement.replacement}.`,
+        breaking: true,
+        affectedSymbols: [symbol],
+        evidence: { sdk: "openai", rule: "model-retirement", model: retirement.model },
+      });
+    }
+
     return drafts;
   },
 
@@ -171,6 +202,25 @@ export const openaiConnector: VendorConnector = {
             description: `Adopt ${evidence.feature}: insert '${evidence.insertText.trim()}' after '${evidence.searchText}'.`,
             confidence: 88,
             insert: { searchText: evidence.searchText, insertText: evidence.insertText },
+          });
+        }
+      }
+      if (normalization.changeType === "METHOD_REMOVED") {
+        const evidence = normalization.evidence as { rule?: string } | undefined;
+        if (evidence?.rule !== "model-retirement") continue;
+        if (!normalization.oldValue || !normalization.newValue) continue;
+        const model = (evidence as { model?: string }).model;
+        if (!model) continue;
+        const replacement = normalization.newValue.includes(":")
+          ? normalization.newValue.split(":").slice(1).join(":")
+          : normalization.newValue;
+        for (const symbol of normalization.affectedSymbols) {
+          suggestions.push({
+            symbol,
+            replacement: normalization.newValue,
+            description: `Replace retired model '${model}' with '${replacement}' (openai).`,
+            confidence: 92,
+            modelUpdate: { from: model, to: replacement },
           });
         }
       }

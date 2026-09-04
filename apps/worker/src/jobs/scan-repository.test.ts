@@ -34,6 +34,7 @@ vi.mock("@patchbay/queue", () => ({
   JobType: { GRAPH_INDEX: "graph-index" },
   enqueue: vi.fn(),
   assertJobPayloadSize: vi.fn(),
+  cacheRedis: { setex: vi.fn(), get: vi.fn() },
 }));
 
 vi.mock("@patchbay/git-provider", async () => {

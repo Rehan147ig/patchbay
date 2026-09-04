@@ -9,6 +9,7 @@ vi.mock("@patchbay/db", async () => {
     ...actual,
     prisma: {
       repository: { findUnique: vi.fn() },
+      repositoryScan: { findFirst: vi.fn() },
       graphIndexJob: { findUnique: vi.fn(), update: vi.fn() },
       graphSnapshot: {
         findFirst: vi.fn(),
@@ -41,6 +42,10 @@ vi.mock("@patchbay/repo-analysis", async () => {
 
 vi.mock("../lib/audit", () => ({
   writeAuditEvent: vi.fn(),
+}));
+
+vi.mock("../lib/analysis-cache", () => ({
+  readAnalysisCache: vi.fn(),
 }));
 
 vi.mock("@patchbay/git-provider", async () => {
@@ -118,6 +123,7 @@ import {
   inverseIndex,
   mergeIncrementalExtraction,
 } from "@patchbay/repo-analysis";
+import { readAnalysisCache } from "../lib/analysis-cache";
 import { createGitHubAppProviderFromStore } from "@patchbay/git-provider";
 import { pruneGraphSnapshots } from "@patchbay/db";
 
@@ -510,5 +516,114 @@ describe("processGraphIndex incremental wiring (WP5)", () => {
       mode: "BASELINE",
       reused: false,
     });
+  });
+});
+
+describe("processGraphIndex shared analysis cache", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const cachedAnalysis = {
+    commitSha: "sha-new",
+    usages: [],
+    manifests: [],
+    filesScanned: 2,
+  };
+
+  function baselineMocks() {
+    baseMocks();
+    vi.mocked(prisma.graphIndexJob.findUnique).mockResolvedValue({
+      id: "job-1",
+      repositoryId: "repo-1",
+      mode: "BASELINE",
+      status: "PENDING",
+      changedPaths: null,
+    } as never);
+    vi.mocked(extractGraph).mockResolvedValue({
+      commitSha: "sha-new",
+      rootTreeHash: "tree-new",
+      nodeFacts: [],
+      edgeFacts: [],
+      errors: [],
+    });
+  }
+
+  it("passes the cached scan analysis to extractGraph on a snapshot hit", async () => {
+    baselineMocks();
+    vi.mocked(prisma.repositoryScan.findFirst).mockResolvedValue({
+      commitSha: "sha-new",
+    } as never);
+    vi.mocked(readAnalysisCache).mockResolvedValue(cachedAnalysis as never);
+
+    await processGraphIndex(
+      job({ jobId: "job-1", repositoryId: "repo-1", correlationId: "c-1", mode: "BASELINE" }),
+    );
+
+    expect(readAnalysisCache).toHaveBeenCalledWith(
+      expect.anything(),
+      "sha-new",
+      expect.arrayContaining(["openai", "stripe"]),
+    );
+    expect(extractGraph).toHaveBeenCalledWith(
+      expect.objectContaining({ analysis: cachedAnalysis }),
+    );
+  });
+
+  it("falls back to cold extraction on a cache miss", async () => {
+    baselineMocks();
+    vi.mocked(prisma.repositoryScan.findFirst).mockResolvedValue(null as never);
+    vi.mocked(readAnalysisCache).mockResolvedValue(null);
+
+    await processGraphIndex(
+      job({ jobId: "job-1", repositoryId: "repo-1", correlationId: "c-1", mode: "BASELINE" }),
+    );
+
+    expect(extractGraph).toHaveBeenCalledWith(
+      expect.not.objectContaining({ analysis: expect.anything() }),
+    );
+  });
+
+  it("skips the cache when the GitHub HEAD moved past the scan snapshot", async () => {
+    baselineMocks();
+    vi.mocked(prisma.repository.findUnique).mockResolvedValue({
+      id: "repo-1",
+      organizationId: "org-1",
+      provider: "GITHUB",
+      fullName: "acme/app",
+      defaultBranch: "main",
+      metadata: { installationId: 42, externalId: "github:1" },
+    } as never);
+    vi.mocked(
+      (
+        prisma as unknown as {
+          gitHubInstallation: { findUnique: (args: unknown) => Promise<unknown> };
+        }
+      ).gitHubInstallation.findUnique,
+    ).mockResolvedValue({ organizationId: "org-1" } as never);
+    const providerMock = {
+      resolveHeadSha: vi.fn().mockResolvedValue("sha-new-push"),
+      checkout: vi.fn().mockResolvedValue({ workspaceDir: "C:/ws/gh-checkout" }),
+    };
+    vi.mocked(createGitHubAppProviderFromStore).mockResolvedValue(providerMock as never);
+    vi.mocked(prisma.repositoryScan.findFirst).mockResolvedValue({
+      commitSha: "sha-old-scan",
+    } as never);
+    vi.mocked(extractGraph).mockResolvedValue({
+      commitSha: "sha-new-push",
+      rootTreeHash: "tree-new",
+      nodeFacts: [],
+      edgeFacts: [],
+      errors: [],
+    });
+
+    await processGraphIndex(
+      job({ jobId: "job-1", repositoryId: "repo-1", correlationId: "c-1", mode: "BASELINE" }),
+    );
+
+    expect(readAnalysisCache).not.toHaveBeenCalled();
+    expect(extractGraph).toHaveBeenCalledWith(
+      expect.not.objectContaining({ analysis: expect.anything() }),
+    );
   });
 });

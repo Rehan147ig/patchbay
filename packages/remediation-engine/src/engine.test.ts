@@ -490,3 +490,96 @@ describe("hash-based TOCTOU guard (expectedFileHashes)", () => {
     expect(plan.patches[0]!.patched).toContain("foo(newA(), newB())");
   });
 });
+
+describe("generatePlan model retirements (facade symbols)", () => {
+  const RETIREMENT_DRAFTS = openaiConnector.normalizeChange({
+    rawPayload: {
+      sdk: "openai",
+      modelRetirements: [{ model: "gpt-4o", replacement: "gpt-4o-mini" }],
+    },
+    sourceType: "SDK_RELEASE",
+  });
+
+  function retirementSuggestions() {
+    return openaiConnector.buildPatchSuggestions(RETIREMENT_DRAFTS);
+  }
+
+  async function writeChatRepo(line4: string): Promise<string> {
+    const { mkdtemp, writeFile, mkdir } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const dir = await mkdtemp(`${tmpdir()}/patch-facade-`);
+    await mkdir(`${dir}/src`, { recursive: true });
+    await writeFile(
+      `${dir}/src/chat.ts`,
+      `import { generateText } from "ai";\nimport { openai } from "@ai-sdk/openai";\nexport async function chat(p: string) {\n${line4}\n  return "done";\n}\n`,
+      "utf8",
+    );
+    return dir;
+  }
+
+  it("swaps a retired facade model preserving the quote style", async () => {
+    const dir = await writeChatRepo(
+      `  const { text } = await generateText({ model: openai("gpt-4o"), prompt: p });`,
+    );
+    const plan = await generatePlan({
+      fixtureDir: dir,
+      repositoryName: "facade-service",
+      usages: [
+        {
+          filePath: "src/chat.ts",
+          line: 4,
+          symbol: "openai:gpt-4o",
+          excerpt: `const { text } = await generateText({ model: openai("gpt-4o"), prompt: p });`,
+        },
+      ],
+      patchSuggestions: retirementSuggestions(),
+      normalizations: RETIREMENT_DRAFTS,
+      assessmentConfidence: 90,
+    });
+    expect(plan.patches, JSON.stringify(plan, null, 2)).toHaveLength(1);
+    expect(plan.patches[0]!.patched).toContain(`openai("gpt-4o-mini")`);
+    expect(plan.patches[0]!.patched).not.toContain(`openai("gpt-4o")`);
+  });
+
+  it("leaves the file untouched when the retired literal is absent", async () => {
+    const dir = await writeChatRepo(
+      `  const { text } = await generateText({ model: openai("gpt-4o-mini"), prompt: p });`,
+    );
+    const plan = await generatePlan({
+      fixtureDir: dir,
+      repositoryName: "facade-service",
+      usages: [
+        {
+          filePath: "src/chat.ts",
+          line: 4,
+          symbol: "openai:gpt-4o",
+          excerpt: `const { text } = await generateText({ model: openai("gpt-4o-mini"), prompt: p });`,
+        },
+      ],
+      patchSuggestions: retirementSuggestions(),
+      normalizations: RETIREMENT_DRAFTS,
+      assessmentConfidence: 90,
+    });
+    expect(plan.patches).toHaveLength(0);
+    expect(plan.skippedFiles).toContain("src/chat.ts");
+  });
+});
+
+describe("applyModelUpdate", () => {
+  it("swaps single-quoted model ids", async () => {
+    const { applyModelUpdate } = await import("./engine");
+    expect(
+      applyModelUpdate(`const m = openai('gpt-4o');`, 1, { from: "gpt-4o", to: "gpt-4o-mini" }),
+    ).toBe(`const m = openai('gpt-4o-mini');`);
+  });
+
+  it("is a no-op when the literal is missing or the line is out of range", async () => {
+    const { applyModelUpdate } = await import("./engine");
+    expect(applyModelUpdate(`const m = 1;`, 1, { from: "gpt-4o", to: "gpt-4o-mini" })).toBe(
+      `const m = 1;`,
+    );
+    expect(applyModelUpdate(`const m = 1;`, 9, { from: "gpt-4o", to: "gpt-4o-mini" })).toBe(
+      `const m = 1;`,
+    );
+  });
+});

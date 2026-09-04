@@ -92,6 +92,29 @@ function applyLineInsert(
   return lines.join(eol);
 }
 
+/** Model-retirement edit: swap one quoted model id for another on the usage line. */
+function escapeRegExp(literal: string): string {
+  return literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function applyModelUpdate(
+  fileText: string,
+  line: number,
+  update: { from: string; to: string },
+  eol = "\n",
+): string {
+  const lines = fileText.split(/\r?\n/);
+  const target = lines[line - 1];
+  if (target === undefined) return fileText;
+  const quoted = new RegExp(`(['"])${escapeRegExp(update.from)}\\1`);
+  if (!quoted.test(target)) return fileText;
+  lines[line - 1] = target.replace(
+    quoted,
+    (_match, quote: string) => `${quote}${update.to}${quote}`,
+  );
+  return lines.join(eol);
+}
+
 function applyResponseUnwrap(fileText: string, symbol: string, _eol = "\n"): string {
   const match = RESPONSE_UNWRAP_PATTERN.exec(symbol);
   if (!match) return fileText;
@@ -235,6 +258,9 @@ export async function generatePlan(input: PlanInput): Promise<PlanDraft> {
           suggestion.insert.insertText,
           eol,
         );
+      }
+      if (suggestion.modelUpdate) {
+        patched = applyModelUpdate(patched, usage.line, suggestion.modelUpdate, eol);
       }
     }
     // 2. Post-rename bootstrap (zero shifting during renames).

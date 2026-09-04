@@ -10,10 +10,17 @@ import {
   inverseIndex,
   mergeIncrementalExtraction,
 } from "@patchbay/repo-analysis";
-import type { GraphEdgeFact, GraphExtraction, GraphNodeFact } from "@patchbay/repo-analysis";
+import type {
+  GraphEdgeFact,
+  GraphExtraction,
+  GraphNodeFact,
+  RepositoryAnalysis,
+} from "@patchbay/repo-analysis";
 import type { Job } from "bullmq";
 import { writeAuditEvent } from "../lib/audit";
+import { readAnalysisCache } from "../lib/analysis-cache";
 import { resolveRepositorySource } from "../lib/repository-source";
+import { cacheRedis } from "@patchbay/queue";
 
 /**
  * graph-index processor (Phase C: deterministic graph pipeline).
@@ -116,6 +123,46 @@ export async function processGraphIndex(job: Job): Promise<GraphIndexResult> {
 
       const changedPaths = indexJob.changedPaths as string[] | null | undefined;
 
+      // Shared-analysis fast path (BASELINE only): when the scan job cached
+      // its analysis for this exact snapshot, skip the duplicate analysis
+      // pass inside extractGraph. Keyed by snapshot commit SHA so a newer
+      // push between scan and graph-index misses instead of mixing snapshots.
+      // INCREMENTAL keeps the cold path (changed-file re-extraction). Any
+      // failure here falls back to cold extraction — never fails the job.
+      let sharedAnalysis: RepositoryAnalysis | null = null;
+      if (mode === GraphIndexMode.BASELINE) {
+        try {
+          const latestScan = await prisma.repositoryScan.findFirst({
+            where: { repositoryId, status: "COMPLETED" },
+            orderBy: { createdAt: "desc" },
+            select: { commitSha: true },
+          });
+          const snapshotMoved =
+            source.kind === "github" && latestScan && latestScan.commitSha !== source.commitSha;
+          if (latestScan && !snapshotMoved) {
+            sharedAnalysis = await readAnalysisCache(
+              cacheRedis,
+              latestScan.commitSha,
+              trackPackages,
+            );
+            if (sharedAnalysis) {
+              logger.info("graph index reusing cached scan analysis", {
+                repositoryId,
+                jobId,
+                commitSha: latestScan.commitSha,
+              });
+            }
+          }
+        } catch (error) {
+          logger.warn("shared analysis lookup failed; falling back to cold extraction", {
+            repositoryId,
+            jobId,
+            error: String(error),
+          });
+          sharedAnalysis = null;
+        }
+      }
+
       // INCREMENTAL mode: load the previous READY snapshot and compute the
       // conservative re-extraction set from its reverse dependency index.
       // A manifest/lockfile/config change invalidates everything, in which case
@@ -139,7 +186,12 @@ export async function processGraphIndex(job: Job): Promise<GraphIndexResult> {
         }
       }
 
-      const extraction = await extractGraph({ rootDir, trackPackages, changedFiles });
+      const extraction = await extractGraph({
+        rootDir,
+        trackPackages,
+        changedFiles,
+        ...(sharedAnalysis ? { analysis: sharedAnalysis } : {}),
+      });
 
       const existing = await prisma.graphSnapshot.findFirst({
         where: {

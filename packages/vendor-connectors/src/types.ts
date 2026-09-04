@@ -49,6 +49,16 @@ export interface PatchSuggestion {
     searchText: string;
     insertText: string;
   };
+  /**
+   * Model-retirement edit: when set, the quoted `from` model identifier on the
+   * usage's source line is replaced with `to`, preserving the quote style
+   * (e.g. `openai('gpt-4o')` -> `openai('gpt-4o-mini')`). Applies to facade
+   * model symbols (`openai:gpt-4o`) whose literal never appears verbatim.
+   */
+  modelUpdate?: {
+    from: string;
+    to: string;
+  };
 }
 
 export interface VendorConnector {

@@ -107,3 +107,51 @@ describe("openaiConnector.buildPatchSuggestions", () => {
     ]);
   });
 });
+
+const MODEL_RETIREMENT_PAYLOAD = {
+  sdk: "openai",
+  modelRetirements: [
+    { model: "gpt-4o", replacement: "gpt-4o-mini" },
+    { model: "", replacement: "gpt-4o-mini" },
+    { model: "gpt-3.5-turbo", replacement: "" },
+  ],
+};
+
+describe("openaiConnector model retirements", () => {
+  it("supports payloads carrying only model retirements", () => {
+    expect(openaiConnector.supports(MODEL_RETIREMENT_PAYLOAD)).toBe(true);
+    expect(openaiConnector.supports({ sdk: "openai", modelRetirements: [] })).toBe(false);
+  });
+
+  it("normalizes retirements to facade model symbols", () => {
+    const drafts = openaiConnector.normalizeChange({
+      rawPayload: MODEL_RETIREMENT_PAYLOAD,
+      sourceType: "SDK_RELEASE",
+    });
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0]).toMatchObject({
+      changeType: "METHOD_REMOVED",
+      oldValue: "openai:gpt-4o",
+      newValue: "openai:gpt-4o-mini",
+      breaking: true,
+      affectedSymbols: ["openai:gpt-4o"],
+    });
+  });
+
+  it("suggests quote-preserving model swaps for facade symbols", () => {
+    const drafts = openaiConnector.normalizeChange({
+      rawPayload: MODEL_RETIREMENT_PAYLOAD,
+      sourceType: "SDK_RELEASE",
+    });
+    const suggestions = openaiConnector.buildPatchSuggestions(drafts);
+    expect(suggestions).toEqual([
+      {
+        symbol: "openai:gpt-4o",
+        replacement: "openai:gpt-4o-mini",
+        description: "Replace retired model 'gpt-4o' with 'gpt-4o-mini' (openai).",
+        confidence: 92,
+        modelUpdate: { from: "gpt-4o", to: "gpt-4o-mini" },
+      },
+    ]);
+  });
+});
