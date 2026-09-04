@@ -39,7 +39,12 @@ interface GitHubRef {
   object: { sha: string };
 }
 
-interface GitHubContent {
+interface GitHubCommit {
+  sha: string;
+  tree: { sha: string };
+}
+
+interface GitHubBlob {
   sha: string;
 }
 
@@ -51,9 +56,17 @@ interface GitHubPullRequest {
 const DEFAULT_API_URL = "https://api.github.com";
 
 /**
- * Real GitHub provider: creates a branch off the base branch, writes each patch
- * through the contents API, opens a draft pull request, and checks out
- * repositories at exact commit SHAs into disposable workspaces.
+ * Real GitHub provider: creates a branch off the base branch, commits every
+ * patch as ONE commit through the Git Database API, opens a draft pull
+ * request, and checks out repositories at exact commit SHAs into disposable
+ * workspaces.
+ *
+ * Commit signing: the single commit is created without an explicit
+ * author/committer, so when the token is a GitHub App installation token
+ * GitHub attributes it to the App bot and cryptographically signs it
+ * (green "Verified" badge). This also satisfies "require signed commits"
+ * branch protection. One commit per PR keeps history clean and halves API
+ * calls versus per-file Contents API writes.
  */
 export class GitHubProvider implements GitProvider {
   private readonly config: GitHubConfig;
@@ -94,7 +107,7 @@ export class GitHubProvider implements GitProvider {
     }
 
     await this.createBranch(owner, repo, input.branchName, base);
-    await this.applyPatches(owner, repo, input.branchName, input.patches);
+    await this.applyPatches(owner, repo, input.branchName, input.title, input.patches);
     const pullRequest = await this.openDraftPR(owner, repo, base, input);
 
     return {
@@ -230,31 +243,65 @@ export class GitHubProvider implements GitProvider {
     }
   }
 
+  /**
+   * Commits every patch as a single commit via the Git Database API
+   * (blobs → tree → commit → ref update). No explicit author/committer is
+   * sent: with a GitHub App installation token GitHub signs the commit as the
+   * App bot (Verified badge). The ref update is never forced — if the branch
+   * tip moved unexpectedly the call fails loudly instead of clobbering work.
+   */
   private async applyPatches(
     owner: string,
     repo: string,
     branchName: string,
+    message: string,
     patches: Array<{ filePath: string; patchedContent: string }>,
   ): Promise<void> {
-    for (const patch of patches) {
+    const filePaths = patches.map((patch) => {
       const filePath = patch.filePath.replace(/^\/+/, "");
       if (filePath.split("/").includes("..") || path.isAbsolute(patch.filePath)) {
         throw new Error(`patch file path escapes the repository: ${patch.filePath}`);
       }
-      const existing = await this.request<GitHubContent | null>(
-        `/repos/${owner}/${repo}/contents/${encodeURIComponent(filePath)}?ref=${encodeURIComponent(branchName)}`,
-        { method: "GET", allowNotFound: true },
-      );
-      await this.request(`/repos/${owner}/${repo}/contents/${encodeURIComponent(filePath)}`, {
-        method: "PUT",
+      return filePath;
+    });
+
+    const branchRef = await this.request<GitHubRef>(
+      `/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(branchName)}`,
+      { method: "GET" },
+    );
+    const tipCommit = await this.request<GitHubCommit>(
+      `/repos/${owner}/${repo}/git/commits/${branchRef.object.sha}`,
+      { method: "GET" },
+    );
+
+    const treeEntries: Array<{ path: string; mode: "100644"; type: "blob"; sha: string }> = [];
+    for (let i = 0; i < patches.length; i += 1) {
+      const blob = await this.request<GitHubBlob>(`/repos/${owner}/${repo}/git/blobs`, {
+        method: "POST",
         body: JSON.stringify({
-          message: `Apply Patch patch: ${filePath}`,
-          content: Buffer.from(patch.patchedContent, "utf8").toString("base64"),
-          branch: branchName,
-          ...(existing ? { sha: existing.sha } : {}),
+          content: Buffer.from(patches[i]!.patchedContent, "utf8").toString("base64"),
+          encoding: "base64",
         }),
       });
+      treeEntries.push({ path: filePaths[i]!, mode: "100644", type: "blob", sha: blob.sha });
     }
+
+    const tree = await this.request<{ sha: string }>(`/repos/${owner}/${repo}/git/trees`, {
+      method: "POST",
+      body: JSON.stringify({ base_tree: tipCommit.tree.sha, tree: treeEntries }),
+    });
+    const commit = await this.request<GitHubCommit>(`/repos/${owner}/${repo}/git/commits`, {
+      method: "POST",
+      body: JSON.stringify({
+        message,
+        tree: tree.sha,
+        parents: [branchRef.object.sha],
+      }),
+    });
+    await this.request(`/repos/${owner}/${repo}/git/refs/heads/${encodeURIComponent(branchName)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ sha: commit.sha }),
+    });
   }
 
   private async openDraftPR(

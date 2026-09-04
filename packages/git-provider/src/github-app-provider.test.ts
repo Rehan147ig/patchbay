@@ -116,11 +116,26 @@ describe("GitHubAppProvider", () => {
       if (url.endsWith("/git/refs")) {
         return jsonResponse(201, {});
       }
-      if (url.includes("/contents/") && init?.method === "GET") {
-        return jsonResponse(404, { message: "Not Found" });
+      if (url.includes("/pulls") && init?.method === "GET") {
+        return jsonResponse(200, []);
       }
-      if (url.includes("/contents/") && init?.method === "PUT") {
-        return jsonResponse(201, {});
+      if (url.includes("/git/ref/heads/patchbay%2Ffix-1")) {
+        return jsonResponse(200, { object: { sha: "base-sha" } });
+      }
+      if (url.endsWith("/git/commits/base-sha")) {
+        return jsonResponse(200, { sha: "base-sha", tree: { sha: "base-tree-sha" } });
+      }
+      if (url.endsWith("/git/blobs")) {
+        return jsonResponse(201, { sha: "blob-sha" });
+      }
+      if (url.endsWith("/git/trees")) {
+        return jsonResponse(201, { sha: "new-tree-sha" });
+      }
+      if (url.endsWith("/git/commits")) {
+        return jsonResponse(201, { sha: "commit-sha", tree: { sha: "new-tree-sha" } });
+      }
+      if (url.includes("/git/refs/heads/patchbay%2Ffix-1") && init?.method === "PATCH") {
+        return jsonResponse(200, {});
       }
       if (url.endsWith("/pulls")) {
         const body = JSON.parse(init?.body as string);
@@ -268,11 +283,26 @@ describe("GitHubAppProvider", () => {
       if (url.endsWith("/git/refs")) {
         return jsonResponse(201, {});
       }
-      if (url.includes("/contents/") && init?.method === "GET") {
-        return jsonResponse(404, { message: "Not Found" });
+      if (url.includes("/pulls") && init?.method === "GET") {
+        return jsonResponse(200, []);
       }
-      if (url.includes("/contents/") && init?.method === "PUT") {
-        return jsonResponse(201, {});
+      if (url.includes("/git/ref/heads/patchbay%2Ffix-1")) {
+        return jsonResponse(200, { object: { sha: "base-sha" } });
+      }
+      if (url.endsWith("/git/commits/base-sha")) {
+        return jsonResponse(200, { sha: "base-sha", tree: { sha: "base-tree-sha" } });
+      }
+      if (url.endsWith("/git/blobs")) {
+        return jsonResponse(201, { sha: "blob-sha" });
+      }
+      if (url.endsWith("/git/trees")) {
+        return jsonResponse(201, { sha: "new-tree-sha" });
+      }
+      if (url.endsWith("/git/commits")) {
+        return jsonResponse(201, { sha: "commit-sha", tree: { sha: "new-tree-sha" } });
+      }
+      if (url.includes("/git/refs/heads/patchbay%2Ffix-1") && init?.method === "PATCH") {
+        return jsonResponse(200, {});
       }
       if (url.endsWith("/pulls")) {
         return jsonResponse(201, { number: 1, html_url: "https://github.com/acme/app/pull/1" });
@@ -320,11 +350,26 @@ describe("GitHubAppProvider", () => {
       if (url.endsWith("/git/refs")) {
         return jsonResponse(201, {});
       }
-      if (url.includes("/contents/") && init?.method === "GET") {
-        return jsonResponse(404, { message: "Not Found" });
+      if (url.includes("/pulls") && init?.method === "GET") {
+        return jsonResponse(200, []);
       }
-      if (url.includes("/contents/") && init?.method === "PUT") {
-        return jsonResponse(201, {});
+      if (url.includes("/git/ref/heads/patchbay%2Ffix-1")) {
+        return jsonResponse(200, { object: { sha: "base-sha" } });
+      }
+      if (url.endsWith("/git/commits/base-sha")) {
+        return jsonResponse(200, { sha: "base-sha", tree: { sha: "base-tree-sha" } });
+      }
+      if (url.endsWith("/git/blobs")) {
+        return jsonResponse(201, { sha: "blob-sha" });
+      }
+      if (url.endsWith("/git/trees")) {
+        return jsonResponse(201, { sha: "new-tree-sha" });
+      }
+      if (url.endsWith("/git/commits")) {
+        return jsonResponse(201, { sha: "commit-sha", tree: { sha: "new-tree-sha" } });
+      }
+      if (url.includes("/git/refs/heads/patchbay%2Ffix-1") && init?.method === "PATCH") {
+        return jsonResponse(200, {});
       }
       if (url.endsWith("/pulls")) {
         pullRequests += 1;

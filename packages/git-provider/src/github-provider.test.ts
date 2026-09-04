@@ -13,7 +13,7 @@ function jsonResponse(status: number, body: unknown): Response {
 const PATCHES = [{ filePath: "src/chat/chat-service.ts", patchedContent: "// patched" }];
 
 describe("GitHubProvider", () => {
-  it("creates a draft PR via the GitHub API with branch + patch writes", async () => {
+  it("creates a draft PR via a single signed Git Data API commit", async () => {
     const calls: Array<{ url: string; method: string; body?: string }> = [];
     const fetchImpl = (async (url: string, init?: RequestInit) => {
       const call = { url, method: init?.method ?? "GET", body: init?.body as string | undefined };
@@ -21,6 +21,9 @@ describe("GitHubProvider", () => {
 
       if (url.endsWith("/repos/acme/app")) {
         return jsonResponse(200, { default_branch: "main" });
+      }
+      if (url.includes("/pulls") && init?.method === "GET") {
+        return jsonResponse(200, []);
       }
       if (url.includes("/git/ref/heads/main")) {
         return jsonResponse(200, { object: { sha: "base-sha" } });
@@ -32,18 +35,52 @@ describe("GitHubProvider", () => {
         });
         return jsonResponse(201, { ref: "refs/heads/patchbay/fix-1" });
       }
-      if (url.includes("/contents/") && init?.method === "GET") {
-        return jsonResponse(404, { message: "Not Found" });
+      if (url.includes("/git/ref/heads/patchbay%2Ffix-1")) {
+        return jsonResponse(200, { object: { sha: "base-sha" } });
       }
-      if (url.includes("/contents/") && init?.method === "PUT") {
+      if (url.endsWith("/git/commits/base-sha")) {
+        return jsonResponse(200, { sha: "base-sha", tree: { sha: "base-tree-sha" } });
+      }
+      if (url.endsWith("/git/blobs")) {
         const body = JSON.parse(init?.body as string);
-        expect(body.branch).toBe("patchbay/fix-1");
-        expect(body.sha).toBeUndefined();
-        expect(body.content).toBe(Buffer.from("// patched", "utf8").toString("base64"));
-        return jsonResponse(201, { content: { sha: "file-sha" } });
+        expect(body).toEqual({
+          content: Buffer.from("// patched", "utf8").toString("base64"),
+          encoding: "base64",
+        });
+        return jsonResponse(201, { sha: "blob-sha" });
       }
-      if (url.includes("/pulls") && init?.method === "GET") {
-        return jsonResponse(200, []);
+      if (url.endsWith("/git/trees")) {
+        const body = JSON.parse(init?.body as string);
+        expect(body).toEqual({
+          base_tree: "base-tree-sha",
+          tree: [
+            {
+              path: "src/chat/chat-service.ts",
+              mode: "100644",
+              type: "blob",
+              sha: "blob-sha",
+            },
+          ],
+        });
+        return jsonResponse(201, { sha: "new-tree-sha" });
+      }
+      if (url.endsWith("/git/commits")) {
+        const body = JSON.parse(init?.body as string);
+        // No explicit author/committer: with an App installation token GitHub
+        // signs the commit as the App bot (Verified badge). Sending either
+        // field would attribute (and sign) differently, so assert absence.
+        expect(body).toEqual({
+          message: "[Patch] Fix",
+          tree: "new-tree-sha",
+          parents: ["base-sha"],
+        });
+        return jsonResponse(201, { sha: "commit-sha", tree: { sha: "new-tree-sha" } });
+      }
+      if (url.includes("/git/refs/heads/patchbay%2Ffix-1") && init?.method === "PATCH") {
+        const body = JSON.parse(init?.body as string);
+        // Never forced: clobbering a moved tip must fail loudly, not overwrite.
+        expect(body).toEqual({ sha: "commit-sha" });
+        return jsonResponse(200, { ref: "refs/heads/patchbay/fix-1" });
       }
       if (url.endsWith("/pulls") && init?.method === "POST") {
         const body = JSON.parse(init?.body as string);
@@ -80,31 +117,25 @@ describe("GitHubProvider", () => {
       status: "DRAFT",
       branchName: "patchbay/fix-1",
     });
-    expect(calls).toHaveLength(7);
+    expect(calls).toHaveLength(11);
     expect(calls.every((c) => c.url.startsWith("https://api.github.com"))).toBe(true);
   });
 
-  it("reuses an existing file sha when the target file already exists on the branch", async () => {
+  it("rejects patch paths escaping the repository before any blob is created", async () => {
+    const calls: Array<{ url: string; method: string }> = [];
     const fetchImpl = (async (url: string, init?: RequestInit) => {
+      calls.push({ url, method: init?.method ?? "GET" });
       if (url.endsWith("/repos/acme/app")) {
         return jsonResponse(200, { default_branch: "main" });
+      }
+      if (url.includes("/pulls") && init?.method === "GET") {
+        return jsonResponse(200, []);
       }
       if (url.includes("/git/ref/heads/main")) {
         return jsonResponse(200, { object: { sha: "base-sha" } });
       }
       if (url.endsWith("/git/refs")) {
         return jsonResponse(201, {});
-      }
-      if (url.includes("/contents/") && init?.method === "GET") {
-        return jsonResponse(200, { sha: "existing-file-sha" });
-      }
-      if (url.includes("/contents/") && init?.method === "PUT") {
-        const body = JSON.parse(init?.body as string);
-        expect(body.sha).toBe("existing-file-sha");
-        return jsonResponse(201, {});
-      }
-      if (url.endsWith("/pulls")) {
-        return jsonResponse(201, { number: 1, html_url: "https://github.com/acme/app/pull/1" });
       }
       throw new Error(`unexpected request: ${init?.method} ${url}`);
     }) as typeof fetch;
@@ -115,14 +146,17 @@ describe("GitHubProvider", () => {
       fetchImpl,
     });
 
-    await provider.createDraftPullRequest({
-      repositoryName: "app",
-      fixtureDir: "",
-      branchName: "patchbay/fix-1",
-      title: "Fix",
-      body: "body",
-      patches: PATCHES,
-    });
+    await expect(
+      provider.createDraftPullRequest({
+        repositoryName: "app",
+        fixtureDir: "",
+        branchName: "patchbay/fix-1",
+        title: "Fix",
+        body: "body",
+        patches: [{ filePath: "../evil.ts", patchedContent: "// evil" }],
+      }),
+    ).rejects.toThrow("escapes the repository");
+    expect(calls.some((c) => c.url.endsWith("/git/blobs"))).toBe(false);
   });
 
   it("throws a clear error when the GitHub API rejects", async () => {
