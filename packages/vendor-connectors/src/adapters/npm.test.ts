@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createNpmAdapter } from "./npm";
+import { createNpmAdapter, getNpmRegistryUrl, npmRegistryAuthHeaders } from "./npm";
 
 const PACKUMENT = {
   "dist-tags": { latest: "4.8.1" },
@@ -26,6 +26,7 @@ function jsonResponse(body: unknown, headers: Record<string, string> = {}): Resp
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe("createNpmAdapter", () => {
@@ -133,5 +134,91 @@ describe("createNpmAdapter", () => {
     expect(seen.length).toBeLessThanOrEqual(50);
     expect(seen).toContain("4.8.1");
     expect(seen).not.toContain("0.0.0");
+  });
+
+  it("defaults to the public registry when unconfigured", async () => {
+    expect(getNpmRegistryUrl({} as NodeJS.ProcessEnv)).toBe("https://registry.npmjs.org");
+    const adapter = createNpmAdapter("openai");
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(PACKUMENT));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await adapter.fetch();
+    expect(fetchMock).toHaveBeenCalledWith(
+      new URL("https://registry.npmjs.org/openai"),
+      expect.objectContaining({
+        headers: expect.not.objectContaining({ Authorization: expect.anything() }),
+      }),
+    );
+  });
+
+  it("polls the private mirror with bearer auth when configured", async () => {
+    vi.stubEnv(
+      "NPM_REGISTRY_URL",
+      "https://artifactory.internal.example.com/artifactory/api/npm/npm/",
+    );
+    vi.stubEnv("NPM_REGISTRY_TOKEN", "mirror-secret");
+    expect(getNpmRegistryUrl()).toBe(
+      "https://artifactory.internal.example.com/artifactory/api/npm/npm",
+    );
+    expect(npmRegistryAuthHeaders()).toEqual({ Authorization: "Bearer mirror-secret" });
+
+    const adapter = createNpmAdapter("openai");
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(PACKUMENT));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await adapter.fetch();
+    expect(result.evidence).toHaveLength(3);
+    expect(fetchMock).toHaveBeenCalledWith(
+      new URL("https://artifactory.internal.example.com/artifactory/api/npm/npm/openai"),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Accept: "application/vnd.npm.install-v1+json",
+          Authorization: "Bearer mirror-secret",
+        }),
+      }),
+    );
+  });
+
+  it("falls back to basic auth and rejects http mirrors outside tests", async () => {
+    vi.stubEnv("NPM_REGISTRY_URL", "https://nexus.internal.example.com/repository/npm/");
+    vi.stubEnv("NPM_REGISTRY_AUTH", "dXNlcjpwYXNz");
+    expect(npmRegistryAuthHeaders()).toEqual({ Authorization: "Basic dXNlcjpwYXNz" });
+
+    // Bearer wins when both are set.
+    vi.stubEnv("NPM_REGISTRY_TOKEN", "tok");
+    expect(npmRegistryAuthHeaders()).toEqual({ Authorization: "Bearer tok" });
+    vi.stubEnv("NPM_REGISTRY_TOKEN", "");
+
+    await expect(
+      import("../trust").then((m) =>
+        m.privateNpmRegistryHost({
+          NPM_REGISTRY_URL: "http://insecure.internal.example.com",
+          NODE_ENV: "production",
+        } as NodeJS.ProcessEnv),
+      ),
+    ).rejects.toThrow(/must use https/);
+  });
+
+  it("trusts the mirror host only when configured", async () => {
+    const { fetchWithTrust } = await import("../safe-fetch");
+    const { resolveNpmTrustProfile } = await import("../trust");
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(PACKUMENT));
+    vi.stubGlobal("fetch", fetchMock);
+    const target = new URL(
+      "https://artifactory.internal.example.com/artifactory/api/npm/npm/openai",
+    );
+
+    // Unconfigured: the mirror host is rejected.
+    await expect(
+      fetchWithTrust(target.toString(), resolveNpmTrustProfile({} as NodeJS.ProcessEnv)),
+    ).rejects.toThrow(/not in the trust profile allowlist/);
+
+    // Configured: the same host is allowlisted.
+    vi.stubEnv(
+      "NPM_REGISTRY_URL",
+      "https://artifactory.internal.example.com/artifactory/api/npm/npm",
+    );
+    const result = await fetchWithTrust(target.toString(), resolveNpmTrustProfile());
+    expect(typeof result === "object" && result !== null && result.status).toBe(200);
   });
 });

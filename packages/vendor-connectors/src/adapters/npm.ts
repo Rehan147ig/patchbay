@@ -7,7 +7,7 @@ import type {
   WatchtowerEvidence,
 } from "../watchtower";
 import { fetchWithTrust } from "../safe-fetch";
-import { NPM_TRUST_PROFILE } from "../trust";
+import { resolveNpmTrustProfile } from "../trust";
 
 const VENDOR_PACKAGES: Record<string, string> = {
   stripe: "stripe",
@@ -17,6 +17,33 @@ const VENDOR_PACKAGES: Record<string, string> = {
 };
 
 const NPM_ACCEPT = "application/vnd.npm.install-v1+json";
+const PUBLIC_NPM_REGISTRY_URL = "https://registry.npmjs.org";
+
+/**
+ * Enterprise npm mirror base URL (JFrog Artifactory, Sonatype Nexus,
+ * CodeArtifact) from NPM_REGISTRY_URL, defaulting to the public registry.
+ * Trailing slashes are stripped so path joins stay well-formed.
+ */
+export function getNpmRegistryUrl(env: NodeJS.ProcessEnv = process.env): string {
+  const raw = env.NPM_REGISTRY_URL?.trim();
+  if (!raw) return PUBLIC_NPM_REGISTRY_URL;
+  return raw.endsWith("/") ? raw.slice(0, -1) : raw;
+}
+
+/**
+ * Registry authorization headers. NPM_REGISTRY_TOKEN (Bearer) wins when both
+ * are set; NPM_REGISTRY_AUTH carries a pre-encoded Basic value. Values are
+ * never logged — callers must treat headers as secret material.
+ */
+export function npmRegistryAuthHeaders(
+  env: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
+  const token = env.NPM_REGISTRY_TOKEN?.trim();
+  if (token) return { Authorization: `Bearer ${token}` };
+  const basic = env.NPM_REGISTRY_AUTH?.trim();
+  if (basic) return { Authorization: `Basic ${basic}` };
+  return {};
+}
 
 /**
  * npm registry adapter - polls the registry packument for a vendor package.
@@ -34,7 +61,6 @@ function npmPackageName(slug: string): string {
 export function createNpmAdapter(vendorSlug: string): WatchtowerAdapter {
   const packageName = npmPackageName(vendorSlug);
 
-  const packumentUrl = `https://registry.npmjs.org/${packageName}`;
   const packageUrl = (version: string): string =>
     `https://www.npmjs.com/package/${packageName}/v/${version}`;
 
@@ -124,10 +150,15 @@ export function createNpmAdapter(vendorSlug: string): WatchtowerAdapter {
       cursor?: AdapterCursor,
     ): Promise<{ evidence: WatchtowerEvidence[]; cursor: AdapterCursor }> {
       const prev = normalizeCursor(cursor);
-      const headers: Record<string, string> = { Accept: NPM_ACCEPT };
+      const headers: Record<string, string> = {
+        Accept: NPM_ACCEPT,
+        ...npmRegistryAuthHeaders(),
+      };
       if (prev.etag) headers["If-None-Match"] = prev.etag;
 
-      const response = await fetchWithTrust(packumentUrl, NPM_TRUST_PROFILE, { headers });
+      // Resolved per poll so registry/auth rotation needs no restart.
+      const packumentUrl = `${getNpmRegistryUrl()}/${packageName}`;
+      const response = await fetchWithTrust(packumentUrl, resolveNpmTrustProfile(), { headers });
       if (response.status === 304) {
         return { evidence: [], cursor: prev };
       }

@@ -58,12 +58,28 @@ export type {
 } from "./watchtower";
 export { diffOpenApiSpecs } from "./adapters/openapi-diff";
 export type { OpenApiDiffFacts, OpenApiChangedOperation } from "./adapters/openapi-diff";
-export { fetchWithTrust, TrustViolationError } from "./safe-fetch";
-export type { TrustedFetchOptions, TrustedFetchResult, TrustViolationReason } from "./safe-fetch";
+export {
+  buildTlsConnectOptions,
+  enterpriseDispatcherFor,
+  fetchWithTrust,
+  resetCustomCaCache,
+  TrustViolationError,
+} from "./safe-fetch";
+export type {
+  CustomCaConfig,
+  TlsConnectOptions,
+  TrustedFetchOptions,
+  TrustedFetchResult,
+  TrustViolationReason,
+} from "./safe-fetch";
 export {
   authenticityForSource,
+  privateNpmRegistryHost,
+  PUBLIC_NPM_REGISTRY_URL,
+  resolveNpmTrustProfile,
   trustProfileFor,
   trustProfiles,
   validateAdapterCursor,
 } from "./trust";
 export type { TrustProfile } from "./trust";
+export { getNpmRegistryUrl, npmRegistryAuthHeaders } from "./adapters/npm";

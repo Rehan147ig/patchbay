@@ -1,5 +1,14 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchWithTrust, TrustViolationError } from "./safe-fetch";
+import {
+  buildTlsConnectOptions,
+  enterpriseDispatcherFor,
+  fetchWithTrust,
+  resetCustomCaCache,
+  TrustViolationError,
+} from "./safe-fetch";
 import type { TrustProfile } from "./trust";
 
 function profile(overrides: Partial<TrustProfile> = {}): TrustProfile {
@@ -20,6 +29,8 @@ function profile(overrides: Partial<TrustProfile> = {}): TrustProfile {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+  resetCustomCaCache();
 });
 
 describe("fetchWithTrust", () => {
@@ -155,5 +166,96 @@ describe("fetchWithTrust", () => {
       reason: "non_ok_status",
       status: 500,
     });
+  });
+});
+
+const TEST_PEM = `-----BEGIN CERTIFICATE-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0TestCorporateRootCA
+-----END CERTIFICATE-----
+`;
+
+function writeTestBundle(contents: string = TEST_PEM): string {
+  const dir = mkdtempSync(join(tmpdir(), "patchbay-ca-"));
+  const path = join(dir, "bundle.pem");
+  writeFileSync(path, contents);
+  return path;
+}
+
+describe("custom root CA", () => {
+  it("returns no TLS overrides when unconfigured", () => {
+    expect(buildTlsConnectOptions({} as NodeJS.ProcessEnv)).toBeUndefined();
+    expect(enterpriseDispatcherFor({} as NodeJS.ProcessEnv)).toBeUndefined();
+  });
+
+  it("loads the bundle with verification always enabled", () => {
+    const path = writeTestBundle();
+    try {
+      const options = buildTlsConnectOptions({
+        PATCHBAY_CUSTOM_CA_BUNDLE: path,
+      } as NodeJS.ProcessEnv);
+      expect(options).toEqual({ ca: [TEST_PEM], rejectUnauthorized: true });
+
+      const dispatcher = enterpriseDispatcherFor({
+        PATCHBAY_CUSTOM_CA_BUNDLE: path,
+      } as NodeJS.ProcessEnv);
+      expect(dispatcher).toBeDefined();
+    } finally {
+      rmSync(path, { force: true });
+    }
+  });
+
+  it("falls back to NODE_EXTRA_CA_CERTS", () => {
+    const path = writeTestBundle();
+    try {
+      const options = buildTlsConnectOptions({
+        NODE_EXTRA_CA_CERTS: path,
+      } as NodeJS.ProcessEnv);
+      expect(options?.rejectUnauthorized).toBe(true);
+    } finally {
+      rmSync(path, { force: true });
+    }
+  });
+
+  it("fails loudly on a named-but-unreadable bundle", () => {
+    expect(() =>
+      buildTlsConnectOptions({
+        PATCHBAY_CUSTOM_CA_BUNDLE: join(tmpdir(), "patchbay-ca-does-not-exist.pem"),
+      } as NodeJS.ProcessEnv),
+    ).toThrow(/custom CA bundle/);
+  });
+
+  it("fails loudly on a file without PEM data", () => {
+    const path = writeTestBundle("not a certificate");
+    try {
+      expect(() =>
+        buildTlsConnectOptions({ PATCHBAY_CUSTOM_CA_BUNDLE: path } as NodeJS.ProcessEnv),
+      ).toThrow(/custom CA bundle/);
+    } finally {
+      rmSync(path, { force: true });
+    }
+  });
+
+  it("passes the enterprise dispatcher to fetch when configured", async () => {
+    const path = writeTestBundle();
+    vi.stubEnv("PATCHBAY_CUSTOM_CA_BUNDLE", path);
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 304, headers: {} }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const result = await fetchWithTrust("https://registry.npmjs.org/openai", profile());
+      expect(result.status).toBe(304);
+      const init = fetchMock.mock.calls[0]?.[1] as { dispatcher?: unknown } | undefined;
+      expect(init?.dispatcher).toBeDefined();
+    } finally {
+      rmSync(path, { force: true });
+    }
+  });
+
+  it("omits the dispatcher when unconfigured", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 304, headers: {} }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchWithTrust("https://registry.npmjs.org/openai", profile());
+    const init = fetchMock.mock.calls[0]?.[1] as { dispatcher?: unknown } | undefined;
+    expect(init?.dispatcher).toBeUndefined();
   });
 });

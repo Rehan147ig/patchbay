@@ -53,6 +53,48 @@ export const NPM_TRUST_PROFILE: TrustProfile = {
   cadenceMs: 15 * 60 * 1000,
 };
 
+export const PUBLIC_NPM_REGISTRY_URL = "https://registry.npmjs.org";
+
+/**
+ * Enterprise npm mirror (JFrog Artifactory, Sonatype Nexus, CodeArtifact)
+ * from NPM_REGISTRY_URL. Returns null when unconfigured (public registry).
+ * HTTPS is required; plaintext HTTP is accepted only under NODE_ENV=test so
+ * production can never silently downgrade registry transport.
+ */
+export function privateNpmRegistryHost(env: NodeJS.ProcessEnv = process.env): string | null {
+  const raw = env.NPM_REGISTRY_URL?.trim();
+  if (!raw) return null;
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(`NPM_REGISTRY_URL is not a valid URL: ${raw}`);
+  }
+  if (url.protocol === "http:" && env.NODE_ENV !== "test") {
+    throw new Error("NPM_REGISTRY_URL must use https outside test environments");
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new Error(`NPM_REGISTRY_URL must use https (got ${url.protocol})`);
+  }
+  return url.hostname;
+}
+
+/**
+ * npm trust profile with the configured private mirror appended to the
+ * allowlist. The public registry stays allowed; the custom host is an
+ * addition, never a replacement. Any other host still throws
+ * domain_not_allowed — allowlisting is strictly additive.
+ */
+export function resolveNpmTrustProfile(env: NodeJS.ProcessEnv = process.env): TrustProfile {
+  const privateHost = privateNpmRegistryHost(env);
+  if (!privateHost) return NPM_TRUST_PROFILE;
+  if (NPM_TRUST_PROFILE.allowedDomains.includes(privateHost)) return NPM_TRUST_PROFILE;
+  return {
+    ...NPM_TRUST_PROFILE,
+    allowedDomains: [...NPM_TRUST_PROFILE.allowedDomains, privateHost],
+  };
+}
+
 /** GitHub releases API: exact-host, no redirects, 2MB cap, 15s timeout. */
 export const GITHUB_TRUST_PROFILE: TrustProfile = {
   adapterPrefix: "github-releases:",

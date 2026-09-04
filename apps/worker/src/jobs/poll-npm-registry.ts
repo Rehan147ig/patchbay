@@ -2,6 +2,11 @@ import { z } from "zod";
 import { prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import { ActorType, Severity, VendorChangeSource, logger } from "@patchbay/domain";
+import {
+  enterpriseDispatcherFor,
+  getNpmRegistryUrl,
+  npmRegistryAuthHeaders,
+} from "@patchbay/vendor-connectors";
 import type { Job } from "bullmq";
 import { writeAuditEvent } from "../lib/audit";
 
@@ -35,10 +40,13 @@ export async function processPollNpmRegistry(job: Job): Promise<void> {
   const vendor = await prisma.vendor.findUnique({ where: { slug: vendorSlug } });
   if (!vendor) return;
 
-  const response = await fetch(
-    `https://registry.npmjs.org/${encodeURIComponent(packageName)}/latest`,
-    { headers: { Accept: "application/json" } },
-  );
+  // Enterprise mirror + auth + custom CA when configured; defaults preserve
+  // public-registry behavior. Resolved per job so rotation needs no restart.
+  const dispatcher = enterpriseDispatcherFor();
+  const response = await fetch(`${getNpmRegistryUrl()}/${encodeURIComponent(packageName)}/latest`, {
+    headers: { Accept: "application/json", ...npmRegistryAuthHeaders() },
+    ...(dispatcher ? { dispatcher } : {}),
+  } as RequestInit & { dispatcher?: object });
   if (!response.ok) {
     logger.warn("npm registry fetch failed", { vendorSlug, status: response.status });
     return;

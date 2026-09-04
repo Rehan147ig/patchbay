@@ -559,6 +559,9 @@ importers:
       "@patchbay/domain":
         specifier: workspace:*
         version: link:../domain
+      undici:
+        specifier: ^8.10.1
+        version: 8.10.1
     devDependencies:
       "@types/node":
         specifier: ^22.15.0
@@ -3838,6 +3841,13 @@ packages:
       }
     engines: { node: ">=20.18.1" }
 
+  undici@8.10.1:
+    resolution:
+      {
+        integrity: sha512-YQ3WlbqjYMmNpdvDH64jAgLjxuAR9+649calDWhbshYaeQGO2bR4nI94ORJmwI3J9YhoKQnpyGOK+0zlWS5N5Q==,
+      }
+    engines: { node: ">=22.19.0" }
+
   uri-js@4.4.1:
     resolution:
       {
@@ -5722,6 +5732,8 @@ snapshots:
   undici-types@6.21.0: {}
 
   undici@7.29.0: {}
+
+  undici@8.10.1: {}
 
   uri-js@4.4.1:
     dependencies:

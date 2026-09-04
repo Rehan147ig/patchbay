@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from "node:fs";
+import { Agent, type Dispatcher } from "undici";
 import type { TrustProfile } from "./trust";
 
 /**
@@ -35,6 +37,103 @@ export interface TrustedFetchOptions {
   headers?: Record<string, string>;
   /** When true (default), a 304 response is returned as-is for conditional polls. */
   allowNotModified?: boolean;
+}
+
+export interface CustomCaConfig {
+  /** PEM bundle contents (one or more certificates). */
+  bundle: string;
+  /** Source the bundle was loaded from (env var name), for diagnostics. */
+  source: string;
+}
+
+/**
+ * Enterprise TLS: resolves an additional root CA bundle for corporate
+ * forward-inspection proxies (Zscaler, Palo Alto, Blue Coat) inside customer
+ * VPCs. Reads PATCHBAY_CUSTOM_CA_BUNDLE first, then NODE_EXTRA_CA_CERTS;
+ * each must name an existing file containing PEM data. Returns null when
+ * neither is configured (default platform roots apply).
+ *
+ * The bundle is memoized per path: CA rotation requires a process restart,
+ * which also matches Node's native NODE_EXTRA_CA_CERTS semantics.
+ */
+const caBundleCache = new Map<string, string | null>();
+
+export function resetCustomCaCache(): void {
+  caBundleCache.clear();
+  enterpriseDispatcher = null;
+  enterpriseDispatcherKey = null;
+}
+
+export function resolveCustomCaBundle(env: NodeJS.ProcessEnv = process.env): CustomCaConfig | null {
+  for (const variable of ["PATCHBAY_CUSTOM_CA_BUNDLE", "NODE_EXTRA_CA_CERTS"] as const) {
+    const candidate = env[variable]?.trim();
+    if (!candidate) continue;
+    if (caBundleCache.has(candidate)) {
+      const cached = caBundleCache.get(candidate);
+      return cached ? { bundle: cached, source: variable } : null;
+    }
+    let bundle: string | null = null;
+    try {
+      if (existsSync(candidate)) {
+        const contents = readFileSync(candidate, "utf8");
+        if (contents.includes("-----BEGIN CERTIFICATE-----")) bundle = contents;
+      }
+    } catch {
+      bundle = null;
+    }
+    caBundleCache.set(candidate, bundle);
+    if (bundle) return { bundle, source: variable };
+    // A named-but-unreadable bundle is a hard misconfiguration: proceeding
+    // with platform roots would produce confusing TLS errors, so fail loudly.
+    throw new TrustViolationError(
+      "non_ok_status",
+      `custom CA bundle ${variable} points at an unreadable file: ${candidate}`,
+      null,
+    );
+  }
+  return null;
+}
+
+export interface TlsConnectOptions {
+  /** Additional root CAs appended to the platform roots. */
+  ca: string[];
+  /** Always true: verification is never disabled, custom CA or not. */
+  rejectUnauthorized: true;
+}
+
+/**
+ * TLS connect options for enterprise fetch: platform roots plus the custom
+ * bundle when configured. Pure and unit-testable; the dispatcher below
+ * consumes it. rejectUnauthorized is unconditionally true — a proxy CA must
+ * be explicitly configured, never silently trusted.
+ */
+export function buildTlsConnectOptions(
+  env: NodeJS.ProcessEnv = process.env,
+): TlsConnectOptions | undefined {
+  const custom = resolveCustomCaBundle(env);
+  if (!custom) return undefined;
+  return { ca: [custom.bundle], rejectUnauthorized: true };
+}
+
+let enterpriseDispatcher: Dispatcher | null = null;
+let enterpriseDispatcherKey: string | null = null;
+
+/**
+ * Undici dispatcher carrying the enterprise CA bundle. Memoized per bundle
+ * source+path; undefined when no custom CA is configured (default fetch
+ * behavior). Pass to global fetch as `{ dispatcher }`.
+ */
+export function enterpriseDispatcherFor(
+  env: NodeJS.ProcessEnv = process.env,
+): Dispatcher | undefined {
+  const options = buildTlsConnectOptions(env);
+  if (!options) return undefined;
+  const key = `${env.PATCHBAY_CUSTOM_CA_BUNDLE ?? ""}|${env.NODE_EXTRA_CA_CERTS ?? ""}`;
+  if (!enterpriseDispatcher || enterpriseDispatcherKey !== key) {
+    enterpriseDispatcher = new Agent({ connect: options });
+    enterpriseDispatcherKey = key;
+  }
+  return enterpriseDispatcher;
 }
 
 export interface TrustedFetchResult {
@@ -76,13 +175,16 @@ export async function fetchWithTrust(
   assertAllowedDomain(target, profile);
 
   const timeout = AbortSignal.timeout(profile.timeoutMs);
+  // Enterprise CA bundle when configured; undefined preserves default fetch.
+  const dispatcher = enterpriseDispatcherFor();
   let response: Response;
   try {
     response = await fetch(target, {
       headers: options.headers,
       redirect: profile.allowRedirects ? "follow" : "manual",
       signal: timeout,
-    });
+      ...(dispatcher ? { dispatcher } : {}),
+    } as RequestInit & { dispatcher?: Dispatcher });
   } catch (error) {
     if (error instanceof Error && error.name === "TimeoutError") {
       throw new TrustViolationError(
