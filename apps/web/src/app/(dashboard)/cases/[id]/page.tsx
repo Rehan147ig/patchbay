@@ -10,7 +10,7 @@ import {
   CardTitle,
   StatusPill,
 } from "@patchbay/ui";
-import { CaseReasonCode } from "@patchbay/domain";
+import { CaseReasonCode, PlanStatus } from "@patchbay/domain";
 import { requireRole } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 import { CaseActions, type CaseAction } from "@/components/case-actions";
@@ -213,6 +213,16 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
   }));
 
   const actions: CaseAction[] = [];
+  // Unified funnel button: only when the case awaits approval AND the latest
+  // plan is already VALIDATED (draft-pr requires validation passed + approval
+  // coverage). Otherwise the user sees exactly why it is unavailable.
+  const unifiedReady =
+    remediationCase.status === "APPROVAL_REQUIRED" && latestPlan?.status === PlanStatus.VALIDATED;
+  const unifiedBlockedReason =
+    remediationCase.status === "APPROVAL_REQUIRED" && !unifiedReady
+      ? "Plan validation pending — Approve & Open Draft PR unlocks once the plan is validated."
+      : null;
+  if (unifiedReady) actions.push("approve-and-draft-pr");
   if (remediationCase.status === "APPROVAL_REQUIRED") actions.push("approve");
   if (
     remediationCase.status === "PATCH_PROPOSED" ||
@@ -270,7 +280,7 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {canPlan && remediationCase.releaseRepositoryMatchId ? (
               <PlanRunButton
                 releaseId={remediationCase.release.id}
@@ -279,6 +289,11 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
             ) : null}
             {actions.length > 0 ? (
               <CaseActions caseId={remediationCase.id} actions={actions} />
+            ) : null}
+            {unifiedBlockedReason ? (
+              <p className="basis-full text-right text-[11px] text-ink-500">
+                {unifiedBlockedReason}
+              </p>
             ) : null}
           </div>
         </div>
