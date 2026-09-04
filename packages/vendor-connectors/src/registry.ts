@@ -1,4 +1,5 @@
 import { adyenConnector } from "./connectors/adyen";
+import { autonomousGenericConnector } from "./connectors/autonomous-generic";
 import { algoliaConnector } from "./connectors/algolia";
 import { anthropicConnector } from "./connectors/anthropic";
 import { auth0Connector } from "./connectors/auth0";
@@ -71,6 +72,8 @@ export const connectors: readonly VendorConnector[] = [
   auth0Connector,
   twilioConnector,
   genericOpenapiConnector,
+  // Autonomous universal track (no per-vendor rule pack needed)
+  autonomousGenericConnector,
   // AI / LLM
   anthropicConnector,
   geminiConnector,

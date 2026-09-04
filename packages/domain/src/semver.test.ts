@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareVersions, parseVersion, satisfiesRange } from "./semver";
+import { classifySemverBump, compareVersions, parseVersion, satisfiesRange } from "./semver";
 
 describe("parseVersion", () => {
   it("parses plain and prerelease versions", () => {
@@ -85,5 +85,29 @@ describe("satisfiesRange", () => {
     expect(satisfiesRange("4.0.0", null)).toBe(false);
     expect(satisfiesRange("4.0.0", undefined)).toBe(false);
     expect(satisfiesRange("4.0.0", "latest")).toBe(false);
+  });
+});
+
+describe("classifySemverBump", () => {
+  it("classifies stable patch/minor/major moves", () => {
+    expect(classifySemverBump("3.3.0", "3.3.1")).toBe("patch");
+    expect(classifySemverBump("3.3.0", "3.4.0")).toBe("minor");
+    expect(classifySemverBump("3.3.0", "4.0.0")).toBe("major");
+    expect(classifySemverBump("3.3.0", "3.3.10")).toBe("patch");
+  });
+
+  it("treats 0.x minor moves as major (may break)", () => {
+    expect(classifySemverBump("0.3.1", "0.4.0")).toBe("major");
+    expect(classifySemverBump("0.3.1", "0.3.2")).toBe("patch");
+    expect(classifySemverBump("0.9.9", "1.0.0")).toBe("major");
+  });
+
+  it("refuses to guess prereleases, downgrades, and opaque input", () => {
+    expect(classifySemverBump("4.0.0-rc.1", "4.0.0")).toBe("unknown");
+    expect(classifySemverBump("4.0.0", "4.0.1-beta.1")).toBe("unknown");
+    expect(classifySemverBump("4.0.0", "3.9.9")).toBe("unknown");
+    expect(classifySemverBump("4.0.0", "4.0.0")).toBe("unknown");
+    expect(classifySemverBump("latest", "4.0.0")).toBe("unknown");
+    expect(classifySemverBump("4.0.0", "latest")).toBe("unknown");
   });
 });

@@ -80,4 +80,64 @@ describe("decideFunnel", () => {
     expect(decision.blastRadius.severity).toBe("HIGH");
     expect(decision.blastRadius.factors.join(" ")).toContain("risk tags");
   });
+
+  it("promotes sandbox-proven autonomous patch/minor bumps without breaking evidence", () => {
+    for (const updateType of ["patch", "minor"] as const) {
+      const decision = decideFunnel({
+        ...base,
+        evidence: {
+          ...base.evidence,
+          hasClassification: false,
+          breaking: false,
+          hasSnapshot: false,
+          affectedUsageCount: 0,
+          autonomousBump: { updateType, sandboxValidated: true },
+        },
+      });
+      expect(decision.status).toBe(CaseStatus.POLICY_ELIGIBLE);
+      expect(decision.planEligible).toBe(true);
+      expect(decision.reasonCode).toBe(CaseReasonCode.AUTONOMOUS_BUMP);
+      // Approval stays mandatory downstream: funnel only grants eligibility.
+      expect(decision.policyDecision.decision).toBe("require-approval");
+      expect(decision.policyDecision.requiresHumanReview).toBe(true);
+    }
+  });
+
+  it("refuses autonomous bumps without sandbox proof, for majors, or under policy denial", () => {
+    // No sandbox proof: falls through to the breaking-evidence path and holds.
+    const unproven = decideFunnel({
+      ...base,
+      evidence: {
+        ...base.evidence,
+        breaking: false,
+        autonomousBump: { updateType: "patch", sandboxValidated: false },
+      },
+    });
+    expect(unproven.planEligible).toBe(false);
+    expect(unproven.reasonCode).toBe(CaseReasonCode.INSUFFICIENT_EVIDENCE);
+
+    // Majors stay PLAN-only even when sandbox-proven.
+    const major = decideFunnel({
+      ...base,
+      evidence: {
+        ...base.evidence,
+        breaking: false,
+        autonomousBump: { updateType: "major", sandboxValidated: true },
+      },
+    });
+    expect(major.planEligible).toBe(false);
+
+    // Tenant policy denial outranks the autonomous track.
+    const denied = decideFunnel({
+      ...base,
+      policy: { deniedByPolicy: "freeze" },
+      evidence: {
+        ...base.evidence,
+        breaking: false,
+        autonomousBump: { updateType: "patch", sandboxValidated: true },
+      },
+    });
+    expect(denied.planEligible).toBe(false);
+    expect(denied.reasonCode).toBe(CaseReasonCode.POLICY_DENIED);
+  });
 });

@@ -438,6 +438,8 @@ export const CASE_TERMINAL_STATUSES: ReadonlySet<CaseStatus> = new Set([
 export const CaseReasonCode = {
   DEPENDENCY_MATCH: "dependency-match",
   USAGE_EVIDENCE: "usage-evidence",
+  /** Autonomous semver patch/minor bump, sandbox-proven. */
+  AUTONOMOUS_BUMP: "autonomous-bump",
   CAPABILITY_UNSUPPORTED: "capability-unsupported",
   POLICY_DENIED: "policy-denied",
   INSUFFICIENT_EVIDENCE: "insufficient-evidence",

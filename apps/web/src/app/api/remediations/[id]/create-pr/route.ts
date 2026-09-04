@@ -2,7 +2,11 @@ import { prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import { ActorType, ValidationStatus, validationFailed } from "@patchbay/domain";
 import { approvalCoversPatches, evaluatePolicy } from "@patchbay/policy-engine";
-import { requireCertified } from "@patchbay/vendor-connectors";
+import {
+  AUTONOMOUS_GENERIC_SLUG,
+  isAutonomousDraftEligible,
+  requireCertified,
+} from "@patchbay/vendor-connectors";
 import { enqueue, JobType } from "@patchbay/queue";
 import type { NextRequest } from "next/server";
 import { getCorrelationId, jsonError, jsonOk, writeAuditEvent } from "@/lib/api";
@@ -32,7 +36,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         impactAssessment: {
           include: {
             repository: true,
-            changeEvent: { include: { vendor: { select: { slug: true } } } },
+            changeEvent: {
+              select: { vendor: { select: { slug: true } }, rawPayload: true },
+            },
             affectedUsages: { include: { usage: true } },
           },
         },
@@ -55,6 +61,16 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       );
     }
     await assertCapabilityGateOpen(user.organizationId, vendorSlug, "DRAFT_PR");
+
+    // Parity with cases/[id]/draft-pr: the autonomous strategy kit only
+    // covers npm patch/minor manifest bumps. Anything else stays PLAN-only.
+    if (vendorSlug === AUTONOMOUS_GENERIC_SLUG) {
+      if (!isAutonomousDraftEligible(plan.impactAssessment.changeEvent.rawPayload)) {
+        throw validationFailed(
+          "Autonomous draft PRs cover npm patch/minor bumps only; this change is PLAN-only",
+        );
+      }
+    }
 
     // Idempotency check: Return existing PR if already created
     if (plan.pullRequests.length > 0) {

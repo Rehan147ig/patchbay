@@ -72,6 +72,8 @@ export interface ConnectorCapability {
 const RULE_PACK_VERSION = "1.0.0";
 const EXTRACTOR_VERSION = "1.0.0";
 const CERTIFIED_AT = "2026-08-17";
+/** Certification date of the autonomous semver-bump strategy kit. */
+const AUTONOMOUS_CERTIFIED_AT = "2026-09-04";
 
 /** npm/JS connector baseline: dependency match + usage analysis, no certification kit. */
 function baseline(slug: string, pkg: string): ConnectorCapability {
@@ -95,6 +97,25 @@ const H8_CORPUS: EvalCorpusRef = {
   owner: "platform-eng",
   status: "ACTIVE",
   reviewedAt: "2026-08-17",
+  expiresAt: "2026-12-31",
+  metrics: {
+    dependencyMatchRecallPct: 100,
+    affectedUsagePrecisionPct: 100,
+    patchValidationPct: 100,
+    policyOutcomeCorrectPct: 100,
+  },
+};
+
+/** Strategy-class corpus for the autonomous semver-bump kit: the deterministic
+ * manifest-edit strategy is proven by its fixture suite (prefix preservation,
+ * ambiguous-edit refusal, major/unknown refusal) rather than per-vendor
+ * fixtures. Draft PRs only; every bump is additionally sandbox-proven per PR.
+ */
+const AUTONOMOUS_SEMVER_CORPUS: EvalCorpusRef = {
+  id: "autonomous-semver-corpus",
+  owner: "platform-eng",
+  status: "ACTIVE",
+  reviewedAt: "2026-09-04",
   expiresAt: "2026-12-31",
   metrics: {
     dependencyMatchRecallPct: 100,
@@ -232,6 +253,24 @@ export const CAPABILITY_REGISTRY: readonly ConnectorCapability[] = [
   baseline("azure-openai", "@azure/openai"),
   baseline("shopify", "@shopify/shopify-api"),
   baseline("postgresql", "pg"),
+  // Autonomous universal track: semver patch/minor bumps for any npm direct
+  // dependency. The "rule pack" is the deterministic manifest-edit strategy
+  // (versioned below); majors stay PLAN-only via the draft-PR eligibility
+  // gate enforced identically at both PR creation vectors. Draft PRs only,
+  // never auto-merge.
+  {
+    vendorSlug: "autonomous-generic",
+    ecosystem: "npm",
+    package: "package.json manifest (any npm direct dependency)",
+    language: "typescript/javascript",
+    level: "DRAFT_PR",
+    rulePackVersion: "semver-bump/1.0.0",
+    extractorVersion: EXTRACTOR_VERSION,
+    validationProfile: "node-ts-reparse + container-sandbox",
+    requiredPolicyClass: "APPROVAL_REQUIRED",
+    corpus: AUTONOMOUS_SEMVER_CORPUS,
+    certifiedAt: AUTONOMOUS_CERTIFIED_AT,
+  },
 ];
 
 export function getCapability(vendorSlug: string): ConnectorCapability | null {

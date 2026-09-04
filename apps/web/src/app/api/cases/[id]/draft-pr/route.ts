@@ -1,8 +1,15 @@
 import { prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
-import { ActorType, CaseStatus, notFound, validationFailed, PlanStatus } from "@patchbay/domain";
+import {
+  ActorType,
+  CaseStatus,
+  classifySemverBump,
+  notFound,
+  validationFailed,
+  PlanStatus,
+} from "@patchbay/domain";
 import { approvalCoversPatches, evaluatePolicy, evaluateQuorum } from "@patchbay/policy-engine";
-import { requireCertified } from "@patchbay/vendor-connectors";
+import { AUTONOMOUS_GENERIC_SLUG, requireCertified } from "@patchbay/vendor-connectors";
 import { enqueue, JobType } from "@patchbay/queue";
 import type { NextRequest } from "next/server";
 import { getCorrelationId, jsonError, jsonOk, writeAuditEvent } from "@/lib/api";
@@ -28,7 +35,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const remediationCase = await prisma.remediationCase.findFirst({
       where: { id, organizationId: user.organizationId },
       include: {
-        release: { select: { product: { select: { vendor: { select: { slug: true } } } } } },
+        release: {
+          select: {
+            product: { select: { vendor: { select: { slug: true } } } },
+            version: true,
+            previousVersion: true,
+          },
+        },
         plans: {
           orderBy: { createdAt: "desc" },
           take: 1,
@@ -56,6 +69,24 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       );
     }
     await assertCapabilityGateOpen(user.organizationId, vendorSlug, "DRAFT_PR");
+
+    // Autonomous track: the strategy kit only covers npm patch/minor manifest
+    // bumps. Majors stay PLAN-only (migration rules may be needed); anything
+    // unclassifiable is refused rather than guessed. Enforced identically at
+    // the remediations create-pr vector.
+    if (vendorSlug === AUTONOMOUS_GENERIC_SLUG) {
+      const bump = remediationCase.release.previousVersion
+        ? classifySemverBump(
+            remediationCase.release.previousVersion,
+            remediationCase.release.version,
+          )
+        : "unknown";
+      if (bump !== "patch" && bump !== "minor") {
+        throw validationFailed(
+          `Autonomous draft PRs cover npm patch/minor bumps only (release ${remediationCase.release.previousVersion ?? "?"} -> ${remediationCase.release.version} classifies as ${bump})`,
+        );
+      }
+    }
 
     const plan = remediationCase.plans[0];
     if (!plan) {

@@ -30,6 +30,17 @@ export interface FunnelEvidence {
   declaredRange?: string | null;
   /** Release version being assessed (e.g. "17.0.0"); null when unknown. */
   releaseVersion?: string | null;
+  /**
+   * Autonomous semver-bump track: set when the change is a manifest-only
+   * version bump rather than a breaking migration. patch/minor + sandbox
+   * proof bypasses the breaking-change evidence requirement (there are no
+   * affected usages by design); majors/unknowns fall through to the normal
+   * breaking-evidence path and stay PLAN-only.
+   */
+  autonomousBump?: {
+    updateType: "patch" | "minor" | "major" | "unknown";
+    sandboxValidated: boolean;
+  } | null;
 }
 
 export interface FunnelPolicy {
@@ -68,23 +79,6 @@ const MIN_PLAN_LEVEL: CapabilityLevel = "PLAN";
 export function decideFunnel(input: FunnelInput): FunnelDecision {
   const { evidence } = input;
 
-  const insufficientEvidence =
-    !evidence.hasClassification || !evidence.breaking || !evidence.hasSnapshot;
-
-  if (insufficientEvidence) {
-    return {
-      status: CaseStatus.IMPACT_CONFIRMED,
-      reasonCode: CaseReasonCode.INSUFFICIENT_EVIDENCE,
-      planEligible: false,
-      blastRadius: blastRadiusOf(input),
-      policyDecision: {
-        decision: "hold",
-        requiresHumanReview: input.humanReviewRequired,
-        deniedByPolicy: null,
-      },
-    };
-  }
-
   const capabilityOk =
     CAPABILITY_LEVEL_INDEX[input.capabilityLevel as CapabilityLevel] >=
     CAPABILITY_LEVEL_INDEX[MIN_PLAN_LEVEL];
@@ -113,6 +107,45 @@ export function decideFunnel(input: FunnelInput): FunnelDecision {
         decision: "deny",
         requiresHumanReview: input.humanReviewRequired,
         deniedByPolicy: input.policy.deniedByPolicy,
+      },
+    };
+  }
+
+  // Autonomous track: a sandbox-proven manifest-only patch/minor bump needs
+  // no breaking-change evidence (there are no call-site usages by design).
+  // Approval is still mandatory downstream (APPROVAL_REQUIRED policy class +
+  // draft-only product rule); this branch only makes the case plan-eligible.
+  const autonomousEligible =
+    (evidence.autonomousBump?.updateType === "patch" ||
+      evidence.autonomousBump?.updateType === "minor") &&
+    evidence.autonomousBump.sandboxValidated === true;
+  if (autonomousEligible) {
+    return {
+      status: CaseStatus.POLICY_ELIGIBLE,
+      reasonCode: CaseReasonCode.AUTONOMOUS_BUMP,
+      planEligible: true,
+      blastRadius: blastRadiusOf(input),
+      policyDecision: {
+        decision: "require-approval",
+        requiresHumanReview: true,
+        deniedByPolicy: null,
+      },
+    };
+  }
+
+  const insufficientEvidence =
+    !evidence.hasClassification || !evidence.breaking || !evidence.hasSnapshot;
+
+  if (insufficientEvidence) {
+    return {
+      status: CaseStatus.IMPACT_CONFIRMED,
+      reasonCode: CaseReasonCode.INSUFFICIENT_EVIDENCE,
+      planEligible: false,
+      blastRadius: blastRadiusOf(input),
+      policyDecision: {
+        decision: "hold",
+        requiresHumanReview: input.humanReviewRequired,
+        deniedByPolicy: null,
       },
     };
   }

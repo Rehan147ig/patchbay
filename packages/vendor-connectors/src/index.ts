@@ -83,3 +83,10 @@ export {
 } from "./trust";
 export type { TrustProfile } from "./trust";
 export { getNpmRegistryUrl, npmRegistryAuthHeaders } from "./adapters/npm";
+export {
+  AUTONOMOUS_GENERIC_SLUG,
+  autonomousGenericConnector,
+  isAutonomousBumpPayload,
+  isAutonomousDraftEligible,
+} from "./connectors/autonomous-generic";
+export type { AutonomousBumpPayload } from "./connectors/autonomous-generic";

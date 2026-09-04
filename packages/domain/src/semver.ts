@@ -165,3 +165,39 @@ export function satisfiesRange(version: string, range: string | null | undefined
   // Exact version (bare "3.3.0")
   return compareVersions(version, trimmed) === 0;
 }
+
+/**
+ * Autonomous semver-bump track classification (patch/minor/major/unknown).
+ *
+ * Decides which remediation track an (installed -> latest) version move takes:
+ * patch/minor bumps are manifest-only edits provable in the sandbox; major
+ * bumps are PLAN-only (migration rules may be needed); unknown (opaque
+ * versions, prereleases, downgrades, same-version) is never guessed and stays
+ * out of the autonomous track entirely.
+ *
+ * Pre-1.0 semantics: 0.x minors may break, so any major/minor-core change
+ * touching 0.x classifies as major; patch-only moves within the same 0.minor
+ * stay patch.
+ */
+export type SemverBumpKind = "patch" | "minor" | "major" | "unknown";
+
+export function classifySemverBump(from: string, to: string): SemverBumpKind {
+  const parsedFrom = parseVersion(from.trim());
+  const parsedTo = parseVersion(to.trim());
+  if (!parsedFrom || !parsedTo) return "unknown";
+  if (parsedFrom.prerelease !== null || parsedTo.prerelease !== null) return "unknown";
+
+  const order = compareVersions(from.trim(), to.trim());
+  if (order === null || order >= 0) return "unknown";
+
+  const touchesZero = parsedFrom.major === 0 || parsedTo.major === 0;
+  const majorChanged = parsedFrom.major !== parsedTo.major;
+  const minorChanged = parsedFrom.minor !== parsedTo.minor;
+
+  if (touchesZero) {
+    return majorChanged || minorChanged ? "major" : "patch";
+  }
+  if (majorChanged) return "major";
+  if (minorChanged) return "minor";
+  return "patch";
+}
