@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { getCapability } from "../capabilities";
 import { getConnector } from "../registry";
 import { openaiPythonConnector } from "./openai-python";
 
@@ -54,12 +55,27 @@ describe("openai-python connector", () => {
     });
   });
 
-  it("emits no patch suggestions: Python is ASSESS-only (demoted)", () => {
+  it("emits METHOD_RENAMED suggestions for the v0->v1 migration (certified DRAFT_PR)", () => {
+    // Track 2 (89cd1ac) promoted openai-python to certified DRAFT_PR: the
+    // connector genuinely emits module-call-to-client renames with the
+    // deterministic client bootstrap, and the eval corpus passes 35/35.
+    expect(getCapability("openai-python")?.level).toBe("DRAFT_PR");
     const drafts = openaiPythonConnector.normalizeChange({
       rawPayload: MIGRATION_PAYLOAD,
       sourceType: "SDK_RELEASE",
     });
-    expect(openaiPythonConnector.buildPatchSuggestions(drafts)).toEqual([]);
+    const suggestions = openaiPythonConnector.buildPatchSuggestions(drafts);
+    expect(suggestions).toHaveLength(2);
+    expect(suggestions[0]).toMatchObject({
+      symbol: "openai.ChatCompletion.create",
+      replacement: "client.chat.completions.create",
+      confidence: 95,
+    });
+    expect(suggestions[1]).toMatchObject({
+      symbol: "openai.Completion.create",
+      replacement: "client.completions.create",
+      confidence: 95,
+    });
   });
 
   it("emits no patch suggestions without migration rules (negative releases stay silent)", () => {
