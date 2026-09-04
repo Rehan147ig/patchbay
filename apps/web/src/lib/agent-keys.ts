@@ -9,7 +9,7 @@ import { hash as argon2Hash, verify as argon2Verify } from "@node-rs/argon2";
  * an ADMIN rotates the key.
  */
 
-const ARGON2_OPTIONS = {
+export const ARGON2_OPTIONS = {
   memoryCost: 32 * 1024, // 32 MiB
   timeCost: 3,
   parallelism: 1,

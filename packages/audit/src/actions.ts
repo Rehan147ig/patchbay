@@ -91,5 +91,7 @@ export const AuditAction = {
   REGISTRY_KEY_ROTATION_COMPLETED: "registry.key_rotation_completed",
   SCIM_USER_CREATED: "scim.user_created",
   SCIM_USER_DEPROVISIONED: "scim.user_deprovisioned",
+  SCIM_TOKEN_ISSUED: "scim.token_issued",
+  SCIM_TOKEN_REVOKED: "scim.token_revoked",
 } as const;
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];

@@ -35,6 +35,7 @@ import { isLegacyAgentKeyHash } from "@/lib/agent-keys";
 import { BillingActions } from "@/components/billing-actions";
 import { CapabilityGateControl } from "@/components/capability-gate-control";
 import { PrivateVendorForm } from "@/components/private-vendor-form";
+import { ScimTokenControl } from "@/components/scim-token-control";
 import { VendorAgentKeyControl } from "@/components/vendor-agent-key-control";
 import { formatDate, GATE_STATUS_TONE } from "@/lib/format";
 
@@ -143,6 +144,37 @@ export default async function SettingsPage({
               <span className="text-xs font-medium text-zinc-500">Signed-in User</span>
               <span className="font-mono text-xs text-zinc-600">{user.email}</span>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-[20px] border-zinc-200 bg-white">
+          <CardHeader>
+            <CardTitle>Enterprise identity (SCIM)</CardTitle>
+            <CardDescription>
+              Per-organization SCIM 2.0 bearer token for Okta / Azure AD user provisioning and
+              Friday-afternoon deprovisioning. Admins generate the token once and paste it into the
+              IdP; deprovisioned users lose every session immediately. The plaintext token is shown
+              exactly once; only its hash is stored.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
+              <span className="text-xs font-medium text-zinc-500">SCIM endpoint</span>
+              <span className="font-mono text-xs font-medium text-[#0071e3]">/api/scim/Users</span>
+            </div>
+            <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
+              <span className="text-xs font-medium text-zinc-500">Status</span>
+              <span className="text-[13px] font-semibold tracking-tight text-[#1d1d1f]">
+                {organization?.scimTokenHash ? "Enrolled" : "Not enrolled"}
+              </span>
+            </div>
+            <ScimTokenControl
+              hasToken={
+                organization?.scimTokenHash !== null && organization?.scimTokenHash !== undefined
+              }
+              tokenPrefix={organization?.scimTokenPrefix ?? null}
+              isAdmin={user.role === "ADMIN"}
+            />
           </CardContent>
         </Card>
 

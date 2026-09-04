@@ -293,6 +293,17 @@ model Organization {
   id String @id @default(uuid())
   name      String
   createdAt DateTime @default(now())
+  /// argon2id hash of the org's SCIM 2.0 bearer token (never the plaintext).
+  /// Null = SCIM not enrolled; the legacy global SCIM_TOKEN env remains as a
+  /// transitional fallback until every org is enrolled.
+  scimTokenHash String?
+  /// Previous hash, kept for one rotation so IdPs holding the old token stay
+  /// authenticated until the next rotation (same pattern as agent keys).
+  scimTokenHashPrevious String?
+  /// Plaintext lookup prefix of the current token (first chars only); selects
+  /// the single candidate row so only one argon2id verify runs per request.
+  scimTokenPrefix String?
+  scimTokenRotatedAt DateTime?
 
   users                  User[]
   repositories           Repository[]
