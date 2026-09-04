@@ -37,6 +37,13 @@ export interface TrustedFetchOptions {
   headers?: Record<string, string>;
   /** When true (default), a 304 response is returned as-is for conditional polls. */
   allowNotModified?: boolean;
+  /**
+   * POST with a caller-constructed JSON body (e.g. OSV queries). Restricted
+   * to POST only — no PUT/DELETE/PATCH — and the body must be built by the
+   * caller, never from external text. GET remains the default.
+   */
+  method?: "POST";
+  body?: string;
 }
 
 export interface CustomCaConfig {
@@ -183,6 +190,8 @@ export async function fetchWithTrust(
       headers: options.headers,
       redirect: profile.allowRedirects ? "follow" : "manual",
       signal: timeout,
+      ...(options.method ? { method: options.method } : {}),
+      ...(options.body !== undefined ? { body: options.body } : {}),
       ...(dispatcher ? { dispatcher } : {}),
     } as RequestInit & { dispatcher?: Dispatcher });
   } catch (error) {

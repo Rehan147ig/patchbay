@@ -132,6 +132,33 @@ describe("fetchWithTrust", () => {
     expect(result.text).toBe("");
   });
 
+  it("forwards POST with a caller-built JSON body (GET stays default)", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(
+        () =>
+          Promise.resolve(
+            new Response(JSON.stringify({ ok: true }), { status: 200, headers: {} }),
+          ) as Promise<Response>,
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchWithTrust("https://registry.npmjs.org/openai", profile(), {
+      method: "POST",
+      body: JSON.stringify({ hello: "world" }),
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      new URL("https://registry.npmjs.org/openai"),
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ hello: "world" }) }),
+    );
+
+    fetchMock.mockClear();
+    await fetchWithTrust("https://registry.npmjs.org/openai", profile());
+    const init = fetchMock.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(init?.method).toBeUndefined();
+    expect(init?.body).toBeUndefined();
+  });
+
   it("classifies request timeouts as trust violations", async () => {
     vi.stubGlobal(
       "fetch",

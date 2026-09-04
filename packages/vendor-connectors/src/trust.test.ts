@@ -25,6 +25,7 @@ describe("trust profiles", () => {
     const profiles = trustProfiles();
     expect(profiles.map((p) => p.adapterPrefix)).toEqual([
       "npm:",
+      "osv:",
       "github-releases:",
       "openapi:",
       "event:",

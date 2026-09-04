@@ -134,6 +134,28 @@ export const OPENAPI_TRUST_PROFILE: TrustProfile = {
   cadenceMs: 15 * 60 * 1000,
 };
 
+/**
+ * OSV vulnerability intel (Google, open, no rate limits): exact-host,
+ * path-pinned to the query API, 2MB cap, 15s timeout. OSV is the *discovery
+ * channel* — the fix release itself comes from the package registry — so the
+ * source stays NPM while provenance is recorded in evidence metadata.
+ * Advisory intel grants SOURCE_TRUSTED at MEDIUM confidence: it triggers
+ * PLAN-track work, never an unverified patch.
+ */
+export const OSV_TRUST_PROFILE: TrustProfile = {
+  adapterPrefix: "osv:",
+  sources: ["NPM"],
+  allowedDomains: ["api.osv.dev"],
+  allowedPathPrefixes: ["/v1/"],
+  allowRedirects: false,
+  maxResponseBytes: 2 * 1024 * 1024,
+  timeoutMs: 15_000,
+  requireSignature: false,
+  evidenceAuthenticity: "SOURCE_TRUSTED",
+  evidenceConfidence: "MEDIUM",
+  cadenceMs: 60 * 60 * 1000,
+};
+
 /** Event plane: Kafka/MQTT/AMQP/NATS/Pub/Sub via REST proxy. Local + internal brokers. */
 export const EVENT_TRUST_PROFILE: TrustProfile = {
   adapterPrefix: "event:",
@@ -164,6 +186,7 @@ export const DATA_TRUST_PROFILE: TrustProfile = {
 
 const PROFILES: TrustProfile[] = [
   NPM_TRUST_PROFILE,
+  OSV_TRUST_PROFILE,
   GITHUB_TRUST_PROFILE,
   OPENAPI_TRUST_PROFILE,
   EVENT_TRUST_PROFILE,
@@ -242,6 +265,13 @@ export function validateAdapterCursor(adapterSlug: string, cursor: unknown): str
     }
     if ("latestPublishedAt" in entry && !isStringOrNull(entry.latestPublishedAt)) {
       violations.push("github cursor latestPublishedAt must be string|null when present");
+    }
+  } else if (adapterSlug.startsWith("osv:")) {
+    if ("seenVulnIds" in entry && !Array.isArray(entry.seenVulnIds)) {
+      violations.push("osv cursor seenVulnIds must be an array when present");
+    }
+    if ("lastChecked" in entry && !isStringOrNull(entry.lastChecked)) {
+      violations.push("osv cursor lastChecked must be string|null when present");
     }
   } else if (adapterSlug.startsWith("openapi:")) {
     if ("etag" in entry && typeof entry.etag !== "string" && entry.etag !== null) {
