@@ -12,6 +12,19 @@ export interface AnalyzedUsage {
   /** The source line the usage sits on, trimmed to a reasonable length. */
   excerpt: string;
   riskTags: RiskTag[];
+  /**
+   * Facade attribution for usages reached through a provider facade
+   * (`openai('gpt-4o')` from `@ai-sdk/openai` used as `model:`). packageName
+   * is then the underlying vendor slug so vendor lookups match; the provider
+   * package and resolved model ride along here into IntegrationUsage metadata.
+   */
+  facade?: FacadeAttribution;
+}
+
+/** Which facade provider produced a vendor-attributed usage, and which model. */
+export interface FacadeAttribution {
+  providerPackage: string;
+  model: string | null;
 }
 
 export interface PackageManifest {

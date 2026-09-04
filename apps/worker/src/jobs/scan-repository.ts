@@ -188,12 +188,25 @@ export async function processScanRepository(job: Job): Promise<ScanRepositoryRes
               ownerByKey.get(usageKey(usage.filePath, usage.symbol, usage.usageType)) ??
               "Unassigned",
             riskTags: usage.riskTags,
-            metadata:
-              source.kind === "github"
+            metadata: {
+              ...(source.kind === "github"
                 ? { installationId: source.installationId }
                 : source.kind === "clone"
                   ? { cloneUrl: source.cloneUrl }
-                  : { fixture: source.fixture },
+                  : { fixture: source.fixture }),
+              // Facade attribution (provider package + model) for usages
+              // reached through @ai-sdk/* providers; powers the radar badge.
+              // Rebuilt as a plain literal: the FacadeAttribution interface
+              // lacks the index signature Prisma's InputJsonValue requires.
+              ...(usage.facade
+                ? {
+                    facade: {
+                      providerPackage: usage.facade.providerPackage,
+                      model: usage.facade.model,
+                    },
+                  }
+                : {}),
+            },
           }));
 
         await tx.integrationUsage.deleteMany({ where: { repositoryId } });

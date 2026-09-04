@@ -5,6 +5,7 @@ export type {
   AnalyzeRepositoryOptions,
   AnalysisError,
   AnalyzedUsage,
+  FacadeAttribution,
   ModuleExports,
   PackageManifest,
   PackageManager,

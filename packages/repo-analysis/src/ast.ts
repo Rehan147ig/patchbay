@@ -1,10 +1,13 @@
 import ts from "typescript";
 import { UsageType } from "@patchbay/domain";
 import { classifyRiskTags } from "./risk";
-import type { AnalyzedUsage, RelativeModuleResolver } from "./types";
+import { FACADE_MODEL_CALLS, facadeProviderOf } from "./facades";
+import type { AnalyzedUsage, FacadeAttribution, RelativeModuleResolver } from "./types";
 
 interface Binding {
   packageName: string;
+  /** Canonical vendor slug when bound through a provider facade. */
+  underlyingVendor?: string;
 }
 
 const CONFIG_NAME_PATTERN = /(config|settings|options|credentials)/i;
@@ -90,6 +93,7 @@ export function analyzeSource(
     usageType: UsageType,
     symbol: string,
     node: ts.Node,
+    facade?: FacadeAttribution,
   ): void {
     const { line, column } = position(node);
     record({
@@ -101,6 +105,7 @@ export function analyzeSource(
       usageType,
       excerpt: excerpt(line),
       riskTags: classifyRiskTags(filePath, symbol),
+      ...(facade ? { facade } : {}),
     });
   }
 
@@ -109,6 +114,103 @@ export function analyzeSource(
     const prefix = envName.toLowerCase().split("_")[0] ?? "";
     return envPrefixes[prefix] ?? null;
   }
+
+  interface ProviderModel {
+    vendorSlug: string;
+    providerPackage: string;
+    model: string | null;
+  }
+
+  /**
+   * Intra-file map of variable names to the provider model they hold:
+   * `const m = openai('gpt-4o')` or `const c = createOpenAI({...})`.
+   * Built in a pre-pass so `model: m` references resolve regardless of order.
+   * Fail-open toward detection (a usage inventory, not a type checker).
+   */
+  const providerVars = new Map<string, ProviderModel>();
+
+  function firstStringArgument(call: ts.CallExpression): string | null {
+    const first = call.arguments[0];
+    return first && ts.isStringLiteral(first) ? first.text : null;
+  }
+
+  function providerBindingOf(name: string): FullBinding | null {
+    const binding = bindings.get(name);
+    return binding && binding.underlyingVendor ? binding : null;
+  }
+
+  /** Resolves an expression to the provider model it evaluates to, if any. */
+  function resolveProviderModel(expression: ts.Expression): ProviderModel | null {
+    if (ts.isIdentifier(expression)) {
+      const bound = providerBindingOf(expression.text);
+      if (bound) {
+        return {
+          vendorSlug: bound.underlyingVendor!,
+          providerPackage: bound.packageName,
+          model: null,
+        };
+      }
+      return providerVars.get(expression.text) ?? null;
+    }
+    if (ts.isCallExpression(expression)) {
+      const callee = expression.expression;
+      if (ts.isIdentifier(callee)) {
+        const bound = providerBindingOf(callee.text);
+        if (bound) {
+          return {
+            vendorSlug: bound.underlyingVendor!,
+            providerPackage: bound.packageName,
+            model: firstStringArgument(expression),
+          };
+        }
+        const factory = providerVars.get(callee.text);
+        if (factory) {
+          return { ...factory, model: firstStringArgument(expression) ?? factory.model };
+        }
+      } else {
+        const root = rootIdentifier(callee);
+        if (root) {
+          const bound = providerBindingOf(root.text);
+          if (bound) {
+            return {
+              vendorSlug: bound.underlyingVendor!,
+              providerPackage: bound.packageName,
+              model: firstStringArgument(expression),
+            };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  function collectProviderVars(node: ts.Node): void {
+    if (ts.isVariableStatement(node)) {
+      for (const declaration of node.declarationList.declarations) {
+        if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue;
+        const resolved = resolveProviderModel(declaration.initializer);
+        if (resolved) providerVars.set(declaration.name.text, resolved);
+      }
+    }
+    ts.forEachChild(node, collectProviderVars);
+  }
+
+  /** The `model:` property value of a facade call's options argument, if any. */
+  function modelArgumentOf(call: ts.CallExpression): ts.Expression | null {
+    const options = call.arguments[0];
+    if (!options || !ts.isObjectLiteralExpression(options)) return null;
+    for (const property of options.properties) {
+      if (ts.isPropertyAssignment(property) && ts.isIdentifier(property.name)) {
+        if (property.name.text === "model") return property.initializer;
+      }
+      if (ts.isShorthandPropertyAssignment(property) && property.name.text === "model") {
+        return property.name;
+      }
+    }
+    return null;
+  }
+
+  collectProviderVars(sourceFile);
 
   function packageFromConfigName(configName: string): string | null {
     const lower = configName.toLowerCase();
@@ -171,18 +273,67 @@ export function analyzeSource(
       const callee = node.expression;
       if (ts.isIdentifier(callee)) {
         const binding = bindings.get(callee.text);
-        if (binding) {
+        const provider = providerBindingOf(callee.text);
+        if (provider) {
+          // Provider factory/model call: `openai('gpt-4o')` attributes to the
+          // underlying vendor with the statically resolvable model in the symbol.
+          const model = firstStringArgument(node);
+          addUsage(
+            provider.underlyingVendor!,
+            UsageType.INITIALIZATION,
+            model ? `${provider.underlyingVendor}:${model}` : callee.text,
+            node,
+            { providerPackage: provider.packageName, model },
+          );
+        } else if (binding) {
           addUsage(binding.packageName, UsageType.INITIALIZATION, callee.text, node);
+        } else if ((FACADE_MODEL_CALLS as readonly string[]).includes(callee.text)) {
+          // Facade entry call: `generateText({ model: openai('gpt-4o') })`.
+          // Works even when `ai` itself is untracked — the model expression
+          // carries the provider identity.
+          const modelArg = modelArgumentOf(node);
+          const resolved = modelArg ? resolveProviderModel(modelArg) : null;
+          if (resolved) {
+            addUsage(
+              resolved.vendorSlug,
+              UsageType.METHOD_CALL,
+              `${resolved.vendorSlug}:${resolved.model ?? "model"}`,
+              node,
+              { providerPackage: resolved.providerPackage, model: resolved.model },
+            );
+          }
+        } else if (providerVars.has(callee.text)) {
+          // Factory-result call: `customOpenAI('gpt-4-turbo')`.
+          const factory = providerVars.get(callee.text)!;
+          const model = firstStringArgument(node) ?? factory.model;
+          addUsage(
+            factory.vendorSlug,
+            UsageType.METHOD_CALL,
+            `${factory.vendorSlug}:${model ?? "model"}`,
+            node,
+            { providerPackage: factory.providerPackage, model },
+          );
         }
       } else {
         const root = rootIdentifier(callee);
         if (root && bindings.has(root.text)) {
-          addUsage(
-            bindings.get(root.text)!.packageName,
-            UsageType.METHOD_CALL,
-            callee.getText(sourceFile),
-            node,
-          );
+          const provider = providerBindingOf(root.text);
+          if (provider) {
+            addUsage(
+              provider.underlyingVendor!,
+              UsageType.METHOD_CALL,
+              callee.getText(sourceFile),
+              node,
+              { providerPackage: provider.packageName, model: firstStringArgument(node) },
+            );
+          } else {
+            addUsage(
+              bindings.get(root.text)!.packageName,
+              UsageType.METHOD_CALL,
+              callee.getText(sourceFile),
+              node,
+            );
+          }
         }
       }
     }
@@ -217,7 +368,14 @@ export function analyzeSource(
 
   for (const [name, binding] of bindings) {
     for (const importNode of binding.importNodes) {
-      addUsage(binding.packageName, UsageType.IMPORT, name, importNode);
+      if (binding.underlyingVendor) {
+        addUsage(binding.underlyingVendor, UsageType.IMPORT, name, importNode, {
+          providerPackage: binding.packageName,
+          model: null,
+        });
+      } else {
+        addUsage(binding.packageName, UsageType.IMPORT, name, importNode);
+      }
     }
   }
 
@@ -361,6 +519,26 @@ export function collectBindings(
     bindings.set(name, { packageName, importNodes: [node] });
   }
 
+  function addFacadeBinding(
+    name: string,
+    providerPackage: string,
+    vendorSlug: string,
+    node: ts.Node,
+  ): void {
+    const existing = bindings.get(name);
+    if (existing) {
+      if (existing.packageName === providerPackage && existing.underlyingVendor === vendorSlug) {
+        existing.importNodes.push(node);
+      }
+      return;
+    }
+    bindings.set(name, {
+      packageName: providerPackage,
+      underlyingVendor: vendorSlug,
+      importNodes: [node],
+    });
+  }
+
   function addAlias(name: string, packageName: string): void {
     const existing = bindings.get(name);
     if (!existing) bindings.set(name, { packageName, importNodes: [] });
@@ -408,6 +586,17 @@ export function collectBindings(
         return;
       }
 
+      // Provider facade: `import { openai } from "@ai-sdk/openai"` binds the
+      // local name to the provider package, but only when its underlying
+      // vendor is tracked — otherwise the name stays unbound (fail-closed).
+      const facade = facadeProviderOf(specifier);
+      if (facade && trackPackages.has(facade.entry.vendorSlug)) {
+        for (const { localName } of importNames(node)) {
+          addFacadeBinding(localName, facade.providerPackage, facade.entry.vendorSlug, node);
+        }
+        return;
+      }
+
       if (resolveRelative) {
         const resolved = resolveRelative(filePath, specifier);
         if (resolved) {
@@ -451,10 +640,20 @@ export function collectBindings(
             const packageName = packageOf(argument.text);
             if (packageName) {
               addBinding(declaration.name.text, packageName, declaration);
-            } else if (resolveRelative) {
-              const resolved = resolveRelative(filePath, argument.text);
-              if (resolved?.defaultPackage) {
-                addBinding(declaration.name.text, resolved.defaultPackage, declaration);
+            } else {
+              const facade = facadeProviderOf(argument.text);
+              if (facade && trackPackages.has(facade.entry.vendorSlug)) {
+                addFacadeBinding(
+                  declaration.name.text,
+                  facade.providerPackage,
+                  facade.entry.vendorSlug,
+                  declaration,
+                );
+              } else if (resolveRelative) {
+                const resolved = resolveRelative(filePath, argument.text);
+                if (resolved?.defaultPackage) {
+                  addBinding(declaration.name.text, resolved.defaultPackage, declaration);
+                }
               }
             }
           } else if (

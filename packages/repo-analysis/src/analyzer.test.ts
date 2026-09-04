@@ -642,3 +642,114 @@ describe("untrackedPackages frequency ranking", () => {
     }
   }, 120_000);
 });
+
+describe("facade provider mapping (ai / @ai-sdk/*)", () => {
+  async function writeRepo(files: Record<string, string>): Promise<string> {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "patchbay-facade-"));
+    for (const [rel, content] of Object.entries(files)) {
+      const full = path.join(dir, rel);
+      await fs.mkdir(path.dirname(full), { recursive: true });
+      await fs.writeFile(full, content, "utf8");
+    }
+    return dir;
+  }
+
+  async function analyzeModes(dir: string, trackPackages: string[]) {
+    const serial = await analyzeRepository({ rootDir: dir, trackPackages });
+    process.env.REPO_ANALYSIS_PARALLEL = "1";
+    try {
+      const parallel = await analyzeRepository({ rootDir: dir, trackPackages });
+      return { serial, parallel };
+    } finally {
+      delete process.env.REPO_ANALYSIS_PARALLEL;
+    }
+  }
+
+  it("tracks generateText model calls under the underlying vendor", async () => {
+    const dir = await writeRepo({
+      "package.json": JSON.stringify({ name: "facade" }),
+      "src/chat.ts": `import { generateText } from "ai";\nimport { openai } from "@ai-sdk/openai";\nexport async function chat(prompt: string) {\n  const { text } = await generateText({ model: openai("gpt-4o"), prompt });\n  return text;\n}\n`,
+    });
+    try {
+      const { serial, parallel } = await analyzeModes(dir, ["openai"]);
+      for (const analysis of [serial, parallel]) {
+        const modelCall = analysis.usages.find(
+          (u) => u.packageName === "openai" && u.symbol === "openai:gpt-4o",
+        );
+        expect(modelCall).toBeDefined();
+        expect(modelCall?.usageType).toBe("METHOD_CALL");
+        expect(modelCall?.facade).toEqual({ providerPackage: "@ai-sdk/openai", model: "gpt-4o" });
+        const providerImport = analysis.usages.find(
+          (u) => u.packageName === "openai" && u.usageType === "IMPORT" && u.symbol === "openai",
+        );
+        expect(providerImport?.facade).toEqual({ providerPackage: "@ai-sdk/openai", model: null });
+      }
+      expect(parallel.usages).toEqual(serial.usages);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it("resolves factory results and variable-held models", async () => {
+    const dir = await writeRepo({
+      "package.json": JSON.stringify({ name: "facade-factory" }),
+      "src/chat.ts": `import { generateText } from "ai";\nimport { createOpenAI } from "@ai-sdk/openai";\nconst customOpenAI = createOpenAI({ apiKey: "sk-test" });\nconst model = customOpenAI("gpt-4-turbo");\nexport async function chat(prompt: string) {\n  const { text } = await generateText({ model, prompt });\n  return text;\n}\n`,
+    });
+    try {
+      const { serial, parallel } = await analyzeModes(dir, ["openai"]);
+      for (const analysis of [serial, parallel]) {
+        const modelCall = analysis.usages.find(
+          (u) => u.packageName === "openai" && u.symbol === "openai:gpt-4-turbo",
+        );
+        expect(modelCall).toBeDefined();
+        expect(modelCall?.facade?.providerPackage).toBe("@ai-sdk/openai");
+      }
+      expect(parallel.usages).toEqual(serial.usages);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it("keeps providers distinct and ignores untracked vendors", async () => {
+    const dir = await writeRepo({
+      "package.json": JSON.stringify({ name: "facade-multi" }),
+      "src/chat.ts": `import { generateText } from "ai";\nimport { openai } from "@ai-sdk/openai";\nimport { anthropic } from "@ai-sdk/anthropic";\nexport async function chat(prompt: string) {\n  const a = await generateText({ model: openai("gpt-4o"), prompt });\n  const b = await generateText({ model: anthropic("claude-3-5-sonnet-20241022"), prompt });\n  return [a.text, b.text];\n}\n`,
+    });
+    try {
+      const both = await analyzeRepository({
+        rootDir: dir,
+        trackPackages: ["openai", "anthropic"],
+      });
+      expect(
+        both.usages.some((u) => u.packageName === "openai" && u.symbol === "openai:gpt-4o"),
+      ).toBe(true);
+      expect(
+        both.usages.some(
+          (u) =>
+            u.packageName === "anthropic" && u.symbol === "anthropic:claude-3-5-sonnet-20241022",
+        ),
+      ).toBe(true);
+
+      const openaiOnly = await analyzeRepository({ rootDir: dir, trackPackages: ["openai"] });
+      expect(openaiOnly.usages.some((u) => u.packageName === "anthropic")).toBe(false);
+      expect(
+        openaiOnly.usages.some((u) => u.packageName === "openai" && u.symbol === "openai:gpt-4o"),
+      ).toBe(true);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it("does not mistake local functions for facade calls", async () => {
+    const dir = await writeRepo({
+      "package.json": JSON.stringify({ name: "facade-negative" }),
+      "src/local.ts": `function generateText(options: { model: string }) {\n  return options.model;\n}\nexport const out = generateText({ model: "not-a-provider" });\n`,
+    });
+    try {
+      const analysis = await analyzeRepository({ rootDir: dir, trackPackages: ["openai"] });
+      expect(analysis.usages).toEqual([]);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  }, 120_000);
+});

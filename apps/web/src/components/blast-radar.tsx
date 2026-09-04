@@ -11,6 +11,8 @@ export interface RadarNode {
   usageType: string;
   riskTags: string[];
   vendorSlug: string;
+  /** Facade provider package (`@ai-sdk/openai`) when tracked through a facade. */
+  via?: string | null;
 }
 
 export interface BlastRadarData {
@@ -219,6 +221,11 @@ export function BlastRadar({ data }: { data: BlastRadarData }) {
             <Badge tone="neutral" variant="outline" size="sm">
               {selected.vendorSlug}
             </Badge>
+            {selected.via ? (
+              <Badge tone="blue" variant="outline" size="sm">
+                via {selected.via}
+              </Badge>
+            ) : null}
             {selected.riskTags.map((tag) => (
               <Badge key={tag} tone="amber" variant="subtle" size="sm">
                 {tag}

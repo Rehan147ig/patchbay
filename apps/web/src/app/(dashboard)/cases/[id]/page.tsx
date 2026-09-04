@@ -23,6 +23,15 @@ export const metadata: Metadata = {
   title: "Remediation case",
 };
 
+/** Provider package (`@ai-sdk/openai`) behind a facade-tracked usage, if any. */
+function facadeProviderOf(usage: { metadata?: unknown }): string | null {
+  if (typeof usage.metadata !== "object" || usage.metadata === null) return null;
+  const facade = (usage.metadata as { facade?: unknown }).facade;
+  if (typeof facade !== "object" || facade === null) return null;
+  const providerPackage = (facade as { providerPackage?: unknown }).providerPackage;
+  return typeof providerPackage === "string" ? providerPackage : null;
+}
+
 const STATUS_TONE: Record<string, "neutral" | "blue" | "green" | "amber" | "red" | "purple"> = {
   OBSERVED: "neutral",
   EVIDENCE_VERIFIED: "neutral",
@@ -152,6 +161,7 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
   // center = changed package@version, ring 1 = affected usages from the
   // latest plan's impact assessment (strict exact-symbol matches only),
   // ring 2 = other indexed usages co-located in the same files.
+  // Facade usages carry `via` (provider package) from IntegrationUsage metadata.
   const radarAffected =
     latestPlan?.impactAssessment?.affectedUsages
       .map((item) => item.usage)
@@ -174,6 +184,7 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
             symbol: true,
             usageType: true,
             riskTags: true,
+            metadata: true,
             vendor: { select: { slug: true } },
           },
           orderBy: [{ filePath: "asc" }, { symbol: "asc" }],
@@ -189,6 +200,7 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
       usageType: usage.usageType,
       riskTags: (usage.riskTags as string[]) ?? [],
       vendorSlug: usage.vendor.slug,
+      via: facadeProviderOf(usage),
     })),
     colocated: radarColocated.map((usage) => ({
       id: usage.id,
@@ -197,6 +209,7 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
       usageType: usage.usageType,
       riskTags: (usage.riskTags as string[]) ?? [],
       vendorSlug: usage.vendor.slug,
+      via: facadeProviderOf(usage),
     })),
   };
 
