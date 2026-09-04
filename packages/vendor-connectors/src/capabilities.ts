@@ -162,7 +162,7 @@ export const CAPABILITY_REGISTRY: readonly ConnectorCapability[] = [
   },
   { ...baseline("generic-openapi", "openapi-spec"), ecosystem: "openapi", language: "openapi" },
   // AI / LLM
-  baseline("google-gemini", "@google/generative-ai"),
+  certified("google-gemini", "@google/generative-ai", "DRAFT_PR"),
   baseline("mistral", "@mistralai/mistralai"),
   baseline("deepseek", "deepseek"),
   baseline("cohere", "cohere-ai"),

@@ -32,6 +32,7 @@ export type {
   PolicyClass,
 } from "./capabilities";
 export { defineConnector, type ConnectorSpec, type ConnectorRule } from "./sdk";
+export { methodRenameKit, type MethodRenameEntry, type MethodRenameKit } from "./archetypes";
 export { assessImpact } from "./scoring";
 export type { ImpactDraft, ImpactScoringInput, ImpactScoringUsage } from "./scoring";
 export type {

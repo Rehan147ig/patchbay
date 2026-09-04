@@ -1,0 +1,12 @@
+lockfileVersion: "9.0"
+
+importers:
+  .:
+    dependencies:
+      "@google/generative-ai":
+        specifier: ^0.21.0
+        version: 0.21.0
+    devDependencies:
+      typescript:
+        specifier: ^5.4.5
+        version: 5.9.3

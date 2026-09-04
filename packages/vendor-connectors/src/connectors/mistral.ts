@@ -1,4 +1,5 @@
 import { defineConnector } from "../sdk";
+import { methodRenameKit } from "../archetypes";
 
 /**
  * Mistral connector.
@@ -9,21 +10,26 @@ import { defineConnector } from "../sdk";
  * - Response shape changed from `choices[0].message` to `choices[0].message`
  *   (still) but the stream events differ (`message_start`, `content_delta`).
  * - The `random_seed` / `temperature` parameter names changed.
+ *
+ * The method-rename kit is built with the shared archetype helper; the
+ * parameter/response rules stay inline (advisory, no auto-patch).
  */
+const renameKit = methodRenameKit([
+  {
+    symbol: "client.chat.completions.create",
+    replacement: "client.chat.complete",
+    description: "Replace chat.completions.create with chat.complete (Mistral SDK v1+).",
+    confidence: 90,
+    aliases: ["mistral.chat.completions"],
+    evidence: { sdk: "mistral" },
+  },
+]);
+
 export const mistralConnector = defineConnector({
   slug: "mistral",
   identifiers: ["mistral", "@mistralai/mistralai"],
   rules: [
-    {
-      changeType: "METHOD_RENAMED",
-      oldValue: "client.chat.completions.create",
-      newValue: "client.chat.complete",
-      description:
-        "Mistral SDK v1 renamed chat.completions.create to chat.complete (native Conversations API).",
-      affectedSymbols: ["client.chat.completions.create", "mistral.chat.completions"],
-      breaking: true,
-      evidence: { sdk: "mistral" },
-    },
+    ...renameKit.rules,
     {
       changeType: "PARAMETER_REQUIRED",
       oldValue: "response_format",
@@ -44,11 +50,7 @@ export const mistralConnector = defineConnector({
     },
   ],
   patchSuggestions: {
-    "client.chat.completions.create": {
-      replacement: "client.chat.complete",
-      description: "Replace chat.completions.create with chat.complete (Mistral SDK v1+).",
-      confidence: 90,
-    },
+    ...renameKit.patchSuggestions,
     "mistral.chat.completions": {
       replacement: "mistral.chat.complete",
       description: "Replace mistral.chat.completions with mistral.chat.complete.",

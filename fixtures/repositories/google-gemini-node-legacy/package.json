@@ -1,0 +1,12 @@
+{
+  "name": "@acme/gemini-service",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  }
+}

@@ -1,61 +1,106 @@
-import { defineConnector } from "../sdk";
+import type { NormalizedChangeDraft, PatchSuggestion, VendorConnector } from "../types";
 
 /**
- * Google Gemini connector.
+ * Google Gemini connector (`@google/generative-ai`).
  *
- * The `@google/generative-ai` SDK restructured across versions:
- * - `generateContent` -> `generateContent` (unchanged) but the constructor
- *   moved from `new GoogleGenerativeAI(apiKey)` to per-client factories
- *   (`getGenerativeModel`).
- * - `response.text()` still exists but `response.candidates[0].content`
- *   is the canonical shape; `parts` replaced `content` in some versions.
- * - Safety settings and `safetySettings` field naming changed.
+ * Payload-driven like the OpenAI connector: a bare `{ sdk }` payload yields
+ * only a non-breaking version-upgrade draft (no patch kit), so unmatched
+ * releases stay silent. Concrete renames arrive via
+ * `migration.methodRenames` and normalize to exact-symbol METHOD_RENAMED
+ * drafts with quote-safe line-local suggestions.
+ *
+ * Certified example: the constructor migration
+ * `GoogleGenerativeAI` -> `getGenerativeModel`, proven by the
+ * google-gemini-node-legacy fixture in the eval corpus.
  */
-export const geminiConnector = defineConnector({
+
+const IDENTIFIERS = ["gemini", "@google/generative-ai", "google-gemini"];
+
+interface MethodRename {
+  from: string;
+  to: string;
+}
+
+interface GeminiMigrationPayload {
+  sdk?: string;
+  vendor?: string;
+  fromVersion?: string;
+  toVersion?: string;
+  migration?: {
+    methodRenames?: MethodRename[];
+  };
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isGeminiPayload(payload: unknown): payload is GeminiMigrationPayload {
+  if (!isObject(payload)) return false;
+  const candidates = [payload.sdk, payload.vendor].filter(
+    (value): value is string => typeof value === "string",
+  );
+  return candidates.some((candidate) => IDENTIFIERS.includes(candidate));
+}
+
+export const geminiConnector: VendorConnector = {
   slug: "google-gemini",
-  identifiers: ["gemini", "@google/generative-ai", "google-gemini"],
-  rules: [
-    {
-      changeType: "METHOD_RENAMED",
-      oldValue: "new GoogleGenerativeAI(apiKey)",
-      newValue: "getGenerativeModel()",
-      description:
-        "The SDK moved to factory functions: GoogleGenerativeAI still exists but getGenerativeModel() is the canonical entrypoint.",
-      affectedSymbols: ["GoogleGenerativeAI", "getGenerativeModel"],
-      breaking: true,
-      evidence: { sdk: "gemini" },
-    },
-    {
-      changeType: "RESPONSE_FIELD_REMOVED",
-      oldValue: "response.candidates[].content.parts",
-      newValue: "response.text()",
-      description:
-        "Response text extraction changed; parts arrays are nested under content and text() is the stable accessor.",
-      affectedSymbols: ["generateContent"],
-      breaking: true,
-      evidence: { sdk: "gemini" },
-    },
-    {
-      changeType: "PARAMETER_RENAMED",
-      oldValue: "safetySettings",
-      description: "Safety settings were reorganized; the field shape changed across majors.",
-      affectedSymbols: ["generateContent", "getGenerativeModel"],
-      breaking: false,
-      evidence: { sdk: "gemini" },
-    },
-  ],
-  patchSuggestions: {
-    GoogleGenerativeAI: {
-      replacement: "getGenerativeModel",
-      description:
-        "Use getGenerativeModel({ model }) from @google/generative-ai instead of constructing GoogleGenerativeAI directly.",
-      confidence: 82,
-    },
-    generateContent: {
-      replacement: "generateContent",
-      description:
-        "Extract response text via response.text(); do not reach into candidates[].content.parts directly.",
-      confidence: 88,
-    },
+
+  supports(rawPayload: unknown): boolean {
+    return isGeminiPayload(rawPayload);
   },
-});
+
+  normalizeChange(input): NormalizedChangeDraft[] {
+    const payload = input.rawPayload;
+    if (!isGeminiPayload(payload)) return [];
+
+    const drafts: NormalizedChangeDraft[] = [];
+    const fromVersion = payload.fromVersion;
+    const toVersion = payload.toVersion;
+
+    if (fromVersion !== undefined && toVersion !== undefined) {
+      drafts.push({
+        changeType: "SDK_VERSION_UPGRADE",
+        oldValue: fromVersion,
+        newValue: toVersion,
+        description: `Upgrade the @google/generative-ai package from ${fromVersion} to ${toVersion}.`,
+        breaking: false,
+        affectedSymbols: [],
+        evidence: { sdk: "google-gemini" },
+      });
+    }
+
+    for (const rename of payload.migration?.methodRenames ?? []) {
+      if (!rename.from || !rename.to) continue;
+      drafts.push({
+        changeType: "METHOD_RENAMED",
+        oldValue: rename.from,
+        newValue: rename.to,
+        description: `Method ${rename.from} was renamed to ${rename.to} (@google/generative-ai).`,
+        breaking: true,
+        affectedSymbols: [rename.from],
+        evidence: { sdk: "google-gemini", rule: "method-rename" },
+      });
+    }
+
+    return drafts;
+  },
+
+  buildPatchSuggestions(normalizations): PatchSuggestion[] {
+    const suggestions: PatchSuggestion[] = [];
+    for (const normalization of normalizations) {
+      if (normalization.changeType !== "METHOD_RENAMED") continue;
+      const evidence = normalization.evidence as { rule?: string } | undefined;
+      if (evidence?.rule !== "method-rename") continue;
+      if (!normalization.oldValue || !normalization.newValue) continue;
+      if (!normalization.affectedSymbols.includes(normalization.oldValue)) continue;
+      suggestions.push({
+        symbol: normalization.oldValue,
+        replacement: normalization.newValue,
+        description: `Rename ${normalization.oldValue} to ${normalization.newValue} (@google/generative-ai).`,
+        confidence: 90,
+      });
+    }
+    return suggestions;
+  },
+};

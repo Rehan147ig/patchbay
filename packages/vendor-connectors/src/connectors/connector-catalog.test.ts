@@ -141,6 +141,24 @@ describe("connector catalog", () => {
         rawPayload: payload,
         sourceType: "SDK_RELEASE",
       });
+      if (connector.slug === "google-gemini") {
+        // Payload-driven kit (like openai): a bare identifier yields no drafts;
+        // concrete renames arrive via migration.methodRenames.
+        expect(normalizations, connector.slug).toEqual([]);
+        const withMigration = connector.normalizeChange({
+          rawPayload: {
+            sdk: "@google/generative-ai",
+            fromVersion: "0.x",
+            toVersion: "1.x",
+            migration: {
+              methodRenames: [{ from: "GoogleGenerativeAI", to: "getGenerativeModel" }],
+            },
+          },
+          sourceType: "SDK_RELEASE",
+        });
+        expect(withMigration.length, connector.slug).toBeGreaterThan(0);
+        continue;
+      }
       expect(normalizations.length, connector.slug).toBeGreaterThan(0);
     }
   });
