@@ -220,6 +220,17 @@ type PullRequestPayload = z.infer<typeof PullRequestPayloadSchema>;
 type PushPayload = z.infer<typeof PushPayloadSchema>;
 
 /**
+ * Repository externalId formats matched by webhook readers. Canonical format
+ * is the bare GitHub repository id; the `github:`-prefixed form is accepted
+ * for rows written by the picker-connect flow before canonicalization, until
+ * the backfill migration removes them.
+ */
+export function repositoryExternalIds(githubRepositoryId: number): string[] {
+  const bare = String(githubRepositoryId);
+  return [bare, `github:${bare}`];
+}
+
+/**
  * Push handling: identifies every connected repository by GitHub id, then
  * enqueues an INCREMENTAL graph-index job carrying the changed paths (union
  * of modified/added/removed across commits) so the graph can be refreshed
@@ -228,7 +239,7 @@ type PushPayload = z.infer<typeof PushPayloadSchema>;
 async function handlePush(payload: PushPayload, correlationId: string): Promise<void> {
   const { repository, ref, after } = payload;
   const repositories = await prisma.repository.findMany({
-    where: { externalId: String(repository.id) },
+    where: { externalId: { in: repositoryExternalIds(repository.id) } },
     select: { id: true, organizationId: true, name: true },
   });
   if (repositories.length === 0) {
@@ -307,7 +318,9 @@ async function handlePullRequest(
     where: {
       externalId: String(pr.number),
       remediationPlan: {
-        impactAssessment: { repository: { externalId: String(repository.id) } },
+        impactAssessment: {
+          repository: { externalId: { in: repositoryExternalIds(repository.id) } },
+        },
       },
     },
     select: {

@@ -44,7 +44,11 @@ export async function POST(request: NextRequest) {
       getSecretStore(),
     );
     const githubRepository = await provider.fetchRepositoryInfo();
-    const externalId = `github:${githubRepository.externalId}`;
+    // Canonical externalId is the bare GitHub repository id (String(repo.id)),
+    // matching the provider, the install-callback flow, and the push/PR
+    // webhook readers. Never prefix it: a `github:` prefix here silently
+    // breaks push-webhook matching for picker-connected repositories.
+    const externalId = githubRepository.externalId;
 
     const existing = await prisma.repository.findUnique({
       where: {

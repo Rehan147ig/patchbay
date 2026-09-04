@@ -89,6 +89,9 @@ describe("POST /api/repositories/connect", () => {
       expect.objectContaining({
         create: expect.objectContaining({
           provider: "GITHUB",
+          // Canonical bare GitHub id: the push/PR webhook readers match this
+          // exact format, so a `github:` prefix here would silently break them.
+          externalId: "12345",
           fullName: "acme/billing-service",
           metadata: expect.objectContaining({ installationId: 42, provider: "GITHUB" }),
         }),
