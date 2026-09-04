@@ -45,6 +45,33 @@ export function npmRegistryAuthHeaders(
   return {};
 }
 
+export interface NpmLatestInfo {
+  version: string;
+  publishedAt: Date | null;
+}
+
+/**
+ * Latest-version lookup for ANY npm package (not just catalog vendors).
+ * Powers the autonomous track's lockfile-vs-registry diff. Throws on
+ * transport/trust failures (404 included) — callers skip the dependency
+ * rather than guessing. Honors mirror URL + auth + custom CA like the
+ * adapter polls.
+ */
+export async function fetchNpmLatestVersion(packageName: string): Promise<NpmLatestInfo | null> {
+  const url = `${getNpmRegistryUrl()}/${encodeURIComponent(packageName)}`;
+  const response = await fetchWithTrust(url, resolveNpmTrustProfile(), {
+    headers: { Accept: NPM_ACCEPT, ...npmRegistryAuthHeaders() },
+  });
+  const data = JSON.parse(response.text) as {
+    "dist-tags"?: { latest?: string };
+    time?: Record<string, string>;
+  };
+  const latest = data["dist-tags"]?.latest ?? null;
+  if (!latest) return null;
+  const published = data.time?.[latest];
+  return { version: latest, publishedAt: published ? new Date(published) : null };
+}
+
 /**
  * npm registry adapter - polls the registry packument for a vendor package.
  * Produces evidence with source NPM. Polls are conditional: the ETag from the

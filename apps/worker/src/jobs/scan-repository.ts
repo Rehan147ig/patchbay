@@ -9,6 +9,7 @@ import type { Job } from "bullmq";
 import { writeAuditEvent } from "../lib/audit";
 import { writeAnalysisCache } from "../lib/analysis-cache";
 import { resolveRepositorySource } from "../lib/repository-source";
+import { runAutonomousIgnition } from "../lib/autonomous-detect";
 import { getCapability } from "@patchbay/vendor-connectors";
 
 /**
@@ -315,6 +316,39 @@ export async function processScanRepository(job: Job): Promise<ScanRepositoryRes
       // skips its duplicate analysis pass on a hit and falls back to cold
       // extraction otherwise. Best-effort — never fails the scan.
       await writeAnalysisCache(cacheRedis, commitSha, trackPackages, analysis);
+
+      // Phase 2b ignition (best-effort, never fails the scan): every
+      // non-catalog npm direct dependency is diffed against the registry +
+      // OSV while the source is still checked out. Provable patch/minor
+      // bumps become POLICY_ELIGIBLE autonomous cases through the standard
+      // funnel — this is what makes all 40 dependencies watched, not just
+      // the 8 certified vendors.
+      try {
+        const ignition = await runAutonomousIgnition({
+          rootDir,
+          manifests: analysis.manifests,
+          lockfileVersions: analysis.lockfileVersions,
+          packageManager: analysis.packageManager,
+          isCatalogPackage: (packageName) => vendorIdByPackage.has(packageName),
+          organizationId,
+          repositoryId,
+          commitSha,
+          correlationId,
+        });
+        logger.info("autonomous ignition completed", {
+          repositoryId,
+          scanId,
+          correlationId,
+          ...ignition,
+        });
+      } catch (error) {
+        logger.warn("autonomous ignition failed without failing the scan", {
+          repositoryId,
+          scanId,
+          error: String(error),
+        });
+      }
+
       await enqueueGraphIndex(
         organizationId,
         repositoryId,

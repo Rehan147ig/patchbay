@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createNpmAdapter, getNpmRegistryUrl, npmRegistryAuthHeaders } from "./npm";
+import {
+  createNpmAdapter,
+  fetchNpmLatestVersion,
+  getNpmRegistryUrl,
+  npmRegistryAuthHeaders,
+} from "./npm";
 
 const PACKUMENT = {
   "dist-tags": { latest: "4.8.1" },
@@ -220,5 +225,21 @@ describe("createNpmAdapter", () => {
     );
     const result = await fetchWithTrust(target.toString(), resolveNpmTrustProfile());
     expect(typeof result === "object" && result !== null && result.status).toBe(200);
+  });
+});
+
+describe("fetchNpmLatestVersion", () => {
+  it("returns the latest version and its publish date for any package", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(PACKUMENT)));
+    const latest = await fetchNpmLatestVersion("openai");
+    expect(latest?.version).toBe("4.8.1");
+    expect(latest?.publishedAt).toEqual(new Date("2026-08-01T00:00:00.000Z"));
+  });
+
+  it("fails loudly when the package does not exist (callers skip the dep)", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("not found", { status: 404 })));
+    await expect(fetchNpmLatestVersion("no-such-pkg")).rejects.toMatchObject({
+      reason: "non_ok_status",
+    });
   });
 });

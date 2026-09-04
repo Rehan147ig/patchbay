@@ -83,6 +83,10 @@ export {
 } from "./trust";
 export type { TrustProfile } from "./trust";
 export { getNpmRegistryUrl, npmRegistryAuthHeaders } from "./adapters/npm";
+export { fetchNpmLatestVersion } from "./adapters/npm";
+export type { NpmLatestInfo } from "./adapters/npm";
+export { createOsvAdapter, osvFixedVersion, osvMaxScore } from "./adapters/osv";
+export type { OsvAdapterOptions } from "./adapters/osv";
 export {
   AUTONOMOUS_GENERIC_SLUG,
   autonomousGenericConnector,

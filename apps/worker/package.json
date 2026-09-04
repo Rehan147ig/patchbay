@@ -21,6 +21,7 @@
     "@patchbay/operations": "workspace:*",
     "@patchbay/policy-engine": "workspace:*",
     "@patchbay/queue": "workspace:*",
+    "@patchbay/remediation-engine": "workspace:*",
     "@patchbay/repo-analysis": "workspace:*",
     "@patchbay/sandbox-runner": "workspace:*",
     "@patchbay/vendor-connectors": "workspace:*",

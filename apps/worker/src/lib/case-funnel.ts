@@ -111,10 +111,13 @@ export function decideFunnel(input: FunnelInput): FunnelDecision {
     };
   }
 
-  // Autonomous track: a sandbox-proven manifest-only patch/minor bump needs
-  // no breaking-change evidence (there are no call-site usages by design).
-  // Approval is still mandatory downstream (APPROVAL_REQUIRED policy class +
-  // draft-only product rule); this branch only makes the case plan-eligible.
+  // Autonomous track: a proven manifest-only patch/minor bump needs no
+  // breaking-change evidence (there are no call-site usages by design).
+  // Proof is two-stage: the detector proves the deterministic edit applies
+  // cleanly to the real manifest bytes (sandboxValidated here), and the
+  // container sandbox re-proves it at VALIDATE time before any PR — while
+  // approval stays mandatory downstream (APPROVAL_REQUIRED policy class +
+  // draft-only product rule). This branch only makes the case plan-eligible.
   const autonomousEligible =
     (evidence.autonomousBump?.updateType === "patch" ||
       evidence.autonomousBump?.updateType === "minor") &&
