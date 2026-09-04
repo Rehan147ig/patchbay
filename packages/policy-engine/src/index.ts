@@ -239,6 +239,18 @@ export type {
   AutonomyPolicyShape,
   AutonomyUpdateType,
 } from "./autonomy";
+export {
+  evaluatePromotionEligibility,
+  PROMOTION_DEFAULT_STREAK,
+  PROMOTION_DEFAULT_WINDOW_DAYS,
+} from "./promotion";
+export type {
+  PromotionEligibility,
+  PromotionEligibilityInput,
+  PromotionEvidence,
+  PromotionOutcomeInput,
+  PromotionOutcomeStatus,
+} from "./promotion";
 
 /** Approvals expire 7 days after recording; stale approvals never unblock PRs. */
 export const APPROVAL_TTL_MS = 7 * 24 * 60 * 60 * 1000;
