@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { GitHubProvider, createGitProviderFromEnv } from "./github-provider";
 import { GitHubAppProvider } from "./github-app-provider";
 import { LocalGitProvider } from "./index";
@@ -188,6 +188,81 @@ describe("GitHubProvider", () => {
     expect(() => new GitHubProvider({ token: "t", repository: "not-a-owner-repo" })).toThrow(
       "owner/name form",
     );
+  });
+
+  it("refuses an empty changeset instead of opening a no-op commit", async () => {
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
+    const provider = new GitHubProvider({
+      token: "ghp_test",
+      repository: "acme/app",
+      fetchImpl,
+    });
+
+    await expect(
+      provider.createDraftPullRequest({
+        repositoryName: "app",
+        fixtureDir: "",
+        branchName: "patchbay/empty",
+        title: "Fix",
+        body: "body",
+        patches: [],
+      }),
+    ).rejects.toThrow(/at least one patch/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("fails loudly on a non-fast-forward ref update (race) instead of overwriting", async () => {
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/repos/acme/app")) {
+        return jsonResponse(200, { default_branch: "main" });
+      }
+      if (url.includes("/pulls") && init?.method === "GET") {
+        return jsonResponse(200, []);
+      }
+      if (url.includes("/git/ref/heads/main")) {
+        return jsonResponse(200, { object: { sha: "base-sha" } });
+      }
+      if (url.endsWith("/git/refs")) {
+        return jsonResponse(201, { ref: "refs/heads/patchbay/race" });
+      }
+      if (url.includes("/git/ref/heads/patchbay%2Frace")) {
+        return jsonResponse(200, { object: { sha: "base-sha" } });
+      }
+      if (url.endsWith("/git/commits/base-sha")) {
+        return jsonResponse(200, { sha: "base-sha", tree: { sha: "base-tree-sha" } });
+      }
+      if (url.endsWith("/git/blobs")) {
+        return jsonResponse(201, { sha: "blob-sha" });
+      }
+      if (url.endsWith("/git/trees")) {
+        return jsonResponse(201, { sha: "new-tree-sha" });
+      }
+      if (url.endsWith("/git/commits")) {
+        return jsonResponse(201, { sha: "commit-sha", tree: { sha: "new-tree-sha" } });
+      }
+      if (url.includes("/git/refs/heads/patchbay%2Frace") && init?.method === "PATCH") {
+        // Someone moved the tip mid-flight: non-fast-forward must fail loudly.
+        return jsonResponse(422, { message: "Reference update failed: non-fast-forward" });
+      }
+      throw new Error(`unexpected request: ${init?.method} ${url}`);
+    }) as typeof fetch;
+
+    const provider = new GitHubProvider({
+      token: "ghp_test",
+      repository: "acme/app",
+      fetchImpl,
+    });
+
+    await expect(
+      provider.createDraftPullRequest({
+        repositoryName: "app",
+        fixtureDir: "",
+        branchName: "patchbay/race",
+        title: "Fix",
+        body: "body",
+        patches: PATCHES,
+      }),
+    ).rejects.toThrow(/PATCH .* failed: 422 .*non-fast-forward/);
   });
 
   it("resolves the HEAD sha of the default branch", async () => {

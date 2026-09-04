@@ -90,6 +90,15 @@ export class GitHubProvider implements GitProvider {
   async createDraftPullRequest(input: CreateDraftPRInput): Promise<PullRequestResult> {
     const owner = this.config.repository.split("/")[0]!;
     const repo = this.config.repository.split("/")[1]!;
+
+    // Fail closed on empty changesets: an empty tree produces a no-op commit
+    // that still opens a PR. Refuse instead of shipping nothing.
+    if (input.patches.length === 0) {
+      throw new Error(
+        "createDraftPullRequest requires at least one patch; refusing an empty commit",
+      );
+    }
+
     const base = this.config.baseBranch ?? (await this.defaultBranch(owner, repo));
 
     // Idempotency: if a PR already exists for this deterministic branch, return it immediately

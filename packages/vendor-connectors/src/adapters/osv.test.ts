@@ -144,6 +144,36 @@ describe("createOsvAdapter", () => {
     await expect(adapter.fetch()).rejects.toMatchObject({ reason: "non_ok_status" });
   });
 
+  it("returns empty evidence on malformed shapes instead of crashing", async () => {
+    const adapter = createOsvAdapter({
+      ecosystem: "npm",
+      packageName: "lodash",
+      installedVersion: "4.17.20",
+    });
+    for (const body of [{ vulns: "nope" }, { vulns: [null, 42, { id: 123 }] }, "just a string"]) {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(body)));
+      const result = await adapter.fetch();
+      expect(result.evidence).toEqual([]);
+    }
+  });
+
+  it("classifies network timeouts as trust violations", async () => {
+    const adapter = createOsvAdapter({
+      ecosystem: "npm",
+      packageName: "lodash",
+      installedVersion: "4.17.20",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(() => {
+        return new Promise((_resolve, reject) => {
+          reject(Object.assign(new Error("timeout"), { name: "TimeoutError" }));
+        });
+      }),
+    );
+    await expect(adapter.fetch()).rejects.toMatchObject({ reason: "request_timeout" });
+  });
+
   it("supports OSV-shaped inputs and normalizes to a release", () => {
     const adapter = createOsvAdapter({
       ecosystem: "npm",

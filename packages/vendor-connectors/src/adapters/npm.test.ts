@@ -242,4 +242,24 @@ describe("fetchNpmLatestVersion", () => {
       reason: "non_ok_status",
     });
   });
+
+  it("surfaces rate limits as trust violations (detect job fails the run, never crashes)", async () => {
+    const adapter = createNpmAdapter("openai");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("slow down", { status: 429 })));
+    await expect(adapter.fetch()).rejects.toMatchObject({ reason: "rate_limited" });
+  });
+
+  it("rejects malformed JSON from a compromised registry instead of crashing", async () => {
+    const adapter = createNpmAdapter("openai");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response("this is not json {{{", {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      ),
+    );
+    await expect(adapter.fetch()).rejects.toThrow(SyntaxError);
+  });
 });

@@ -194,6 +194,22 @@ describe("fetchWithTrust", () => {
       status: 500,
     });
   });
+
+  it("rejects redirects to disallowed domains (open-redirect prevention)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(null, {
+          status: 302,
+          headers: { location: "https://evil.example.com/packument" },
+        }),
+      ),
+    );
+
+    await expect(
+      fetchWithTrust("https://registry.npmjs.org/openai", profile()),
+    ).rejects.toMatchObject({ reason: "redirect_rejected", status: 302 });
+  });
 });
 
 const TEST_PEM = `-----BEGIN CERTIFICATE-----

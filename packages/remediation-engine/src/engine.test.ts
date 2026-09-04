@@ -563,6 +563,31 @@ describe("generatePlan model retirements (facade symbols)", () => {
     expect(plan.patches).toHaveLength(0);
     expect(plan.skippedFiles).toContain("src/chat.ts");
   });
+
+  it("skips binary/unparseable files gracefully instead of crashing", async () => {
+    const { mkdtemp, writeFile, mkdir } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const dir = await mkdtemp(`${tmpdir()}/patch-binary-`);
+    await mkdir(`${dir}/src`, { recursive: true });
+    await writeFile(`${dir}/src/blob.ts`, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff, 0xfe]));
+    const plan = await generatePlan({
+      fixtureDir: dir,
+      repositoryName: "binary-service",
+      usages: [
+        {
+          filePath: "src/blob.ts",
+          line: 1,
+          symbol: "openai:gpt-4o",
+          excerpt: "???",
+        },
+      ],
+      patchSuggestions: retirementSuggestions(),
+      normalizations: RETIREMENT_DRAFTS,
+      assessmentConfidence: 90,
+    });
+    expect(plan.patches).toHaveLength(0);
+    expect(plan.skippedFiles).toContain("src/blob.ts");
+  });
 });
 
 describe("applyModelUpdate", () => {

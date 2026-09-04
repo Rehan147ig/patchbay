@@ -185,12 +185,17 @@ export function createOsvAdapter(options: OsvAdapterOptions): WatchtowerAdapter 
           version: installedVersion,
         }),
       });
-      const data = JSON.parse(response.text) as { vulns?: OsvVuln[] };
+      const data = JSON.parse(response.text) as { vulns?: unknown };
+      // Defensive: a compromised or buggy mirror may return non-array or
+      // non-object shapes. Anything unexpected yields empty evidence — intel
+      // is fail-open, actions stay fail-closed downstream.
+      const vulns = Array.isArray(data?.vulns) ? (data.vulns as OsvVuln[]) : [];
 
       const seen = new Set(prev.seenVulnIds);
       const evidence: WatchtowerEvidence[] = [];
-      for (const vuln of data.vulns ?? []) {
-        if (!vuln.id || seen.has(vuln.id)) continue;
+      for (const vuln of vulns) {
+        if (typeof vuln !== "object" || vuln === null) continue;
+        if (typeof vuln.id !== "string" || seen.has(vuln.id)) continue;
         seen.add(vuln.id);
         evidence.push(evidenceFor(vuln));
         if (evidence.length >= EVIDENCE_CAP) break;
