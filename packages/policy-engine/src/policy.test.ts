@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { approvalCoversPatches, evaluatePolicy, hashPatchedContents } from "./index";
+import {
+  approvalCoversPatches,
+  evaluatePolicy,
+  evaluateQuorum,
+  hashPatchedContents,
+} from "./index";
 import { PolicyDecision, RiskTag } from "@patchbay/domain";
 
 describe("evaluatePolicy", () => {
@@ -140,5 +145,112 @@ describe("approvalCoversPatches", () => {
       covered: true,
       reason: null,
     });
+  });
+});
+
+describe("evaluateQuorum", () => {
+  const contents = ["file-a patched"];
+  const hash = hashPatchedContents(contents);
+  const future = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const past = new Date(Date.now() - 1000);
+  const approval = (userId: string, overrides = {}) => ({
+    userId,
+    decision: "APPROVED" as const,
+    patchedHash: hash,
+    expiresAt: future,
+    ...overrides,
+  });
+
+  it("is trivially satisfied for non-quorum tags", () => {
+    expect(evaluateQuorum([], contents, ["PII"])).toMatchObject({
+      required: false,
+      satisfied: true,
+    });
+    expect(evaluateQuorum([], contents, [])).toMatchObject({
+      required: false,
+      satisfied: true,
+    });
+  });
+
+  it("requires two distinct covering approvers for PAYMENT/AUTH/ENCRYPTION/SECRETS", () => {
+    for (const tag of ["PAYMENT", "AUTH", "ENCRYPTION", "SECRETS"]) {
+      const one = evaluateQuorum([approval("u-1")], contents, [tag]);
+      expect(one).toMatchObject({ required: true, satisfied: false, approverCount: 1 });
+      const two = evaluateQuorum([approval("u-1"), approval("u-2")], contents, [tag]);
+      expect(two).toMatchObject({ required: true, satisfied: true, approverCount: 2 });
+    }
+  });
+
+  it("counts repeat approvals by the same user once", () => {
+    const status = evaluateQuorum([approval("u-1"), approval("u-1")], contents, ["PAYMENT"]);
+    expect(status).toMatchObject({ satisfied: false, approverCount: 1 });
+  });
+
+  it("ignores expired, stale-hash, and non-approved entries", () => {
+    const status = evaluateQuorum(
+      [
+        approval("u-1"),
+        approval("u-2", { expiresAt: past }),
+        approval("u-3", { patchedHash: "deadbeef" }),
+        approval("u-4", { decision: "REJECTED" }),
+      ],
+      contents,
+      ["AUTH"],
+    );
+    expect(status).toMatchObject({ satisfied: false, approverCount: 1 });
+  });
+});
+
+describe("evaluatePolicy quorum gate", () => {
+  const quorum = (approverCount: number, satisfied: boolean) => ({
+    required: true,
+    satisfied,
+    approverCount,
+    requiredCount: 2,
+    matchedTags: ["PAYMENT"],
+    reason: satisfied
+      ? null
+      : `Dual-approver quorum: ${approverCount}/2 distinct approvals (PAYMENT)`,
+  });
+
+  it("blocks PRs until quorum is satisfied despite single approval + validation", () => {
+    const blocked = evaluatePolicy({
+      confidence: 90,
+      patchCount: 1,
+      requiresHumanReview: false,
+      hasPassingValidation: true,
+      approvalDecision: "APPROVED",
+      riskTags: ["PAYMENT"],
+      quorum: quorum(1, false),
+    });
+    expect(blocked.decision).toBe(PolicyDecision.REQUIRE_APPROVAL);
+    expect(blocked.canCreatePR).toBe(false);
+    expect(blocked.reasons.join(" ")).toContain("Dual-approver quorum: 1/2");
+  });
+
+  it("allows PRs once quorum is satisfied", () => {
+    const allowed = evaluatePolicy({
+      confidence: 90,
+      patchCount: 1,
+      requiresHumanReview: false,
+      hasPassingValidation: true,
+      approvalDecision: "APPROVED",
+      riskTags: ["PAYMENT"],
+      quorum: quorum(2, true),
+    });
+    expect(allowed.decision).toBe(PolicyDecision.ALLOW_DRAFT_PR);
+    expect(allowed.canCreatePR).toBe(true);
+  });
+
+  it("keeps legacy single-approval behavior when quorum is absent", () => {
+    const allowed = evaluatePolicy({
+      confidence: 90,
+      patchCount: 1,
+      requiresHumanReview: false,
+      hasPassingValidation: true,
+      approvalDecision: "APPROVED",
+      riskTags: ["PAYMENT"],
+    });
+    expect(allowed.canCreatePR).toBe(true);
   });
 });

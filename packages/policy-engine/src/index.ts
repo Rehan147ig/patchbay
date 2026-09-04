@@ -34,6 +34,92 @@ export interface PlanEvaluationInput {
   hasPassingValidation: boolean;
   approvalDecision?: ApprovalDecision | null;
   riskTags: string[];
+  /**
+   * Dual-approver quorum status for sensitive paths, computed by the caller
+   * via evaluateQuorum (counts DISTINCT covering approvers). Absent = legacy
+   * single-approval behavior. Present + required + unsatisfied blocks PRs.
+   */
+  quorum?: QuorumStatus;
+}
+
+/**
+ * Risk tags that trigger the two-person rule. String-matched (not the
+ * RiskTag enum) so ENCRYPTION/SECRETS — weighted by blast-radius but not yet
+ * emitted by classifiers — engage quorum the moment they appear.
+ */
+export const SENSITIVE_QUORUM_TAGS = ["PAYMENT", "AUTH", "ENCRYPTION", "SECRETS"] as const;
+
+/** Distinct covering approvers required when quorum tags are present. */
+export const QUORUM_REQUIRED_APPROVALS = 2;
+
+export interface QuorumApprovalInput {
+  userId: string;
+  decision?: ApprovalDecision | null;
+  /** sha256 recorded at approval time; null = legacy approval without binding. */
+  patchedHash?: string | null;
+  expiresAt?: Date | string | null;
+}
+
+export interface QuorumStatus {
+  required: boolean;
+  satisfied: boolean;
+  approverCount: number;
+  requiredCount: number;
+  matchedTags: string[];
+  reason: string | null;
+}
+
+/**
+ * Evaluates the two-person rule: when the plan touches quorum tags, at least
+ * QUORUM_REQUIRED_APPROVALS DISTINCT users must hold covering approvals
+ * (APPROVED + unexpired + hash-bound to the current patches, via
+ * approvalCoversPatches). Same-user repeat approvals count once; expired or
+ * stale-hash approvals count zero. Non-quorum plans are trivially satisfied.
+ */
+export function evaluateQuorum(
+  approvals: ReadonlyArray<QuorumApprovalInput>,
+  patchedContents: string[],
+  riskTags: string[],
+  now: Date = new Date(),
+): QuorumStatus {
+  const matchedTags = riskTags.filter((tag) =>
+    (SENSITIVE_QUORUM_TAGS as readonly string[]).includes(tag),
+  );
+  if (matchedTags.length === 0) {
+    return {
+      required: false,
+      satisfied: true,
+      approverCount: 0,
+      requiredCount: 0,
+      matchedTags: [],
+      reason: null,
+    };
+  }
+  const approvers = new Set<string>();
+  for (const approval of approvals) {
+    if (approval.decision !== "APPROVED") continue;
+    const coverage = approvalCoversPatches(
+      {
+        decision: approval.decision,
+        patchedHash: approval.patchedHash,
+        expiresAt: approval.expiresAt,
+      },
+      patchedContents,
+      now,
+    );
+    if (coverage.covered) approvers.add(approval.userId);
+  }
+  const satisfied = approvers.size >= QUORUM_REQUIRED_APPROVALS;
+  return {
+    required: true,
+    satisfied,
+    approverCount: approvers.size,
+    requiredCount: QUORUM_REQUIRED_APPROVALS,
+    matchedTags,
+    reason: satisfied
+      ? null
+      : `Dual-approver quorum: ${approvers.size}/${QUORUM_REQUIRED_APPROVALS} distinct approvals (${matchedTags.join(", ")})`,
+  };
 }
 
 export interface PolicyEvaluationResult {
@@ -95,6 +181,22 @@ export function evaluatePolicy(
     if (plan.requiresHumanReview) {
       reasons.push("Plan explicitly requires human review");
     }
+    return {
+      decision: PolicyDecision.REQUIRE_APPROVAL,
+      reasons,
+      matchedPolicyIds,
+      canCreatePR: false,
+    };
+  }
+
+  // 3b. Dual-approver quorum for sensitive paths (PAYMENT/AUTH/ENCRYPTION/
+  // SECRETS): two DISTINCT covering approvers, or no PR — even when a single
+  // approval and validation are otherwise sufficient.
+  if (plan.quorum && plan.quorum.required && !plan.quorum.satisfied) {
+    reasons.push(
+      plan.quorum.reason ??
+        `Dual-approver quorum: ${plan.quorum.approverCount}/${plan.quorum.requiredCount} distinct approvals`,
+    );
     return {
       decision: PolicyDecision.REQUIRE_APPROVAL,
       reasons,

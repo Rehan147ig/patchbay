@@ -1,7 +1,7 @@
 import { prisma } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import { ActorType, CaseStatus, notFound, validationFailed, PlanStatus } from "@patchbay/domain";
-import { approvalCoversPatches, evaluatePolicy } from "@patchbay/policy-engine";
+import { approvalCoversPatches, evaluatePolicy, evaluateQuorum } from "@patchbay/policy-engine";
 import { requireCertified } from "@patchbay/vendor-connectors";
 import { enqueue, JobType } from "@patchbay/queue";
 import type { NextRequest } from "next/server";
@@ -85,6 +85,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       ),
     ) as string[];
     const latestApproval = plan.approvals[0];
+    const patchedContents = plan.patches.map((patch) => patch.patchedContent);
     const coverage = approvalCoversPatches(
       latestApproval
         ? {
@@ -93,7 +94,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             expiresAt: latestApproval.expiresAt,
           }
         : null,
-      plan.patches.map((patch) => patch.patchedContent),
+      patchedContents,
+    );
+    // Two-person rule: quorum-tagged plans need two DISTINCT covering
+    // approvers; a lone approval (even valid) must not open a draft PR.
+    const quorum = evaluateQuorum(
+      plan.approvals.map((approval) => ({
+        userId: approval.userId,
+        decision: approval.decision,
+        patchedHash: approval.patchedHash,
+        expiresAt: approval.expiresAt,
+      })),
+      patchedContents,
+      riskTags,
     );
     const policy = evaluatePolicy({
       confidence: plan.confidence,
@@ -102,6 +115,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       hasPassingValidation: plan.validations.some((v) => v.status === "PASSED"),
       approvalDecision: coverage.covered ? (latestApproval?.decision ?? null) : null,
       riskTags,
+      quorum,
     });
     if (!policy.canCreatePR) {
       throw validationFailed(`Policy blocks draft PR: ${policy.reasons.join("; ")}`);

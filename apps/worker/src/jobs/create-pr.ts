@@ -18,7 +18,7 @@ import {
 } from "@patchbay/domain";
 import { resolveFixtureDir } from "@patchbay/repo-analysis";
 import { createGitProviderFromEnv } from "@patchbay/git-provider";
-import { approvalCoversPatches, evaluatePolicy } from "@patchbay/policy-engine";
+import { approvalCoversPatches, evaluatePolicy, evaluateQuorum } from "@patchbay/policy-engine";
 import { rateLimitRedis } from "@patchbay/queue";
 import type { Job } from "bullmq";
 import { writeAuditEvent } from "../lib/audit";
@@ -216,6 +216,7 @@ async function createDraftPR(
 
   try {
     const latestApproval = plan.approvals[0];
+    const patchedContents = plan.patches.map((patch) => patch.patchedContent);
     const coverage = approvalCoversPatches(
       latestApproval
         ? {
@@ -224,7 +225,7 @@ async function createDraftPR(
             expiresAt: latestApproval.expiresAt,
           }
         : null,
-      plan.patches.map((patch) => patch.patchedContent),
+      patchedContents,
     );
     const hasPassingValidation = plan.validations.some(
       (val) => val.status === ValidationStatus.PASSED,
@@ -244,6 +245,18 @@ async function createDraftPR(
       hasPassingValidation,
       approvalDecision: coverage.covered ? (latestApproval?.decision ?? null) : null,
       riskTags,
+      // Defense in depth with the draft-pr route: quorum-tagged plans need
+      // two distinct covering approvers even if they reach this worker.
+      quorum: evaluateQuorum(
+        plan.approvals.map((approval) => ({
+          userId: approval.userId,
+          decision: approval.decision,
+          patchedHash: approval.patchedHash,
+          expiresAt: approval.expiresAt,
+        })),
+        patchedContents,
+        riskTags,
+      ),
     });
 
     if (!policyResult.canCreatePR) {

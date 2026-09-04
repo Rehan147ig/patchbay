@@ -103,4 +103,38 @@ describe("POST /api/cases/[id]/draft-pr (WP9 certification gate)", () => {
     expect(body.error.message).toMatch(/is suspended: merge rate below threshold/);
     expect(enqueue).not.toHaveBeenCalled();
   });
+
+  it("blocks a PAYMENT plan with a single approval until quorum is met (two-person rule)", async () => {
+    vi.mocked(prisma.remediationCase.findFirst).mockResolvedValue(
+      caseFor("stripe", {
+        impactAssessment: { affectedUsages: [{ usage: { riskTags: ["PAYMENT"] } }] },
+        patches: [{ id: "patch-1", patchedContent: "patched-a" }],
+        approvals: [{ decision: "APPROVED", userId: "u-1" }],
+      }) as never,
+    );
+    const response = await POST(requestWithCsrf({}), { params: Promise.resolve({ id: "c-1" }) });
+    expect(response.status).toBe(422);
+    const body = (await response.json()) as { error: { message: string } };
+    expect(body.error.message).toMatch(/Dual-approver quorum: 1\/2/);
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it("queues CREATE_PR for a PAYMENT plan once two distinct approvers sign off", async () => {
+    vi.mocked(prisma.remediationCase.findFirst).mockResolvedValue(
+      caseFor("stripe", {
+        impactAssessment: { affectedUsages: [{ usage: { riskTags: ["PAYMENT"] } }] },
+        patches: [{ id: "patch-1", patchedContent: "patched-a" }],
+        approvals: [
+          { decision: "APPROVED", userId: "u-1" },
+          { decision: "APPROVED", userId: "u-2" },
+        ],
+      }) as never,
+    );
+    const response = await POST(requestWithCsrf({}), { params: Promise.resolve({ id: "c-1" }) });
+    expect(response.status).toBe(202);
+    expect(enqueue).toHaveBeenCalledWith(
+      "CREATE_PR",
+      expect.objectContaining({ remediationPlanId: "p-1" }),
+    );
+  });
 });

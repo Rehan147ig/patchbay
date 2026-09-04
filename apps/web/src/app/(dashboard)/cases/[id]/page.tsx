@@ -11,6 +11,7 @@ import {
   StatusPill,
 } from "@patchbay/ui";
 import { CaseReasonCode, PlanStatus } from "@patchbay/domain";
+import { evaluateQuorum } from "@patchbay/policy-engine";
 import { requireRole } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 import { CaseActions, type CaseAction } from "@/components/case-actions";
@@ -213,6 +214,32 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
   }));
 
   const actions: CaseAction[] = [];
+  // Two-person rule status for the latest plan: quorum-tagged plans
+  // (PAYMENT/AUTH/ENCRYPTION/SECRETS) need two DISTINCT covering approvers.
+  // Display-only here — enforcement lives in draft-pr + create-pr gates.
+  const quorumRiskTags = Array.from(
+    new Set(
+      (latestPlan?.impactAssessment?.affectedUsages ?? []).flatMap(
+        (u) => (u.usage.riskTags as string[]) ?? [],
+      ),
+    ),
+  );
+  const quorum = latestPlan
+    ? evaluateQuorum(
+        latestPlan.approvals.map((approval) => ({
+          userId: approval.userId,
+          decision: approval.decision,
+          patchedHash: approval.patchedHash,
+          expiresAt: approval.expiresAt,
+        })),
+        latestPlan.patches.map((patch) => patch.patchedContent),
+        quorumRiskTags,
+      )
+    : null;
+  const quorumHint =
+    quorum && quorum.required && !quorum.satisfied
+      ? `Two-person rule: ${quorum.approverCount}/${quorum.requiredCount} distinct approvals — one more reviewer required (${quorum.matchedTags.join(", ")}).`
+      : null;
   // Unified funnel button: only when the case awaits approval AND the latest
   // plan is already VALIDATED (draft-pr requires validation passed + approval
   // coverage). Otherwise the user sees exactly why it is unavailable.
@@ -293,6 +320,11 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
             {unifiedBlockedReason ? (
               <p className="basis-full text-right text-[11px] text-ink-500">
                 {unifiedBlockedReason}
+              </p>
+            ) : null}
+            {quorumHint ? (
+              <p className="basis-full text-right text-[11px] font-medium text-amber-500">
+                {quorumHint}
               </p>
             ) : null}
           </div>
