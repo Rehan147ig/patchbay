@@ -1,3 +1,5 @@
+import { promises as fs } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -547,7 +549,9 @@ describe("collectUntrackedImports - private SDK discovery", () => {
       'const y = require("internal-billing");',
       'import Stripe from "stripe";',
     ].join("\n");
+    // One entry per import statement (callers count occurrences for ranking).
     expect(collectUntrackedImports(parse(source))).toEqual([
+      "@acme/sdk",
       "@acme/sdk",
       "internal-billing",
       "stripe",
@@ -573,4 +577,68 @@ describe("collectUntrackedImports - private SDK discovery", () => {
     ].join("\n");
     expect(collectUntrackedImports(parse(source))).toEqual(["@acme/sdk"]);
   });
+});
+
+describe("untrackedPackages frequency ranking", () => {
+  async function writeRepo(files: Record<string, string>): Promise<string> {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "patchbay-untracked-"));
+    for (const [rel, content] of Object.entries(files)) {
+      const full = path.join(dir, rel);
+      await fs.mkdir(path.dirname(full), { recursive: true });
+      await fs.writeFile(full, content, "utf8");
+    }
+    return dir;
+  }
+
+  async function analyzeBothModes(dir: string): Promise<{ serial: string[]; parallel: string[] }> {
+    const serial = await analyzeRepository({ rootDir: dir, trackPackages: TRACKED });
+    process.env.REPO_ANALYSIS_PARALLEL = "1";
+    try {
+      const parallel = await analyzeRepository({ rootDir: dir, trackPackages: TRACKED });
+      return { serial: serial.untrackedPackages, parallel: parallel.untrackedPackages };
+    } finally {
+      delete process.env.REPO_ANALYSIS_PARALLEL;
+    }
+  }
+
+  it("orders by frequency descending, not alphabetically", async () => {
+    const dir = await writeRepo({
+      "package.json": JSON.stringify({ name: "freq" }),
+      "src/a.ts": `import { A } from "@acme/high-use";\nimport { Z } from "@zebra/medium-use";\nimport { Z2 } from "@zebra/medium-use/sub";\n`,
+      "src/b.ts": `import { A } from "@acme/high-use";\nimport { L } from "@alpha/low-use";\n`,
+      "src/c.ts": `import { A } from "@acme/high-use";\n`,
+    });
+    try {
+      const { serial, parallel } = await analyzeBothModes(dir);
+      // @zebra/medium-use (2) outranks @alpha/low-use (1) despite "z" > "a".
+      expect(serial).toEqual(["@acme/high-use", "@zebra/medium-use", "@alpha/low-use"]);
+      expect(parallel).toEqual(serial);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it("caps at 50 with the highest-frequency package first", async () => {
+    const files: Record<string, string> = {
+      "package.json": JSON.stringify({ name: "cap" }),
+    };
+    let body = "";
+    for (let i = 0; i < 10; i += 1) {
+      body += `import { H${i} } from "@acme/hero";\n`;
+    }
+    files["src/hero.ts"] = body;
+    // Filler files with valid TS (one distinct untracked import each).
+    for (let i = 0; i < 59; i += 1) {
+      files[`src/filler${i}.ts`] = `import { F${i} } from "@zzz/filler${i}";\n`;
+    }
+    const dir = await writeRepo(files);
+    try {
+      const { serial, parallel } = await analyzeBothModes(dir);
+      expect(serial).toHaveLength(50);
+      expect(serial[0]).toBe("@acme/hero");
+      expect(parallel).toEqual(serial);
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  }, 120_000);
 });

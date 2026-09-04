@@ -287,17 +287,19 @@ function normalizePackageName(specifier: string): string | null {
 
 /**
  * Collects bare third-party import specifiers from a single file, normalized
- * to package names (`@scope/pkg/sub` -> `@scope/pkg`). Relative imports,
- * workspace-resolvable names are NOT filtered here (the caller knows the
- * workspace map); Node builtins are excluded. Deterministic and side-free.
+ * to package names (`@scope/pkg/sub` -> `@scope/pkg`), ONE ENTRY PER IMPORT
+ * STATEMENT (a package imported twice yields two entries — callers count
+ * occurrences for frequency ranking). Relative imports, workspace-resolvable
+ * names are NOT filtered here (the caller knows the workspace map); Node
+ * builtins are excluded. Deterministic (source order) and side-free.
  * Powers private-SDK auto-discovery: packages imported but not tracked.
  */
 export function collectUntrackedImports(sourceFile: ts.SourceFile): string[] {
-  const found = new Set<string>();
+  const found: string[] = [];
   function visit(node: ts.Node): void {
     if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
       const candidate = normalizePackageName(node.moduleSpecifier.text);
-      if (candidate) found.add(candidate);
+      if (candidate) found.push(candidate);
     }
     if (
       ts.isCallExpression(node) &&
@@ -308,13 +310,23 @@ export function collectUntrackedImports(sourceFile: ts.SourceFile): string[] {
       const firstArg: ts.Node | undefined = node.arguments[0];
       if (firstArg && ts.isStringLiteral(firstArg)) {
         const candidate = normalizePackageName(firstArg.text);
-        if (candidate) found.add(candidate);
+        if (candidate) found.push(candidate);
       }
     }
     ts.forEachChild(node, visit);
   }
   visit(sourceFile);
-  return [...found].sort();
+  return found;
+}
+
+/** Top-50 untracked packages ranked by import frequency (DESC), ties alphabetical. */
+export const MAX_UNTRACKED_PACKAGES = 50;
+
+export function rankUntrackedCounts(counts: ReadonlyMap<string, number>): string[] {
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, MAX_UNTRACKED_PACKAGES)
+    .map(([pkg]) => pkg);
 }
 
 /**

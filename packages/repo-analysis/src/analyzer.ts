@@ -2,7 +2,12 @@ import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
-import { analyzeSource, collectBindings, collectUntrackedImports } from "./ast";
+import {
+  analyzeSource,
+  collectBindings,
+  collectUntrackedImports,
+  rankUntrackedCounts,
+} from "./ast";
 import { collectModuleExports, makeRelativeResolver } from "./exports";
 import { dispatchPhase, resolveParallelConfig, shouldParallelize, splitChunks } from "./parallel";
 import type { WorkerShared } from "./analyze-worker";
@@ -314,14 +319,16 @@ async function analyzeUsages(
   const resolver = makeRelativeResolver(exportsByFile, files, workspacePackages);
   const usages: AnalyzedUsage[] = [];
   const errors: AnalysisError[] = [];
-  const untrackedPackages = new Set<string>();
+  const untrackedCounts = new Map<string, number>();
   let untrackedUsages = 0;
   progress?.onIndexingStart();
   for (const [rel, source] of sourcesByFile) {
     try {
       const sourceFile = parsedByFile.get(rel)!;
       for (const pkg of collectUntrackedImports(sourceFile)) {
-        if (!trackSet.has(pkg) && !workspacePackages.has(pkg)) untrackedPackages.add(pkg);
+        if (!trackSet.has(pkg) && !workspacePackages.has(pkg)) {
+          untrackedCounts.set(pkg, (untrackedCounts.get(pkg) ?? 0) + 1);
+        }
       }
       const result = analyzeSource(source, rel, trackSet, envPrefixes, resolver, sourceFile);
       usages.push(...result.usages);
@@ -345,7 +352,7 @@ async function analyzeUsages(
   return {
     usages,
     untrackedUsages,
-    untrackedPackages: [...untrackedPackages].sort().slice(0, 50),
+    untrackedPackages: rankUntrackedCounts(untrackedCounts),
     errors,
   };
 }
@@ -472,13 +479,15 @@ async function analyzeUsagesParallel(
 
   const usages: AnalyzedUsage[] = [];
   const errors: AnalysisError[] = [];
-  const untrackedPackages = new Set<string>();
+  const untrackedCounts = new Map<string, number>();
   let untrackedUsages = 0;
   for (const result of analyzeResults) {
     if (result.kind !== "analyze") throw new Error("unexpected worker payload for analyze phase");
     usages.push(...result.usages);
     untrackedUsages += result.untrackedUsages;
-    for (const pkg of result.untrackedPackages) untrackedPackages.add(pkg);
+    for (const { pkg, count } of result.untrackedCounts) {
+      untrackedCounts.set(pkg, (untrackedCounts.get(pkg) ?? 0) + count);
+    }
     errors.push(...result.errors);
   }
 
@@ -488,7 +497,7 @@ async function analyzeUsagesParallel(
   return {
     usages,
     untrackedUsages,
-    untrackedPackages: [...untrackedPackages].sort().slice(0, 50),
+    untrackedPackages: rankUntrackedCounts(untrackedCounts),
     errors,
   };
 }

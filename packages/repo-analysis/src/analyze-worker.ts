@@ -58,7 +58,9 @@ export type WorkerPayload =
       kind: "analyze";
       usages: AnalyzedUsage[];
       untrackedUsages: number;
-      untrackedPackages: string[];
+      /** Per-chunk import occurrence counts; the parent sums across chunks
+       * and ranks by frequency (single source of ranking truth lives there). */
+      untrackedCounts: Array<{ pkg: string; count: number }>;
       errors: AnalysisError[];
     };
 
@@ -138,12 +140,14 @@ function handle(request: WorkerRequest): WorkerPayload {
 
   const usages: AnalyzedUsage[] = [];
   const errors: AnalysisError[] = [];
-  const untrackedPackages = new Set<string>();
+  const untrackedCounts = new Map<string, number>();
   let untrackedUsages = 0;
   for (const { rel, source, tree } of parsed) {
     try {
       for (const pkg of collectUntrackedImports(tree)) {
-        if (!trackSet.has(pkg) && !workspaceMap.has(pkg)) untrackedPackages.add(pkg);
+        if (!trackSet.has(pkg) && !workspaceMap.has(pkg)) {
+          untrackedCounts.set(pkg, (untrackedCounts.get(pkg) ?? 0) + 1);
+        }
       }
       const result = analyzeSource(
         source,
@@ -166,7 +170,7 @@ function handle(request: WorkerRequest): WorkerPayload {
     kind: "analyze",
     usages,
     untrackedUsages,
-    untrackedPackages: [...untrackedPackages].sort(),
+    untrackedCounts: [...untrackedCounts].map(([pkg, count]) => ({ pkg, count })),
     errors,
   };
 }
