@@ -333,6 +333,12 @@ async function analyzeUsages(
     }
   }
 
+  // Release all parsed trees immediately: they held ~100KB per file (~650MB
+  // for 7k files) and nothing below needs them. Lets the GC reclaim the bulk
+  // of scan memory before usage sorting, result assembly, and graph steps,
+  // keeping large monorepos inside standard container limits.
+  parsedByFile.clear();
+
   usages.sort(
     (a, b) => a.filePath.localeCompare(b.filePath) || a.line - b.line || a.column - b.column,
   );

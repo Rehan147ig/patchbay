@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { GraphEdgeKind, GraphNodeKind, GraphProvenance } from "@patchbay/domain";
 import { extractGraph } from "./graph";
+import { analyzeRepository } from "./analyzer";
 import type { GraphEdgeFact, GraphNodeFact } from "./graph";
 
 const TRACKED = ["stripe", "openai", "twilio", "auth0"];
@@ -302,5 +303,22 @@ describe("extractGraph - incremental mode", () => {
     expect(incremental.edgeFacts.map((e) => e.key).sort()).toEqual(
       baseline.edgeFacts.map((e) => e.key).sort(),
     );
+  });
+});
+
+describe("extractGraph - shared analysis", () => {
+  it("produces byte-identical facts when analysis is pre-computed", async () => {
+    const rootDir = fixtureDir("openai-node-legacy");
+    const analysis = await analyzeRepository({ rootDir, trackPackages: TRACKED });
+    const [cold, shared] = await Promise.all([
+      extractGraph({ rootDir, trackPackages: TRACKED }),
+      extractGraph({ rootDir, trackPackages: TRACKED, analysis }),
+    ]);
+
+    expect(shared.commitSha).toBe(cold.commitSha);
+    expect(shared.rootTreeHash).toBe(cold.rootTreeHash);
+    expect(shared.nodeFacts).toEqual(cold.nodeFacts);
+    expect(shared.edgeFacts).toEqual(cold.edgeFacts);
+    expect(shared.errors).toEqual(cold.errors);
   });
 });
