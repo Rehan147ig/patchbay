@@ -47,6 +47,8 @@ import { processAgentReplay } from "./jobs/agent-replay";
 import { processDetectReleases } from "./jobs/detect-releases";
 import { processEvaluateCapabilityHealth } from "./jobs/evaluate-capability-health";
 import { processSiemForward } from "./jobs/siem-forward";
+import { failedJobInfoFrom, handlePermanentlyFailedJob } from "./lib/job-failure";
+import { sweepWatchtowerStaleness } from "./lib/watchtower-staleness";
 import { registerWatchtowerSchedulers } from "./schedule/watchtower";
 import { purgeExpiredAgentRuns } from "@patchbay/operations";
 import { sweepCapabilityHealth } from "./lib/capability-sweep";
@@ -54,6 +56,7 @@ import { sweepCapabilityHealth } from "./lib/capability-sweep";
 const TASK_SWEEP_INTERVAL_MS = 60_000;
 const RETENTION_SWEEP_INTERVAL_MS = 6 * 60 * 60 * 1_000;
 const CAPABILITY_SWEEP_INTERVAL_MS = 30 * 60 * 1_000;
+const WATCHTOWER_STALENESS_SWEEP_INTERVAL_MS = 30 * 60 * 1_000;
 const AGENT_RUN_RETENTION_DAYS = Number(process.env.AGENT_RUN_RETENTION_DAYS ?? 90);
 
 // Fail fast at boot: refuse to start with a missing or invalid configuration.
@@ -152,6 +155,28 @@ async function main(): Promise<void> {
     { connection, concurrency: 4, limiter: { max: 20, duration: 1_000 } }, // 4 slots: GRAPH_INDEX (heavy, 1 at a time) + CREATE_PR/VALIDATE (3) share - 50-repo monorepo queues 10m, not a blocker for demo (1 repo 2s),
   );
 
+  // Permanent-failure visibility: BullMQ fires `failed` on every attempt, but
+  // handlePermanentlyFailedJob only acts once attempts are exhausted, so
+  // transient retries stay quiet while a dead pipeline pages loudly (alert +
+  // DLQ copy + audit event). The handler itself never throws.
+  worker.on("failed", (job, error) => {
+    void handlePermanentlyFailedJob(failedJobInfoFrom(job), error).catch(
+      (handlerError: unknown) => {
+        logger.error("job failure handler failed", { error: String(handlerError) });
+      },
+    );
+  });
+  // Worker-level faults (e.g. the Redis connection dropping mid-run) are not
+  // job failures, so they get their own alert path instead of dying silently.
+  worker.on("error", (error) => {
+    void handlePermanentlyFailedJob(
+      { jobType: "worker", attemptsMade: 1, attemptsAllowed: 1 },
+      error,
+    ).catch((handlerError: unknown) => {
+      logger.error("worker error handler failed", { error: String(handlerError) });
+    });
+  });
+
   const redisPing = await connection.ping();
   logger.info("redis connection ok", { pong: redisPing });
 
@@ -182,11 +207,18 @@ async function main(): Promise<void> {
     });
   }, CAPABILITY_SWEEP_INTERVAL_MS);
 
+  const stalenessSweepTimer = setInterval(() => {
+    sweepWatchtowerStaleness().catch((error: unknown) => {
+      logger.error("watchtower staleness sweep failed", { error: String(error) });
+    });
+  }, WATCHTOWER_STALENESS_SWEEP_INTERVAL_MS);
+
   const shutdown = async (signal: string): Promise<void> => {
     logger.info("patchbay-worker shutting down", { signal });
     clearInterval(sweepTimer);
     clearInterval(retentionTimer);
     clearInterval(capabilitySweepTimer);
+    clearInterval(stalenessSweepTimer);
     // Deadline-bounded shutdown: a hung worker.close() must never stall the
     // process forever (in-flight jobs retry via BullMQ on restart).
     const SHUTDOWN_DEADLINE_MS = 30_000;

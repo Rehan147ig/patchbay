@@ -38,7 +38,7 @@ curl -X POST https://patch.dev/api/vendors/acme-auth/events -H "Authorization: B
 
 - `withOrgContext` + `FORCE RLS` `20260902000000_rls_foundation` on 29 tables
 - `HMAC` registry `x-patch-signature` `timingSafeEqual` + 7-day `NEXT` rotation `kms-rotation-drill.md`
-- `container` sandbox `cap-drop ALL no-new-privileges read-only` + `DLQ` `alertDlq` → `ALERT_WEBHOOK_URL`
+- `container` sandbox `cap-drop ALL no-new-privileges read-only` + permanently-failed jobs fire `alertDlq` → `ALERT_WEBHOOK_URL` with a DLQ copy + `job.permanently_failed` audit (transient retries stay quiet); 30-minute Watchtower staleness sweep pages on `watchtower.stale` when no adapter completes a poll within `WATCHTOWER_STALENESS_MAX_AGE_MS` (default 60m); `/api/health` reports Postgres + Redis + queue backlog and 503s when any is down
 - `OTel` stub → set `OTEL_ENABLED=1` + `OTEL_EXPORTER_OTLP_ENDPOINT`
 - `audit/export?format=splunk|cef` `x-patch-signed-export` + `SCIM` `POST /api/scim/Users` `Bearer SCIM_TOKEN`
 

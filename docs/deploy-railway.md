@@ -79,31 +79,33 @@ Set these on **both** services (they share one queue and one database; the
 worker needs the same credentials the web server uses). Every name is a real
 name parsed by `packages/env` or read directly by the app.
 
-| Variable                                                 | Value                                              | Notes                                              |
-| -------------------------------------------------------- | -------------------------------------------------- | -------------------------------------------------- |
-| `NODE_ENV`                                               | `production`                                       | Also baked into the image as a fallback.           |
-| `DATABASE_URL`                                           | (from Postgres plugin)                             | Prisma; required.                                  |
-| `REDIS_URL`                                              | (from Redis plugin)                                | BullMQ; required.                                  |
-| `PORT`                                                   | (Railway sets it)                                  | Web listens on this.                               |
-| `APP_PROCESS`                                            | `worker`                                           | Only on the worker service.                        |
-| `NEXTAUTH_URL`                                           | `https://<your-web>.up.railway.app`                | OAuth redirect target.                             |
-| `NEXTAUTH_SECRET`                                        | `openssl rand -base64 32`                          | Session signing.                                   |
-| `GITHUB_CLIENT_ID`                                       | GitHub OAuth App client id                         | Both-or-neither with the secret.                   |
-| `GITHUB_CLIENT_SECRET`                                   | GitHub OAuth App secret                            | Enables "Continue with GitHub".                    |
-| `GITHUB_APP_ID`                                          | GitHub App id                                      | App id of your GitHub App.                         |
-| `GITHUB_APP_PRIVATE_KEY`                                 | PEM, **base64-encoded single line**                | `base64 -w0 <pem>` — never paste the raw PEM.      |
-| `GITHUB_APP_WEBHOOK_SECRET`                              | long random string                                 | HMAC verification of webhooks.                     |
-| `GITHUB_APP_SLUG`                                        | e.g. `patchbay-prod`                               | Used for the "Install" link on `/settings/github`. |
-| `SANDBOX_VALIDATION_MODE`                                | `github-checks-only`                               | Recommended — see Step 5.                          |
-| `AI_PROVIDER`                                            | `mock` (default) or `openai` / `openai-compatible` | `mock` needs no credentials.                       |
-| `OPENAI_API_KEY`                                         | (optional)                                         | Required if `AI_PROVIDER` is not `mock`.           |
-| `STRIPE_SECRET_KEY`                                      | (optional)                                         | Unset ⇒ billing 503, plans stay FREE.              |
-| `STRIPE_WEBHOOK_SECRET`                                  | (optional)                                         | Stripe webhook signing secret.                     |
-| `STRIPE_PRICE_PRO_MONTHLY` / `STRIPE_PRICE_TEAM_MONTHLY` | (optional)                                         | Price ids.                                         |
-| `EVIDENCE_STORE_DIR`                                     | `/data/evidence`                                   | Point at a Railway volume (see Step 6).            |
-| `WATCHTOWER_POLLING_ENABLED`                             | `true` (default)                                   | Watchtower release polling.                        |
-| `SANDBOX_TIMEOUT_MS`, `SANDBOX_MAX_OUTPUT_CHARS`         | optional                                           | Defaults are fine.                                 |
-| `TRUSTED_PROXY_CIDRS`                                    | (optional, empty default)                          | Only trust `x-forwarded-for` from these CIDRs.     |
+| Variable                                                 | Value                                              | Notes                                                                                              |
+| -------------------------------------------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `NODE_ENV`                                               | `production`                                       | Also baked into the image as a fallback.                                                           |
+| `DATABASE_URL`                                           | (from Postgres plugin)                             | Prisma; required.                                                                                  |
+| `REDIS_URL`                                              | (from Redis plugin)                                | BullMQ; required.                                                                                  |
+| `PORT`                                                   | (Railway sets it)                                  | Web listens on this.                                                                               |
+| `APP_PROCESS`                                            | `worker`                                           | Only on the worker service.                                                                        |
+| `NEXTAUTH_URL`                                           | `https://<your-web>.up.railway.app`                | OAuth redirect target.                                                                             |
+| `NEXTAUTH_SECRET`                                        | `openssl rand -base64 32`                          | Session signing.                                                                                   |
+| `GITHUB_CLIENT_ID`                                       | GitHub OAuth App client id                         | Both-or-neither with the secret.                                                                   |
+| `GITHUB_CLIENT_SECRET`                                   | GitHub OAuth App secret                            | Enables "Continue with GitHub".                                                                    |
+| `GITHUB_APP_ID`                                          | GitHub App id                                      | App id of your GitHub App.                                                                         |
+| `GITHUB_APP_PRIVATE_KEY`                                 | PEM, **base64-encoded single line**                | `base64 -w0 <pem>` — never paste the raw PEM.                                                      |
+| `GITHUB_APP_WEBHOOK_SECRET`                              | long random string                                 | HMAC verification of webhooks.                                                                     |
+| `GITHUB_APP_SLUG`                                        | e.g. `patchbay-prod`                               | Used for the "Install" link on `/settings/github`.                                                 |
+| `SANDBOX_VALIDATION_MODE`                                | `github-checks-only`                               | Recommended — see Step 5.                                                                          |
+| `AI_PROVIDER`                                            | `mock` (default) or `openai` / `openai-compatible` | `mock` needs no credentials.                                                                       |
+| `OPENAI_API_KEY`                                         | (optional)                                         | Required if `AI_PROVIDER` is not `mock`.                                                           |
+| `STRIPE_SECRET_KEY`                                      | (optional)                                         | Unset ⇒ billing 503, plans stay FREE.                                                              |
+| `STRIPE_WEBHOOK_SECRET`                                  | (optional)                                         | Stripe webhook signing secret.                                                                     |
+| `STRIPE_PRICE_PRO_MONTHLY` / `STRIPE_PRICE_TEAM_MONTHLY` | (optional)                                         | Price ids.                                                                                         |
+| `EVIDENCE_STORE_DIR`                                     | `/data/evidence`                                   | Point at a Railway volume (see Step 6).                                                            |
+| `WATCHTOWER_POLLING_ENABLED`                             | `true` (default)                                   | Watchtower release polling.                                                                        |
+| `WATCHTOWER_STALENESS_MAX_AGE_MS`                        | `3600000` (default, 60m)                           | Page when no adapter completes a poll within this age.                                             |
+| `ALERT_WEBHOOK_URL`                                      | (optional, Slack/PagerDuty webhook)                | Permanent job failures, worker faults, and Watchtower staleness POST here; unset ⇒ log lines only. |
+| `SANDBOX_TIMEOUT_MS`, `SANDBOX_MAX_OUTPUT_CHARS`         | optional                                           | Defaults are fine.                                                                                 |
+| `TRUSTED_PROXY_CIDRS`                                    | (optional, empty default)                          | Only trust `x-forwarded-for` from these CIDRs.                                                     |
 
 Explicitly **not** set: `DEV_AUTH_SECRET`, `DEMO_USER_EMAIL`,
 `DEMO_USER_PASSWORD` — dev-only, ignored in production (and the password

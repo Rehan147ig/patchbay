@@ -14,6 +14,7 @@ import {
   type WatchtowerEvidence,
 } from "@patchbay/vendor-connectors";
 import { writeAuditEvent } from "../lib/audit";
+import { systemOrgId as watchtowerSystemOrgId } from "../lib/system-org";
 
 export const DetectReleasesJobDataSchema = z.object({
   adapterSlugs: z.array(z.string()).optional(),
@@ -24,26 +25,6 @@ export const DetectReleasesJobDataSchema = z.object({
 export type DetectReleasesJobData = z.infer<typeof DetectReleasesJobDataSchema>;
 
 const DEFAULT_BATCH_SIZE = 10;
-
-/**
- * Watchtower runs are global (not org-scoped), but audit events carry an
- * organizationId FK. All watchtower system events are recorded against this
- * dedicated system organization, upserted lazily on first use.
- */
-const WATCHTOWER_ORG_ID = "org-watchtower";
-
-let watchtowerOrgId: string | null = null;
-
-async function watchtowerSystemOrgId(): Promise<string> {
-  if (watchtowerOrgId) return watchtowerOrgId;
-  const org = await prisma.organization.upsert({
-    where: { id: WATCHTOWER_ORG_ID },
-    update: {},
-    create: { id: WATCHTOWER_ORG_ID, name: "Patchbay Watchtower" },
-  });
-  watchtowerOrgId = org.id;
-  return org.id;
-}
 
 export async function processDetectReleases(job: Job): Promise<void> {
   const parsed = DetectReleasesJobDataSchema.safeParse(job.data);
