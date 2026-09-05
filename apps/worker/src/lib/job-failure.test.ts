@@ -97,13 +97,14 @@ describe("handlePermanentlyFailedJob", () => {
 
   it("redacts secret-looking values before they reach alerts or audit", async () => {
     const d = deps();
-    await handlePermanentlyFailedJob(
-      exhausted,
-      new Error("failed with key ghp_abcdefghij1234567890abcdefghij12345678"),
-      d,
-    );
+    // Built programmatically: a literal ghp_* token in source trips the
+    // gitleaks github-pat rule (false positive on a synthetic test secret).
+    // 24 chars still exercises the app redactor (threshold is 20).
+    const fakePat = `ghp_${"abcdefghij1234567890abcd"}`;
+    await handlePermanentlyFailedJob(exhausted, new Error(`failed with key ${fakePat}`), d);
     const alerted = String(d.alert.mock.calls[0]?.[1] ?? "");
-    expect(alerted).not.toContain("ghp_abcdefghij1234567890abcdefghij12345678");
+    expect(alerted).not.toContain(fakePat);
+    expect(alerted).toContain("[REDACTED]");
   });
 
   it("never throws when alert, DLQ, or audit blow up", async () => {
