@@ -16,3 +16,6 @@ payload.json
 *-out.txt
 q.sql
 q2.sql
+
+# pnpm owns the lockfile format; prettier only churns it
+pnpm-lock.yaml
