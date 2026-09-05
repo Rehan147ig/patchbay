@@ -46,3 +46,9 @@ export {
   parseMcpClientConfig,
 } from "./mcp";
 export type { McpClientConfig, McpConfigSource } from "./mcp";
+export { contractConsumersFromExtraction } from "./consumers";
+export type {
+  ConsumerEvidence,
+  ConsumerMappingInput,
+  ContractConsumerDescriptor,
+} from "./consumers";

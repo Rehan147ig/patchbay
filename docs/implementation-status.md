@@ -182,9 +182,45 @@ only; server-side metering/quota-exhaustion states missing.
   Migration applies via standard `db:migrate` (CREATE TABLE + partial index, no
   data movement).
 
-## 7. Next steps
+## 7. WP3 — Consumer graph expansion (DONE 2026-09-05, branch `feat/production-spec`)
 
-WP3 (graph expansion — extend) per spec §17 order.
+- `ContractConsumer` model + migration `20260905000002_contract_consumer`
+  (org/repository/source/identifier/versionRange unique with a partial index for
+  NULL ranges; multi-tenant indexes; RLS tenant policy — safe: org non-nullable).
+  Back-refs on Organization/Repository/ContractSource/GraphSnapshot. Scoped via
+  `ORG_SCOPED_MODELS` (drift test green).
+- Graph node kinds `MCP_SERVER` + `EVENT_HANDLER` (domain + Prisma + migration;
+  drift 310 both directions). No new edge kinds — both layers reuse `CONTAINS`
+  (`repo:root` → server, `module` → handler), which the key-based incremental
+  merge already handles correctly.
+- MCP layer in `extractGraph`: one node per wired server (evidence = config file +
+  its walked-tree content hash; content-sensitive `contentHash` so config edits
+  converge by key) + `repo:root CONTAINS` edges + `DEPENDENCY` nodes for
+  `@modelcontextprotocol/*` packages even without tracked usage. Deliberately no
+  call-site edges: statically undecidable, documented as future work (tool-name
+  references, spec §2.3).
+- Event-handler detection in the structural pass: conservative Express-style
+  `app|router.<method>("literal")` only (no templates/variables/middleware);
+  missing facts acceptable, wrong facts forbidden. Confidence 90, EXTRACTED.
+- `contractConsumersFromExtraction` pure mapper (repo-analysis): DEPENDENCY→SDK
+  (registry-decided via caller-supplied kinds; frameworks never become contracts),
+  MCP_SERVER→MCP (90), EVENT_HANDLER→WEBHOOK (80); every descriptor bound to
+  commit SHA + source hash + extractor identity. Persistence wiring is WP4.
+- Fixture `mcp-agent-legacy` (configs, SDK dep, routes, pnpm lockfile) + graph
+  assertions + incremental-corpus entry. Full-vs-incremental proven: 17/17
+  (leaf, reverse-importer, lockfile × 5 fixtures). No MCP/invalidation changes
+  needed: configs flow as normal changed files, merge converges by key.
+- Drive-by fix: pnpm parser dropped double-quoted scoped keys
+  (`"@scope/pkg@1.0.0":`) — unquoted form worked, quoted form silently lost the
+  version. Fixed + covered; this exact gap would have hidden MCP SDK versions.
+- `EXTRACTOR_VERSION` 1→2 in graph-index (pre-WP3 READY snapshots never reuse as
+  if they held the new facts; one full re-extract per repo on upgrade).
+- Verification: prettier clean, eslint 0 warnings, typecheck 19/19, repo-analysis
+  - graph-index suites 115/115 green (zero ripple in old fixtures), corpus 17/17.
+
+## 8. Next steps
+
+WP4 (case orchestration — unify RemediationCase lifecycle) per spec §17 order.
 Branch hygiene: one work package per commit/PR, gates re-run per package, this file
 updated per §19.9. `main` stays locked (branch protection + Railway tracking `main`
 only); merges via green PR only.

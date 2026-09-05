@@ -395,6 +395,40 @@ export async function extractGraph(options: ExtractGraphOptions): Promise<GraphE
       });
     }
 
+    // Event-handler registrations (WP3): conservative Express-style route
+    // detection — `app.<method>(path, …)` / `router.<method>(path, …)` with a
+    // string-literal path only. No template literals, no variables, no `use`
+    // (middleware, not a route): a missed exotic registration loses a fact,
+    // but a wrong one would poison blast-radius and policy inputs. The
+    // receiver names are a documented convention, not a proof of framework.
+    for (const route of collectRouteRegistrations(sourceFile, position)) {
+      const handlerKey = `event-handler:${route.method}:${route.path}`;
+      addNode({
+        key: handlerKey,
+        kind: GraphNodeKind.EVENT_HANDLER,
+        displayName: `${route.method} ${route.path}`,
+        filePath: file.rel,
+        startLine: route.line,
+        endLine: null,
+        properties: { method: route.method, path: route.path, receiver: route.receiver },
+        contentHash: factHash(handlerKey, GraphNodeKind.EVENT_HANDLER, {
+          method: route.method,
+          path: route.path,
+        }),
+        evidence: [evidence(file.rel, route.line, null, file.sourceHash)],
+      });
+      addEdge({
+        key: edgeKey(moduleNodeKey, GraphEdgeKind.CONTAINS, handlerKey),
+        kind: GraphEdgeKind.CONTAINS,
+        fromKey: moduleNodeKey,
+        toKey: handlerKey,
+        provenance: GraphProvenance.EXTRACTED,
+        confidence: 90,
+        properties: { method: route.method, path: route.path },
+        evidence: [evidence(file.rel, route.line, null, file.sourceHash)],
+      });
+    }
+
     // Tests.
     if (isTestFile || hasTestCall(sourceFile)) {
       const testNodeKey = `test:${file.rel}`;
@@ -589,6 +623,59 @@ export async function extractGraph(options: ExtractGraphOptions): Promise<GraphE
     });
   }
 
+  // MCP contract layer (WP3): one node per wired MCP server plus dependency
+  // nodes for MCP SDK packages. Server names and config paths come from the
+  // (snapshot-current) analysis; content hashes come from the walked tree, so
+  // full and incremental extractions of one snapshot agree byte-for-byte and
+  // the key-based merge converges on config edits. No call-site edges: which
+  // module invokes which server is not statically decidable, and invented
+  // edges would poison blast-radius inputs (documented future work: tool-name
+  // references in code and prompts, spec §2.3).
+  for (const config of analysis.mcpConfigs) {
+    const configHash = walked.jsonHashes.get(config.path) ?? "";
+    const configEvidence = evidence(config.path, null, null, configHash);
+    for (const server of config.servers) {
+      const serverKey = `mcp-server:${server}`;
+      addNode({
+        key: serverKey,
+        kind: GraphNodeKind.MCP_SERVER,
+        displayName: server,
+        filePath: config.path,
+        startLine: null,
+        endLine: null,
+        properties: { server, source: config.source, configPath: config.path },
+        contentHash: factHash(serverKey, GraphNodeKind.MCP_SERVER, {
+          server,
+          source: config.source,
+          configPath: config.path,
+          configHash,
+        }),
+        evidence: [configEvidence],
+      });
+      addEdge({
+        key: edgeKey("repo:root", GraphEdgeKind.CONTAINS, serverKey),
+        kind: GraphEdgeKind.CONTAINS,
+        fromKey: "repo:root",
+        toKey: serverKey,
+        provenance: GraphProvenance.EXTRACTED,
+        confidence: 100,
+        properties: { source: config.source, configPath: config.path },
+        evidence: [configEvidence],
+      });
+    }
+  }
+  for (const packageName of analysis.mcpSdkPackages) {
+    const manifestPath =
+      analysis.manifests.find((manifest) => packageName in manifest.dependencies)?.path ?? null;
+    const manifestEvidence =
+      manifestPath !== null
+        ? evidence(manifestPath, null, null, walked.jsonHashes.get(manifestPath) ?? "")
+        : null;
+    if (manifestEvidence) {
+      ensureDependencyNode(packageName, dependencyKey(packageName), manifestEvidence);
+    }
+  }
+
   function ensureDependencyNode(packageName: string, depKey: string, ev: GraphEvidenceFact): void {
     if (nodes.has(depKey)) return;
     const ranges = [...(dependencyRanges.get(packageName) ?? [])];
@@ -703,6 +790,54 @@ function sortEvidence(list: GraphEvidenceFact[]): GraphEvidenceFact[] {
       (a.startLine ?? 0) - (b.startLine ?? 0) ||
       (b.endLine ?? 0) - (a.endLine ?? 0),
   );
+}
+
+interface RouteRegistration {
+  method: string;
+  path: string;
+  receiver: string;
+  line: number;
+}
+
+const ROUTE_RECEIVERS = new Set(["app", "router"]);
+const ROUTE_METHODS = new Set(["get", "post", "put", "delete", "patch", "options", "head", "all"]);
+
+/**
+ * Conservative Express-style route registrations in one source file. Only
+ * `app.<method>("literal-path", …)` / `router.<method>("literal-path", …)`
+ * count: exact string-literal paths, exact method names, exact receiver
+ * names. Everything else (template paths, variables, middleware, chained
+ * builders) is skipped — a missing fact is recoverable, a wrong one is not.
+ */
+function collectRouteRegistrations(
+  sourceFile: ts.SourceFile,
+  position: (node: ts.Node) => number,
+): RouteRegistration[] {
+  const routes: RouteRegistration[] = [];
+  function visit(node: ts.Node): void {
+    if (ts.isCallExpression(node)) {
+      const callee = node.expression;
+      if (
+        ts.isPropertyAccessExpression(callee) &&
+        ts.isIdentifier(callee.expression) &&
+        ROUTE_RECEIVERS.has(callee.expression.text) &&
+        ROUTE_METHODS.has(callee.name.text)
+      ) {
+        const [first] = node.arguments;
+        if (first && ts.isStringLiteralLike(first)) {
+          routes.push({
+            method: callee.name.text.toUpperCase(),
+            path: first.text,
+            receiver: callee.expression.text,
+            line: position(node),
+          });
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(sourceFile);
+  return routes;
 }
 
 function hasTestCall(sourceFile: ts.SourceFile): boolean {

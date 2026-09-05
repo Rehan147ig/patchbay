@@ -41,6 +41,8 @@ describe("lockfile detection", () => {
         "    resolution: {integrity: sha512-x}",
         "  '@types/node@18.0.0':",
         "    resolution: {integrity: sha512-y}",
+        '  "@modelcontextprotocol/sdk@1.0.0":',
+        "    resolution: {integrity: sha512-z}",
         "  stripe@^16.12.0:",
         "    resolution: {integrity: sha512-z}",
         "  qs@6.13.0:",
@@ -52,6 +54,7 @@ describe("lockfile detection", () => {
     expect(result.versions).toEqual({
       openai: "3.3.0",
       "@types/node": "18.0.0",
+      "@modelcontextprotocol/sdk": "1.0.0",
       qs: "6.13.0",
     });
   });

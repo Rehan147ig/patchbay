@@ -92,7 +92,10 @@ export async function resolveLockfileVersions(rootDir: string): Promise<{
     const section = raw.split("packages:")[1];
     if (!section) return { packageManager, versions };
     for (const line of section.split("\n")) {
-      const match = /^ {2}'?([^'":\s]+)@([^'":\s]+)'?:$/.exec(line.trimEnd());
+      // Real pnpm quotes scoped keys ("@scope/pkg@1.0.0:"); strip one pair of
+      // double quotes so the name/version split below sees the bare form.
+      const unquoted = line.replace(/^ {2}"([^"]+)":$/, "  $1:");
+      const match = /^ {2}'?([^'":\s]+)@([^'":\s]+)'?:$/.exec(unquoted.trimEnd());
       if (!match) continue;
       const name = match[1] ?? "";
       const version = match[2] ?? "";

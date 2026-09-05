@@ -49,7 +49,13 @@ export const GraphIndexJobDataSchema = z.object({
 export type GraphIndexJobData = z.infer<typeof GraphIndexJobDataSchema>;
 
 const BATCH_SIZE = 10_000;
-const EXTRACTOR_VERSION = 1;
+/**
+ * Snapshot format version (WP3): bumped for the MCP_SERVER + EVENT_HANDLER
+ * node kinds so pre-WP3 READY snapshots are never reused as if they contained
+ * the new facts — every repository re-extracts once on upgrade, then resumes
+ * incremental behavior. Fact-level extractor identity is unchanged.
+ */
+const EXTRACTOR_VERSION = 2;
 
 /** Deterministic snapshot source hash: commit SHA + tree hash (mirrors checkout provenance). */
 function snapshotSourceHash(commitSha: string, rootTreeHash: string): string {

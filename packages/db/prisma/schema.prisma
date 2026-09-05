@@ -350,6 +350,7 @@ model Organization {
   taskParameters         TaskParameter[]
   vendors                Vendor[]
   contractSources        ContractSource[]
+  contractConsumers      ContractConsumer[]
   workspaces             Workspace[]
   workspaceMembers       WorkspaceMember[]
   subscription           Subscription?
@@ -557,6 +558,7 @@ model Repository {
   graphEvidence      GraphSourceEvidence[]
   graphIndexJobs     GraphIndexJob[]
   remediationCases   RemediationCase[]
+  contractConsumers  ContractConsumer[]
 
   @@unique([organizationId, externalId])
   @@index([organizationId])
@@ -975,6 +977,8 @@ enum GraphNodeKind {
   SERVICE
   QUEUE_TOPIC
   DATABASE
+  MCP_SERVER
+  EVENT_HANDLER
 }
 
 enum GraphEdgeKind {
@@ -1033,6 +1037,7 @@ model GraphSnapshot {
   nodes        GraphNode[]
   edges        GraphEdge[]
   evidence     GraphSourceEvidence[]
+  consumers    ContractConsumer[]
   indexJobs    GraphIndexJob[]
   remediationCases RemediationCase[]
   outcomes     PrOutcome[]
@@ -1225,6 +1230,7 @@ model ContractSource {
   organization Organization?    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   snapshots    ContractSnapshot[]
   changes      ContractChange[]
+  consumers    ContractConsumer[]
 
   /// Ingest idempotency for org-bound sources. Public (NULL-org) rows are NOT
   /// covered by this constraint (Postgres NULLS DISTINCT) — see the partial
@@ -1285,6 +1291,44 @@ model ContractChange {
   @@unique([sourceId, toSnapshotId, identity])
   @@index([sourceId, status])
   @@index([toSnapshotId])
+}
+
+/**
+ * A repository's consumption of one contract (WP3): which package, server, or
+ * route the repo depends on, at which version, with what confidence, and the
+ * graph evidence proving it. Written by WP4 orchestration from the pure
+ * contractConsumersFromExtraction mapper; the graph snapshot that observed it
+ * pins the commit SHA for replay.
+ */
+model ContractConsumer {
+  id String @id @default(uuid())
+  organizationId String
+  repositoryId   String
+  contractSourceId String
+  /** Contract family vocabulary lives in domain ContractKind (Zod-validated at write boundaries). */
+  contractKind String
+  /** Stable within the repo: package name, MCP server name, or "METHOD /path". */
+  identifier   String
+  /** Declared range or pinned version; null when statically unknown (MCP servers, routes). */
+  versionRange String?
+  /** 0-100; resolution-pinned evidence scores higher than syntactic evidence. */
+  confidence   Int      @default(0)
+  evidenceJson Json?
+  /** Graph snapshot that observed this consumer (pins commit SHA + extractor version). */
+  graphSnapshotId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  repository     Repository      @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  contractSource ContractSource  @relation(fields: [contractSourceId], references: [id], onDelete: Cascade)
+  graphSnapshot  GraphSnapshot?  @relation(fields: [graphSnapshotId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, repositoryId, contractSourceId, identifier, versionRange])
+  @@index([organizationId, repositoryId])
+  @@index([organizationId, contractSourceId])
+  @@index([contractSourceId])
 }
 
 model IntegrationUsage {
