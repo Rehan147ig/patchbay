@@ -120,8 +120,16 @@ async function createDraftPR(
   // Tenant boundary: a plan may only be acted on by the organization that
   // owns its change event. Both the change event and the repository carry
   // organizationId — verify the plan belongs to the job's org before doing
-  // anything (policy evaluation, git operations, audit writes).
-  const changeOrgId = plan.impactAssessment.changeEvent.organizationId;
+  // anything (policy evaluation, git operations, audit writes). Contract-flow
+  // assessments carry no change event (WP4): PR creation requires a release
+  // change event, so such plans fail closed here until WP6 planning exists.
+  const changeEvent = plan.impactAssessment.changeEvent;
+  if (!changeEvent) {
+    throw new Error(
+      `remediation plan ${plan.id} has no change event: draft PRs require release-funnel evidence`,
+    );
+  }
+  const changeOrgId = changeEvent.organizationId;
   const repositoryOrgId = plan.impactAssessment.repository.organizationId;
   if (changeOrgId !== organizationId || repositoryOrgId !== organizationId) {
     logger.warn("cross-tenant create-pr attempt blocked", {
@@ -289,13 +297,13 @@ async function createDraftPR(
     const remediationKey = computeRemediationKey({
       organizationId,
       repositoryId: repository.id,
-      changeEventId: plan.impactAssessment.changeEvent.id,
+      changeEventId: changeEvent.id,
       remediationPlanId: plan.id,
       sourceHash: plan.patches[0]?.originalHash ?? null,
     });
     const branchName = `patchbay/remediation-${remediationKey.slice(0, 12)}`;
 
-    const title = `[Patch] ${plan.impactAssessment.changeEvent.title}`;
+    const title = `[Patch] ${changeEvent.title}`;
     const agentVerdict = plan.remediationCaseId
       ? await loadSucceededAgentVerdict(organizationId, plan.remediationCaseId)
       : null;

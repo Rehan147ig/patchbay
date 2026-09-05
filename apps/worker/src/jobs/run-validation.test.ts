@@ -21,6 +21,9 @@ vi.mock("@patchbay/db", () => ({
     vendorChangeEvent: {
       findUnique: vi.fn(),
     },
+    remediationAttempt: {
+      create: vi.fn(),
+    },
     $transaction: vi.fn((actions) => Promise.all(actions)),
   },
 }));
@@ -134,6 +137,8 @@ describe("processRunValidation", () => {
     } as never);
     vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValueOnce({
       id: "plan-1",
+      strategy: "deterministic-ast",
+      remediationCaseId: "case-1",
       impactAssessment: {
         changeEventId: "change-1",
         repository: {
@@ -198,6 +203,16 @@ describe("processRunValidation", () => {
       where: { id: "plan-1" },
       data: { status: "VALIDATED" },
     });
+    expect(prisma.remediationAttempt.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          caseId: "case-1",
+          strategyId: "deterministic-ast",
+          status: "SUCCEEDED",
+          organizationId: "org-1",
+        }),
+      }),
+    );
   });
 
   it("records SKIPPED and never spawns a runner in github-checks-only mode", async () => {

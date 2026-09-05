@@ -37,7 +37,7 @@ export async function sweepCapabilityHealth(now = new Date()): Promise<Capabilit
 
   const pairs = new Map<string, { organizationId: string; vendorSlug: string }>();
   for (const pr of terminalPrs) {
-    const vendorSlug = pr.remediationPlan?.impactAssessment.changeEvent.vendor.slug;
+    const vendorSlug = pr.remediationPlan?.impactAssessment.changeEvent?.vendor.slug;
     if (!vendorSlug) continue;
     const key = `${pr.organizationId}:${vendorSlug}`;
     if (!pairs.has(key)) {

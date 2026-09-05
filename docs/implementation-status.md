@@ -218,9 +218,41 @@ only; server-side metering/quota-exhaustion states missing.
 - Verification: prettier clean, eslint 0 warnings, typecheck 19/19, repo-analysis
   - graph-index suites 115/115 green (zero ripple in old fixtures), corpus 17/17.
 
-## 8. Next steps
+## 8. WP4 — Maintenance case orchestration (DONE 2026-09-05, branch `feat/production-spec`)
 
-WP4 (case orchestration — unify RemediationCase lifecycle) per spec §17 order.
+- Schema + migration `20260905000003_case_orchestration` (applied clean to local
+  Postgres with WP1–WP3 migrations: 5/5 applied, zero errors):
+  `RemediationCase` += contractChangeId/caseKey/triggerType/dedupeKey (+ back-refs;
+  `@@unique(organizationId, dedupeKey)`); releaseId/dependencyId relaxed to
+  nullable (existing rows populated — no backfill); `ImpactAssessment` +=
+  caseId/graphSnapshotId/affected/blastRadiusJson/evidenceJson/reasonCode +
+  `@@unique(caseId, repositoryId)`, changeEventId relaxed to nullable;
+  new `RemediationAttempt` (org/case/strategy/versions/agent/run hashes/status/
+  artifact/failureCode) with RLS tenant policy + back-refs on
+  Organization/RemediationCase/AgentRun/PatchArtifact.
+- Orchestration `apps/worker/src/lib/case-orchestration.ts`: `orchestrateContractChange`
+  (scope check → consumers → per-repo reconcile → OBSERVED create + timeline +
+  audit + notification → assessments → IMPACT_CONFIRMED advance). Evidence-gated
+  (no consumers = no case). Duplicates refresh receipt metadata only — no new
+  rows, no timeline spam; terminal cases never reopen; races converge on the
+  dedupe key. Release funnel untouched (scopeKey path intact); the two funnels
+  share lifecycle enum, timeline writer, terminal protection, and audit discipline.
+- `recordRemediationAttempt` wired into run-validation (SKIPPED/SUCCEEDED/FAILED
+  with input/output hashes; legacy plans without case linkage skip honestly;
+  recording never breaks remediation). Agent-planning attempts follow in WP7.
+- Nullable-FK fallout paid in full: worker create-pr/run-validation fail closed
+  on missing change events; capability-sweep null-tolerant; 3 PR vectors
+  fail-closed; 6 dashboard render paths degrade gracefully (contract identity
+  shown where release data is absent). Full typecheck 19/19 proves no reader left behind.
+- Verification: 10 orchestration tests (dedupe stability, per-repo cases,
+  evidence gate, cross-org rejection, duplicate convergence, terminal protection,
+  repo narrowing, attempt provenance/skip/failure-isolation); regression 40 files /
+  559 tests green (worker + db + domain + touched web routes). `CaseReasonCode.CONTRACT_CHANGE`
+  added (pre-existed in domain enums; String column, no migration).
+
+## 9. Next steps
+
+WP5 (policy + certification hardening) per spec §17 order.
 Branch hygiene: one work package per commit/PR, gates re-run per package, this file
 updated per §19.9. `main` stays locked (branch protection + Railway tracking `main`
 only); merges via green PR only.

@@ -79,7 +79,9 @@ export default async function RemediationDetailPage({
           /
         </p>
         <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-xl font-semibold text-white">{impactAssessment.changeEvent.title}</h1>
+          <h1 className="text-xl font-semibold text-white">
+            {impactAssessment.changeEvent?.title ?? "Contract assessment"}
+          </h1>
           <StatusPill label={plan.status} tone={PLAN_STATUS_TONE[plan.status]} />
           <Badge tone={plan.requiresHumanReview ? "amber" : "green"}>
             {plan.requiresHumanReview ? "requires human review" : "no approval required"}
@@ -109,14 +111,16 @@ export default async function RemediationDetailPage({
             <CardDescription>What changed in the vendor API/SDK.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
-            <p className="text-sm text-slate-700">{impactAssessment.changeEvent.title}</p>
-            <p className="text-xs text-slate-500">
-              Vendor: {impactAssessment.changeEvent.vendor.name} · Severity:{" "}
-              {impactAssessment.changeEvent.severity}
+            <p className="text-sm text-slate-700">
+              {impactAssessment.changeEvent?.title ?? "Contract-driven assessment"}
             </p>
-            {impactAssessment.changeEvent.normalizations.length > 0 ? (
+            <p className="text-xs text-slate-500">
+              Vendor: {impactAssessment.changeEvent?.vendor.name ?? "—"} · Severity:{" "}
+              {impactAssessment.changeEvent?.severity ?? impactAssessment.riskLevel}
+            </p>
+            {(impactAssessment.changeEvent?.normalizations.length ?? 0) > 0 ? (
               <ul className="space-y-1 text-xs text-slate-600">
-                {impactAssessment.changeEvent.normalizations.map((normalization) => (
+                {impactAssessment.changeEvent?.normalizations.map((normalization) => (
                   <li key={normalization.id}>
                     <Badge tone={normalization.breaking ? "red" : "green"} className="mr-1">
                       {normalization.breaking ? "breaking" : "compatible"}

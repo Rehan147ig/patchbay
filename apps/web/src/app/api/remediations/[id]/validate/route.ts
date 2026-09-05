@@ -50,20 +50,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       },
     });
     if (!plan) throw validationFailed("Remediation plan not found");
-    const certification = requireCertified(
-      plan.impactAssessment.changeEvent.vendor.slug,
-      "VALIDATE",
-    );
+    // Certification requires a release change event's vendor. Contract-flow
+    // plans (WP4) carry none and fail closed here until WP6 planning exists.
+    const changeEvent = plan.impactAssessment.changeEvent;
+    if (!changeEvent) {
+      throw validationFailed("Plans without a release change event cannot be validated here");
+    }
+    const certification = requireCertified(changeEvent.vendor.slug, "VALIDATE");
     if (!certification.ok) {
       throw validationFailed(
-        `Connector ${plan.impactAssessment.changeEvent.vendor.slug} is not certified for VALIDATE: ${certification.reasons.join("; ")}`,
+        `Connector ${changeEvent.vendor.slug} is not certified for VALIDATE: ${certification.reasons.join("; ")}`,
       );
     }
-    await assertCapabilityGateOpen(
-      user.organizationId,
-      plan.impactAssessment.changeEvent.vendor.slug,
-      "VALIDATE",
-    );
+    await assertCapabilityGateOpen(user.organizationId, changeEvent.vendor.slug, "VALIDATE");
     if (plan.patches.length === 0) {
       throw validationFailed("This plan has no patches to validate");
     }

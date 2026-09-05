@@ -393,7 +393,7 @@ async function handlePullRequest(
       source: OutcomeSource.GITHUB_WEBHOOK,
       planId: pullRequest.remediationPlan?.id ?? null,
       caseId: pullRequest.remediationPlan?.remediationCaseId ?? null,
-      vendorSlug: pullRequest.remediationPlan?.impactAssessment.changeEvent.vendor.slug ?? null,
+      vendorSlug: pullRequest.remediationPlan?.impactAssessment.changeEvent?.vendor.slug ?? null,
       policyDecision:
         (pullRequest.remediationPlan?.policyDecision as Prisma.InputJsonValue | null) ?? null,
       correlationId,

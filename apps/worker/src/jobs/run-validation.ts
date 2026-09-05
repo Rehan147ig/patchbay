@@ -15,6 +15,8 @@ import {
 } from "@patchbay/sandbox-runner";
 import type { Job } from "bullmq";
 import { writeAuditEvent } from "../lib/audit";
+import { recordRemediationAttempt } from "../lib/case-orchestration";
+import { sha256Hex } from "@patchbay/vendor-connectors";
 import {
   assertInstallationBelongsToOrganization,
   resolveRepositorySource,
@@ -118,12 +120,17 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
     );
   }
 
-  // Tenant boundary: only the owning org may run validation on this plan.
-  const changeEvent = await prisma.vendorChangeEvent.findUnique({
-    where: { id: plan.impactAssessment.changeEventId },
-  });
+  // Tenant boundary: only the owning org may run validation on this plan. The
+  // change-event check applies to release-funnel assessments; contract-flow
+  // assessments (WP4) carry no change event, so they skip that leg while the
+  // repository-ownership check below still applies unconditionally.
+  const changeEvent = plan.impactAssessment.changeEventId
+    ? await prisma.vendorChangeEvent.findUnique({
+        where: { id: plan.impactAssessment.changeEventId },
+      })
+    : null;
   if (
-    changeEvent?.organizationId !== organizationId ||
+    (changeEvent !== null && changeEvent.organizationId !== organizationId) ||
     plan.impactAssessment.repository.organizationId !== organizationId
   ) {
     logger.warn("cross-tenant validation attempt blocked", {
@@ -160,6 +167,14 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
       correlationId,
       ...entity,
       after: { validationRunId, reason: "customer CI is the validation sandbox" },
+    });
+    await recordRemediationAttempt({
+      caseId: plan.remediationCaseId ?? null,
+      strategyId: strategyOf(plan),
+      inputHash: sha256Hex(JSON.stringify(validationRun.commands ?? [])),
+      status: "SKIPPED",
+      organizationId,
+      correlationId,
     });
     logger.info("validation skipped (github-checks-only)", {
       validationRunId,
@@ -362,6 +377,15 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
       outcome: passed ? "PASSED" : "FAILED",
       results: results.map((result) => ({ command: result.command, ok: result.ok })),
     });
+    await recordRemediationAttempt({
+      caseId: plan.remediationCaseId ?? null,
+      strategyId: strategyOf(plan),
+      inputHash: sha256Hex(JSON.stringify(validationRun.commands ?? [])),
+      outputHash: sha256Hex(stdout),
+      status: passed ? "SUCCEEDED" : "FAILED",
+      organizationId,
+      correlationId,
+    });
 
     return {
       validationRunId,
@@ -402,6 +426,15 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
       correlationId,
       error: message,
     });
+    await recordRemediationAttempt({
+      caseId: plan.remediationCaseId ?? null,
+      strategyId: strategyOf(plan),
+      inputHash: sha256Hex(JSON.stringify(validationRun.commands ?? [])),
+      status: "FAILED",
+      failureCode: message.slice(0, 200),
+      organizationId,
+      correlationId,
+    });
     throw error;
   } finally {
     for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -417,6 +450,11 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
 
 function commandsOf(commands: unknown): string[] {
   return CommandsSchema.parse(commands ?? []);
+}
+
+/** Plan strategy label for attempt records; defensive for partial (mock) rows. */
+function strategyOf(plan: { strategy?: unknown }): string {
+  return typeof plan.strategy === "string" && plan.strategy ? plan.strategy : "unknown";
 }
 
 function fixtureOf(metadata: unknown): string | null {

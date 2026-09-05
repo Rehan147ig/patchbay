@@ -351,6 +351,7 @@ model Organization {
   vendors                Vendor[]
   contractSources        ContractSource[]
   contractConsumers      ContractConsumer[]
+  remediationAttempts    RemediationAttempt[]
   workspaces             Workspace[]
   workspaceMembers       WorkspaceMember[]
   subscription           Subscription?
@@ -781,32 +782,86 @@ model RemediationCase {
   ownerUserId      String?
   terminalOutcome  String?
   terminalAt       DateTime?
-  releaseId        String
+  /**
+   * Release-funnel linkage; NULL for contract-driven cases (WP4), which link
+   * via contractChangeId instead. Existing rows are all populated.
+   */
+  releaseId        String?
   repositoryId     String
-  dependencyId     String
+  dependencyId     String?
   releaseRepositoryMatchId String?
+  /** Contract-driven cases (WP4): null for release-funnel cases. */
+  contractChangeId String?
+  /** Stable business key, traceable without hashing. */
+  caseKey          String?
+  /** Which funnel created the case: RELEASE, CONTRACT_CHANGE, MANUAL. */
+  triggerType      String?
+  /**
+   * Exact uniqueness token (sha256 of org/source/identity/repo) for the
+   * contract funnel; the release funnel keeps scopeKey. NULL for legacy rows;
+   * Postgres NULLS DISTINCT leaves them unaffected (partial index below
+   * enforces non-null keys in the migration).
+   */
+  dedupeKey        String?
   correlationId    String
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
   organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   workspace      Workspace?            @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
-  release        ReleaseRecord         @relation(fields: [releaseId], references: [id], onDelete: Cascade)
+  release        ReleaseRecord?        @relation(fields: [releaseId], references: [id], onDelete: Cascade)
   repository     Repository            @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
-  dependency     RepositoryDependency  @relation(fields: [dependencyId], references: [id], onDelete: Cascade)
+  dependency     RepositoryDependency? @relation(fields: [dependencyId], references: [id], onDelete: Cascade)
   match          ReleaseRepositoryMatch? @relation(fields: [releaseRepositoryMatchId], references: [id], onDelete: SetNull)
   snapshot       GraphSnapshot?        @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
+  contractChange ContractChange?       @relation(fields: [contractChangeId], references: [id], onDelete: SetNull)
   events         RemediationCaseEvent[]
   agentRuns      AgentRun[]
   plans          RemediationPlan[]
   outcomes       PrOutcome[]
-
+  impactAssessments ImpactAssessment[]
+  attempts       RemediationAttempt[]
   @@unique([scopeKey])
+  @@unique([organizationId, dedupeKey])
   @@index([organizationId, status, updatedAt])
   @@index([workspaceId])
   @@index([organizationId, releaseId])
   @@index([organizationId, repositoryId, status])
   @@index([releaseId, repositoryId, dependencyId])
+  @@index([organizationId, contractChangeId])
+}
+
+/**
+ * One recorded remediation strategy attempt (WP4): which strategy ran against
+ * a case, on what inputs, with what outcome. Writers arrive with strategy
+ * execution (run-validation records validation attempts; agent planning
+ * follows in WP7). Status vocabulary: SUCCEEDED, FAILED, SKIPPED.
+ */
+model RemediationAttempt {
+  id String @id @default(uuid())
+  organizationId String
+  caseId         String
+  strategyId     String
+  rulePackVersion String?
+  agentRunId     String?
+  /** SHA-256 over the attempt inputs (plan + validation row correlation). */
+  inputHash      String
+  /** SHA-256 over bounded outputs; null when nothing was produced. */
+  outputHash     String?
+  status         String
+  patchArtifactId String?
+  /** Short machine failure code; null on success. */
+  failureCode    String?
+  correlationId  String?
+  createdAt      DateTime @default(now())
+
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  remediationCase RemediationCase  @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  agentRun        AgentRun?        @relation(fields: [agentRunId], references: [id], onDelete: SetNull)
+  patchArtifact   PatchArtifact?   @relation(fields: [patchArtifactId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, caseId, createdAt])
+  @@index([caseId, strategyId])
 }
 
 /** Immutable timeline of a remediation case; every transition appends one row. */
@@ -868,6 +923,7 @@ model AgentRun {
   match      ReleaseRepositoryMatch? @relation(fields: [releaseRepositoryMatchId], references: [id], onDelete: SetNull)
   remediationCase RemediationCase? @relation(fields: [remediationCaseId], references: [id], onDelete: SetNull)
   steps      AgentStep[]
+  attempts   RemediationAttempt[]
 
   @@index([organizationId, status])
   @@index([organizationId, releaseRecordId, repositoryId])
@@ -1038,6 +1094,7 @@ model GraphSnapshot {
   edges        GraphEdge[]
   evidence     GraphSourceEvidence[]
   consumers    ContractConsumer[]
+  impactAssessments ImpactAssessment[]
   indexJobs    GraphIndexJob[]
   remediationCases RemediationCase[]
   outcomes     PrOutcome[]
@@ -1284,6 +1341,7 @@ model ContractChange {
   source       ContractSource    @relation(fields: [sourceId], references: [id], onDelete: Cascade)
   fromSnapshot ContractSnapshot? @relation("ChangeFrom", fields: [fromSnapshotId], references: [id], onDelete: SetNull)
   toSnapshot   ContractSnapshot  @relation("ChangeTo", fields: [toSnapshotId], references: [id], onDelete: Cascade)
+  cases        RemediationCase[]
 
   /// One row per (source, endpoint snapshot, normalized identity): re-polls and
   /// races converge instead of duplicating. Genesis rows (null fromSnapshotId)
@@ -1364,23 +1422,36 @@ model IntegrationUsage {
 model ImpactAssessment {
   id String @id @default(uuid())
   organizationId     String
-  changeEventId      String
+  /** Release-funnel linkage; NULL for contract-driven assessments (WP4). */
+  changeEventId      String?
+  /** Contract-funnel linkage; NULL for release-funnel assessments. */
+  caseId             String?
   repositoryId       String
+  /** Graph snapshot that observed the evidence (pins commit SHA); null when unresolved. */
+  graphSnapshotId    String?
   score              Int
   confidence         Int
   affectedUsageCount Int          @default(0)
+  /** True when at least one consumer carries evidence for this repository. */
+  affected           Boolean      @default(false)
   riskLevel          RiskLevel
   rationale          String
+  blastRadiusJson    Json?
+  evidenceJson       Json?
+  reasonCode         String?
   status             ImpactStatus
   createdAt          DateTime     @default(now())
 
   organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  changeEvent  VendorChangeEvent  @relation(fields: [changeEventId], references: [id], onDelete: Cascade)
+  changeEvent  VendorChangeEvent? @relation(fields: [changeEventId], references: [id], onDelete: Cascade)
+  remediationCase RemediationCase? @relation(fields: [caseId], references: [id], onDelete: Cascade)
   repository   Repository         @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  graphSnapshot GraphSnapshot?    @relation(fields: [graphSnapshotId], references: [id], onDelete: SetNull)
   affectedUsages ImpactAssessmentUsage[]
   plans        RemediationPlan[]
 
   @@unique([changeEventId, repositoryId])
+  @@unique([caseId, repositoryId])
   @@index([organizationId])
   @@index([repositoryId])
   @@index([status])
@@ -1447,6 +1518,7 @@ model PatchArtifact {
 
   organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   remediationPlan RemediationPlan @relation(fields: [remediationPlanId], references: [id], onDelete: Cascade)
+  attempts        RemediationAttempt[]
 
   @@index([organizationId])
   @@index([remediationPlanId])

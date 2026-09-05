@@ -125,6 +125,13 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
       dependency: {
         select: { packageName: true, resolvedVersion: true, commitSha: true, lockfileKind: true },
       },
+      contractChange: {
+        select: {
+          identity: true,
+          description: true,
+          source: { select: { vendorSlug: true, kind: true } },
+        },
+      },
       snapshot: { select: { id: true, commitSha: true, nodesAffected: true, edgesAffected: true } },
     },
   });
@@ -191,8 +198,11 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
           take: 110,
         });
   const radarData = {
-    packageName: remediationCase.release.product.packageName,
-    version: remediationCase.release.version,
+    packageName:
+      remediationCase.release?.product.packageName ??
+      remediationCase.contractChange?.source.vendorSlug ??
+      "contract",
+    version: remediationCase.release?.version ?? remediationCase.contractChange?.identity ?? "",
     affected: radarAffected.map((usage) => ({
       id: usage.id,
       filePath: usage.filePath,
@@ -298,13 +308,20 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
                   : ""
               }`}
             >
-              {remediationCase.release.product.packageName.charAt(0).toUpperCase()}
+              {(
+                remediationCase.release?.product.packageName ??
+                remediationCase.contractChange?.source.vendorSlug ??
+                "Contract case"
+              ).charAt(0).toUpperCase()}
             </span>
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-xl font-semibold text-white">
-                  {remediationCase.release.product.packageName}{" "}
-                  <span className="text-ink-400">v{remediationCase.release.version}</span>
+                  {remediationCase.release?.product.packageName ??
+                    remediationCase.contractChange?.source.vendorSlug}{" "}
+                  <span className="text-ink-400">
+                    v{remediationCase.release?.version ?? remediationCase.contractChange?.identity}
+                  </span>
                 </h1>
                 <StatusPill
                   label={remediationCase.status}
@@ -312,16 +329,17 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
                 />
               </div>
               <p className="mt-0.5 text-sm text-ink-400">
-                {remediationCase.release.product.vendor.name} (
-                {remediationCase.release.product.vendor.slug}) ·{" "}
+                {remediationCase.release
+                  ? `${remediationCase.release.product.vendor.name} (${remediationCase.release.product.vendor.slug}) · `
+                  : `contract ${remediationCase.contractChange?.source.kind ?? ""} · `}
                 {remediationCase.repository.fullName} · resolved{" "}
-                {remediationCase.dependency.resolvedVersion} ·{" "}
-                {remediationCase.dependency.lockfileKind}
+                {remediationCase.dependency?.resolvedVersion ?? "—"} ·{" "}
+                {remediationCase.dependency?.lockfileKind ?? "contract evidence"}
               </p>
             </div>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
-            {canPlan && remediationCase.releaseRepositoryMatchId ? (
+            {canPlan && remediationCase.releaseRepositoryMatchId && remediationCase.release ? (
               <PlanRunButton
                 releaseId={remediationCase.release.id}
                 matchId={remediationCase.releaseRepositoryMatchId}

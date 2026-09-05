@@ -228,8 +228,9 @@ export default async function OutcomesPage() {
                       </p>
                       <p className="mt-0.5 text-zinc-500">
                         {outcome.pullRequest.remediationPlan.impactAssessment.repository.name}
-                        {outcome.pullRequest.remediationPlan.impactAssessment.changeEvent.vendor
-                          ? ` · ${outcome.pullRequest.remediationPlan.impactAssessment.changeEvent.vendor.name}`
+                        {outcome.pullRequest.remediationPlan.impactAssessment.changeEvent?.vendor
+                          ?.name
+                          ? ` · ${outcome.pullRequest.remediationPlan.impactAssessment.changeEvent?.vendor?.name}`
                           : ""}
                       </p>
                     </div>
@@ -296,7 +297,7 @@ export default async function OutcomesPage() {
                       </p>
                     </TableCell>
                     <TableCell className="text-xs text-zinc-600">
-                      {outcome.pullRequest?.remediationPlan.impactAssessment.changeEvent.vendor
+                      {outcome.pullRequest?.remediationPlan.impactAssessment.changeEvent?.vendor
                         ?.name ?? "—"}
                       {outcome.case ? (
                         <span className="text-zinc-400"> · {outcome.case.id.slice(0, 8)}</span>
