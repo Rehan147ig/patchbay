@@ -349,6 +349,7 @@ model Organization {
   notifications          Notification[]
   taskParameters         TaskParameter[]
   vendors                Vendor[]
+  contractSources        ContractSource[]
   workspaces             Workspace[]
   workspaceMembers       WorkspaceMember[]
   subscription           Subscription?
@@ -1191,6 +1192,99 @@ model NormalizedChange {
 
   @@index([changeEventId])
   @@index([changeType])
+}
+
+// ---------------------------------------------------------------------------
+// Contract pipeline (WP2): versioned external contracts as first-class rows.
+// Vendor/Release* models carry today's npm/release traffic; these three models
+// generalize to every contract family (REST, GraphQL, SDK, MCP, webhook,
+// async, auth/config) behind the ContractProviderAdapter interface.
+// ---------------------------------------------------------------------------
+
+model ContractSource {
+  id String @id @default(uuid())
+  /**
+   * Owning organization; NULL = public vendor source shared by all tenants.
+   * MIXED visibility like Vendor: never blanket-scoped (see ORG_SCOPE_EXEMPT_MODELS);
+   * every read filters `organizationId IN {NULL, caller-org}` explicitly at its call site.
+   */
+  organizationId String?
+  /** Contract family vocabulary lives in domain ContractKind; stored as string
+      so new families do not require enum migrations (Zod-validated at write boundaries). */
+  vendorSlug String
+  kind       String
+  name       String
+  /** KMS envelope ciphertext for provider credentials; null when the source needs none. */
+  configEncrypted String?
+  status          String    @default("ACTIVE")
+  lastObservedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization?    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  snapshots    ContractSnapshot[]
+  changes      ContractChange[]
+
+  /// Ingest idempotency for org-bound sources. Public (NULL-org) rows are NOT
+  /// covered by this constraint (Postgres NULLS DISTINCT) — see the partial
+  /// unique index in the WP2 migration for the NULL-org side.
+  @@unique([organizationId, vendorSlug, kind, name])
+  @@index([vendorSlug, kind])
+  @@index([organizationId, status])
+}
+
+model ContractSnapshot {
+  id String @id @default(uuid())
+  sourceId String
+  /** SHA-256 of the raw contract bytes (canonical identity). */
+  contentHash String
+  /** SHA-256 of the canonicalized normalized form (change detection). */
+  normalizedHash String
+  /** Content-addressed object-store key for the raw bytes; null until stored. */
+  rawArtifactUri String?
+  normalizedJson Json
+  parserVersion  String
+  observedAt     DateTime @default(now())
+  provenanceJson Json?
+
+  source ContractSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  changesFrom ContractChange[] @relation("ChangeFrom")
+  changesTo   ContractChange[] @relation("ChangeTo")
+
+  /// Same bytes observed twice store once: the pipeline returns the existing row.
+  @@unique([sourceId, contentHash])
+  @@index([sourceId, observedAt])
+}
+
+model ContractChange {
+  id String @id @default(uuid())
+  sourceId String
+  /** Null for the genesis observation (first snapshot has no predecessor). */
+  fromSnapshotId String?
+  toSnapshotId   String
+  changeType     String
+  severity       String
+  /** Adapter-normalized change identity (stable across re-polls). */
+  identity       String
+  description    String
+  evidenceJson   Json?
+  migrationHintsJson Json?
+  status         String @default("OPEN")
+
+  createdAt DateTime @default(now())
+
+  source       ContractSource    @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  fromSnapshot ContractSnapshot? @relation("ChangeFrom", fields: [fromSnapshotId], references: [id], onDelete: SetNull)
+  toSnapshot   ContractSnapshot  @relation("ChangeTo", fields: [toSnapshotId], references: [id], onDelete: Cascade)
+
+  /// One row per (source, endpoint snapshot, normalized identity): re-polls and
+  /// races converge instead of duplicating. Genesis rows (null fromSnapshotId)
+  /// are keyed by (source, to, identity) exactly like transitions.
+  @@unique([sourceId, toSnapshotId, identity])
+  @@index([sourceId, status])
+  @@index([toSnapshotId])
 }
 
 model IntegrationUsage {

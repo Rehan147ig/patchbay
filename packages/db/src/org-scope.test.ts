@@ -43,8 +43,10 @@ describe("org-scope drift guard", () => {
     // Vendor is intentionally exempt: it is a MIXED model (shared catalog +
     // per-org private SDKs) and cannot be blanket-scoped without hiding the
     // shared catalog. All vendor queries scope explicitly at their call sites.
+    // ContractSource is exempt for the same reason (public sources + private
+    // feeds); its reads filter organizationId IN {NULL, caller-org}.
     const expected = [...ORG_SCOPE_EXEMPT_MODELS].sort();
-    expect(expected).toEqual(["User", "Vendor", "WebhookDelivery"]);
+    expect(expected).toEqual(["ContractSource", "User", "Vendor", "WebhookDelivery"]);
     // Every exempt model must actually have organizationId in the schema.
     for (const name of expected) {
       expect(

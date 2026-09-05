@@ -24,12 +24,20 @@ export type TrustViolationReason =
 export class TrustViolationError extends Error {
   readonly reason: TrustViolationReason;
   readonly status: number | null;
+  /** Parsed Retry-After in ms for rate_limited errors; null when absent/unparseable. */
+  readonly retryAfterMs: number | null;
 
-  constructor(reason: TrustViolationReason, message: string, status: number | null = null) {
+  constructor(
+    reason: TrustViolationReason,
+    message: string,
+    status: number | null = null,
+    retryAfterMs: number | null = null,
+  ) {
     super(message);
     this.name = "TrustViolationError";
     this.reason = reason;
     this.status = status;
+    this.retryAfterMs = retryAfterMs;
   }
 }
 
@@ -150,6 +158,94 @@ export interface TrustedFetchResult {
   text: string;
 }
 
+/**
+ * Parses a Retry-After header value (delta-seconds per RFC 9110) into
+ * milliseconds. Returns null for absent, unparseable, or non-positive values;
+ * HTTP-date forms are deliberately unsupported (npm-style registries send
+ * delta-seconds) — callers fall back to exponential backoff instead.
+ */
+export function parseRetryAfterMs(value: string | null): number | null {
+  if (value === null) return null;
+  const seconds = Number(value.trim());
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  return Math.floor(seconds * 1000);
+}
+
+export interface FetchRetryPolicy {
+  /** Total attempts including the first try. */
+  maxAttempts?: number;
+  /** Base backoff; actual delay is base * 2^(attempt-1), capped, plus jitter. */
+  baseDelayMs?: number;
+  maxDelayMs?: number;
+  /** Uniform [0, jitterMs] added to every backoff so pollers do not stampede. */
+  jitterMs?: number;
+  /** Upper bound for a server-requested Retry-After wait. */
+  retryAfterCapMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+}
+
+const DEFAULT_RETRY_POLICY: Required<Omit<FetchRetryPolicy, "sleep">> & {
+  sleep: (ms: number) => Promise<void>;
+} = {
+  maxAttempts: 3,
+  baseDelayMs: 1000,
+  maxDelayMs: 10_000,
+  jitterMs: 500,
+  retryAfterCapMs: 60_000,
+  sleep: (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)),
+};
+
+function isRetryable(error: unknown): boolean {
+  if (error instanceof TrustViolationError) {
+    if (error.reason === "rate_limited" || error.reason === "request_timeout") return true;
+    if (error.reason === "non_ok_status" && error.status !== null && error.status >= 500) {
+      return true;
+    }
+    return false;
+  }
+  // Transport failures (ECONNRESET, UND_ERR_ABORTED, DNS) are transient.
+  return true;
+}
+
+/**
+ * fetchWithTrust plus bounded retry with exponential backoff and jitter.
+ *
+ * Retried: 429 (honoring Retry-After up to the cap), 5xx, timeouts, transport
+ * errors. Terminal (thrown immediately): trust rejections (domain, redirect,
+ * oversize), 4xx other than 429, malformed responses. The final error after
+ * exhaustion is the last error observed — classification is preserved, so
+ * callers (DetectionRun failure paths) behave exactly as on a first-try
+ * failure, only later.
+ */
+export async function fetchWithTrustRetry(
+  url: string,
+  profile: TrustProfile,
+  options: TrustedFetchOptions = {},
+  policy: FetchRetryPolicy = {},
+): Promise<TrustedFetchResult> {
+  const resolved = { ...DEFAULT_RETRY_POLICY, ...policy };
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= resolved.maxAttempts; attempt += 1) {
+    try {
+      return await fetchWithTrust(url, profile, options);
+    } catch (error) {
+      lastError = error;
+      if (attempt >= resolved.maxAttempts || !isRetryable(error)) throw error;
+      let delay: number;
+      if (error instanceof TrustViolationError && error.reason === "rate_limited") {
+        delay =
+          error.retryAfterMs !== null
+            ? Math.min(error.retryAfterMs, resolved.retryAfterCapMs)
+            : Math.min(resolved.baseDelayMs * 2 ** (attempt - 1), resolved.maxDelayMs);
+      } else {
+        delay = Math.min(resolved.baseDelayMs * 2 ** (attempt - 1), resolved.maxDelayMs);
+      }
+      await resolved.sleep(delay + Math.random() * resolved.jitterMs);
+    }
+  }
+  throw lastError;
+}
+
 function assertAllowedDomain(url: URL, profile: TrustProfile): void {
   if (!profile.allowedDomains.includes(url.hostname)) {
     throw new TrustViolationError(
@@ -219,6 +315,7 @@ export async function fetchWithTrust(
       "rate_limited",
       `rate limited (429)${retryAfter ? `, retry-after: ${retryAfter}` : ""}`,
       429,
+      parseRetryAfterMs(retryAfter),
     );
   }
 

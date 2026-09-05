@@ -62,7 +62,19 @@ export type OrgScopedModel = (typeof ORG_SCOPED_MODELS)[number];
  * global catalog from every tenant, so Vendor is exempt and all vendor reads
  * explicitly filter `organizationId IN {NULL, caller-org}` at their call sites.
  */
-export const ORG_SCOPE_EXEMPT_MODELS = ["User", "WebhookDelivery", "Vendor"] as const;
+/**
+ * ContractSource is a MIXED model with the same shape: public vendor sources
+ * (organizationId = NULL) plus per-organization private feeds. Same exemption
+ * and same call-site rule as Vendor: `organizationId IN {NULL, caller-org}`.
+ * ContractSnapshot/ContractChange carry no organizationId; their tenant
+ * boundary is the source join, enforced in the contract pipeline service.
+ */
+export const ORG_SCOPE_EXEMPT_MODELS = [
+  "User",
+  "WebhookDelivery",
+  "Vendor",
+  "ContractSource",
+] as const;
 
 /** Prisma delegate property names are lower-camel (auditEvent), model names PascalCase. */
 function delegateKeyOf(model: string): string {

@@ -143,9 +143,48 @@ only; server-side metering/quota-exhaustion states missing.
   sweep 38 files / 336 tests green (ai-provider, ai-harness, policy-engine,
   remediation-engine engine, vendor-connectors, web lib).
 
-## 6. Next steps
+## 6. WP2 — Contract source & snapshot pipeline (DONE 2026-09-05, branch `feat/production-spec`)
 
-WP2 (source/snapshot pipeline — extend watchtower; new models) per spec §17 order.
+- Models + migration `20260905000001_contract_pipeline`: `ContractSource`
+  (nullable org = public; `@@unique` org-side + raw partial unique index for the
+  NULL-org side, since Postgres NULLS DISTINCT skips them), `ContractSnapshot`
+  (`@@unique(sourceId, contentHash)`), `ContractChange`
+  (`@@unique(sourceId, toSnapshotId, identity)`; nullable `fromSnapshotId` for
+  genesis). `Organization.contractSources` back-ref added.
+- Tenant boundary: `ContractSource` joins `ORG_SCOPE_EXEMPT_MODELS` (MIXED
+  public/org like Vendor; reads filter `organizationId IN {NULL, org}` explicitly;
+  exempt-list test updated). Snapshots/changes carry no org column — boundary is
+  the source join, enforced in the pipeline service. RLS deliberately NOT enabled
+  on these tables (would hide the public catalog — documented in the migration).
+- `ContractProviderAdapter` interface (`packages/vendor-connectors/src/contract-provider.ts`):
+  spec §5.2 shape (verifyInboundEvent/fetchCurrentSnapshot/normalize/diff/
+  getMigrationHints) with Zod schemas; fake-adapter conformance test proves
+  implementability (fetch→normalize→diff→hints closed loop).
+- Content addressing: `canonicalJson` + `sha256Hex` (key-order invariant, array-order
+  significant, fail-closed on ambiguous values) + 5 tests.
+- Polling hardening (the verified gap): `fetchWithTrustRetry` — 429 honors Retry-After
+  (new `retryAfterMs` on TrustViolationError, additive), 5xx/timeout/transport get
+  exponential backoff + jitter, trust rejections and 4xx throw immediately,
+  classification preserved on exhaustion. Wired into the npm packument poll
+  (reference path; other adapters follow the same one-line pattern later).
+  Pre-existing strength kept: ETag/If-None-Match, defensive cursors, receipt dedupe,
+  staleness watchdog. 7 retry tests.
+- Pipeline service `apps/worker/src/lib/contract-pipeline.ts`: `ingestContractSnapshot`
+  (scope check → hash → dedupe → store raw via `storeRawEvidence` with hash-agreement
+  guard → snapshot row → persist caller-computed changes only on normalized movement;
+  genesis records snapshot only). Triple idempotency (content dedupe, pre-check +
+  P2002-converge on the change key, no-op re-ingest). 8 tests incl. cross-org
+  rejection, hash-mismatch refusal, race convergence, malformed-change refusal.
+- `zod@^4.0.0` added to `@patchbay/vendor-connectors` (lockfile reconciled, frozen
+  install passes).
+- Verification: prettier clean, eslint 0 warnings, typecheck 19/19, 30 new tests
+  green, regression sweep (vendor-connectors + db: 28 files / 211 tests) green.
+  Migration applies via standard `db:migrate` (CREATE TABLE + partial index, no
+  data movement).
+
+## 7. Next steps
+
+WP3 (graph expansion — extend) per spec §17 order.
 Branch hygiene: one work package per commit/PR, gates re-run per package, this file
 updated per §19.9. `main` stays locked (branch protection + Railway tracking `main`
 only); merges via green PR only.

@@ -6,7 +6,7 @@ import type {
   WatchtowerAdapter,
   WatchtowerEvidence,
 } from "../watchtower";
-import { fetchWithTrust } from "../safe-fetch";
+import { fetchWithTrust, fetchWithTrustRetry } from "../safe-fetch";
 import { resolveNpmTrustProfile } from "../trust";
 
 const VENDOR_PACKAGES: Record<string, string> = {
@@ -183,9 +183,13 @@ export function createNpmAdapter(vendorSlug: string): WatchtowerAdapter {
       };
       if (prev.etag) headers["If-None-Match"] = prev.etag;
 
-      // Resolved per poll so registry/auth rotation needs no restart.
+      // Resolved per poll so registry/auth rotation needs no restart. Transient
+      // rate limits and 5xx responses ride bounded backoff inside the poll
+      // (WP2) instead of failing the whole DetectionRun on the first 429.
       const packumentUrl = `${getNpmRegistryUrl()}/${packageName}`;
-      const response = await fetchWithTrust(packumentUrl, resolveNpmTrustProfile(), { headers });
+      const response = await fetchWithTrustRetry(packumentUrl, resolveNpmTrustProfile(), {
+        headers,
+      });
       if (response.status === 304) {
         return { evidence: [], cursor: prev };
       }

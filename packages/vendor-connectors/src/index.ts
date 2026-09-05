@@ -62,16 +62,37 @@ export {
   buildTlsConnectOptions,
   enterpriseDispatcherFor,
   fetchWithTrust,
+  fetchWithTrustRetry,
+  parseRetryAfterMs,
   resetCustomCaCache,
   TrustViolationError,
 } from "./safe-fetch";
 export type {
   CustomCaConfig,
+  FetchRetryPolicy,
   TlsConnectOptions,
   TrustedFetchOptions,
   TrustedFetchResult,
   TrustViolationReason,
 } from "./safe-fetch";
+export {
+  inboundEventSchema,
+  migrationHintSchema,
+  normalizedChangeSchema,
+  normalizedContractSnapshotSchema,
+  rawContractSnapshotSchema,
+} from "./contract-provider";
+export type {
+  ContractProviderAdapter,
+  ContractSourceRef,
+  InboundEvent,
+  MigrationHint,
+  NormalizedChange,
+  NormalizedContractSnapshot,
+  RawContractSnapshot,
+  VerifiedEvent,
+} from "./contract-provider";
+export { canonicalJson, sha256Hex } from "./contract-hash";
 export {
   authenticityForSource,
   privateNpmRegistryHost,
