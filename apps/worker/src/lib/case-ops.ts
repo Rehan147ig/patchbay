@@ -28,6 +28,12 @@ export interface CasePolicyRule {
       vendor?: string;
       validationStatus?: string;
     };
+    /**
+     * Funnel action on match. SUPPRESSED (admin noise control: the case is
+     * recorded and audited but never notified) and ASSESS (observe-only: no
+     * plan, no PR) extend the ladder in WP5. Quiet hours and grouping rules
+     * are a documented follow-up, not silently implied.
+     */
     then?: string;
     reason?: string;
   };
@@ -40,13 +46,30 @@ export interface CasePolicyFacts {
 }
 
 export interface CasePolicyEvaluation {
-  decision: "ALLOW" | "REQUIRE_APPROVAL" | "ALLOW_PLAN_ONLY" | "ALLOW_VALIDATE" | "DENY";
+  decision:
+    | "ALLOW"
+    | "REQUIRE_APPROVAL"
+    | "ALLOW_PLAN_ONLY"
+    | "ALLOW_VALIDATE"
+    | "DENY"
+    | "SUPPRESSED"
+    | "ASSESS";
   reasons: string[];
   matchedPolicyIds: string[];
 }
 
+/**
+ * Strength ordering (WP5, spec §8.1): a safety refusal (DENY) always wins,
+ * even over an admin suppression — silence must never override safety.
+ * SUPPRESSED (admin noise control) outranks ASSESS (observe-only), which
+ * outranks the action ladder. Note: this is funnel-action vocabulary, not the
+ * engine PolicyDecision enum — the funnel maps engine decisions to actions,
+ * and only DENY is extracted for gating (see upsertRemediationCase).
+ */
 const POLICY_ACTION_PRIORITY: Record<CasePolicyEvaluation["decision"], number> = {
-  DENY: 4,
+  DENY: 6,
+  SUPPRESSED: 5,
+  ASSESS: 4,
   REQUIRE_APPROVAL: 3,
   ALLOW_PLAN_ONLY: 2,
   ALLOW_VALIDATE: 1,
@@ -218,13 +241,49 @@ export async function upsertRemediationCase(
     });
   }
   if (created) {
-    await createNotification({
-      organizationId: context.organizationId,
-      type: NotificationType.CASE_CREATED,
-      title: `New remediation case: ${context.vendorSlug}`,
-      body: `Status ${saved.status} (${saved.reasonCode}) — plan eligible: ${decision.planEligible}`,
-      correlationId,
-    });
+    if (policyEvaluation.decision === "SUPPRESSED") {
+      logger.info("suppressed case created quietly (no notification)", {
+        caseId: saved.id,
+        correlationId,
+        reasons: policyEvaluation.reasons,
+      });
+    } else {
+      await createNotification({
+        organizationId: context.organizationId,
+        type: NotificationType.CASE_CREATED,
+        title: `New remediation case: ${context.vendorSlug}`,
+        body: `Status ${saved.status} (${saved.reasonCode}) — plan eligible: ${decision.planEligible}`,
+        correlationId,
+      });
+    }
+  }
+
+  // Immutable policy snapshot (WP5, spec §4.1): every case creation or status
+  // change records what was decided, on what grounds, under which policies.
+  // Best-effort like all observers here — a recording failure is logged loudly
+  // but never breaks case reconciliation itself.
+  if (created || changed) {
+    try {
+      await prisma.policyDecisionRecord.create({
+        data: {
+          organizationId: context.organizationId,
+          caseId: saved.id,
+          policyId: policyEvaluation.matchedPolicyIds[0] ?? null,
+          decision: policyEvaluation.decision,
+          reasonCodes: policyEvaluation.matchedPolicyIds as never,
+          riskTags: [...evidence.riskTags] as never,
+          confidence: null,
+          policyVersion: null,
+          evaluatorVersion: "case-ops/funnel-v1",
+        },
+      });
+    } catch (error) {
+      logger.error("policy decision recording failed (case reconciliation continues)", {
+        caseId: saved.id,
+        correlationId,
+        error: String(error),
+      });
+    }
   }
 
   logger.info("remediation case reconciled", {

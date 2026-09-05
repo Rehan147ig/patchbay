@@ -26,6 +26,9 @@ vi.mock("@patchbay/db", () => ({
     remediationCase: {
       update: vi.fn(),
     },
+    capabilityGate: {
+      findUnique: vi.fn(),
+    },
     remediationCaseEvent: {
       create: vi.fn(),
     },
@@ -84,6 +87,7 @@ describe("processCreatePR", () => {
     } as never);
     vi.mocked(prisma.pullRequest.count).mockResolvedValue(0);
     vi.mocked(prisma.pullRequest.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.capabilityGate.findUnique).mockResolvedValue(null);
   });
 
   const validJobData: CreatePRJobData = {
@@ -115,7 +119,7 @@ describe("processCreatePR", () => {
           metadata: { fixture: "openai" },
           organizationId: "org-1",
         },
-        changeEvent: { title: "Test Change", organizationId: "org-1" },
+        changeEvent: { title: "Test Change", organizationId: "org-1", vendor: { slug: "openai" } },
       },
     } as never);
 
@@ -144,7 +148,7 @@ describe("processCreatePR", () => {
           metadata: { fixture: "openai" },
           organizationId: "org-1",
         },
-        changeEvent: { title: "Test Change", organizationId: "org-1" },
+        changeEvent: { title: "Test Change", organizationId: "org-1", vendor: { slug: "openai" } },
       },
     } as never);
 
@@ -171,7 +175,7 @@ describe("processCreatePR", () => {
           metadata: { fixture: "openai" },
           organizationId: "org-1",
         },
-        changeEvent: { title: "Test Change", organizationId: "org-1" },
+        changeEvent: { title: "Test Change", organizationId: "org-1", vendor: { slug: "openai" } },
       },
     } as never);
     vi.mocked(resolveFixtureDir).mockReturnValue(process.cwd());
@@ -222,7 +226,7 @@ describe("processCreatePR", () => {
           metadata: { installationId: 42 },
           organizationId: "org-1",
         },
-        changeEvent: { title: "Test Change", organizationId: "org-1" },
+        changeEvent: { title: "Test Change", organizationId: "org-1", vendor: { slug: "openai" } },
       },
     } as never);
     providerMock.createDraftPullRequest.mockResolvedValueOnce({
@@ -270,7 +274,7 @@ describe("processCreatePR", () => {
           metadata: { fixture: "openai-node-legacy" },
           organizationId: "org-1",
         },
-        changeEvent: { title: "Test Change", organizationId: "org-1" },
+        changeEvent: { title: "Test Change", organizationId: "org-1", vendor: { slug: "openai" } },
       },
     } as never);
     providerMock.createDraftPullRequest.mockResolvedValueOnce({
@@ -320,7 +324,7 @@ describe("processCreatePR", () => {
           metadata: { fixture: "openai" },
           organizationId: "org-1",
         },
-        changeEvent: { title: "Test Change", organizationId: "org-1" },
+        changeEvent: { title: "Test Change", organizationId: "org-1", vendor: { slug: "openai" } },
       },
     } as never);
     vi.mocked(prisma.agentRun.findFirst).mockResolvedValueOnce({
@@ -379,7 +383,7 @@ describe("processCreatePR", () => {
           metadata: { fixture: "openai" },
           organizationId: "org-1",
         },
-        changeEvent: { title: "Test Change", organizationId: "org-1" },
+        changeEvent: { title: "Test Change", organizationId: "org-1", vendor: { slug: "openai" } },
       },
     } as never);
     vi.mocked(prisma.agentRun.findFirst).mockResolvedValueOnce(null as never);
@@ -426,7 +430,7 @@ describe("processCreatePR", () => {
           metadata: { installationId: 42 },
           organizationId: "org-1",
         },
-        changeEvent: { title: "Test Change", organizationId: "org-1" },
+        changeEvent: { title: "Test Change", organizationId: "org-1", vendor: { slug: "openai" } },
       },
     } as never);
     providerMock.createDraftPullRequest.mockRejectedValueOnce(
@@ -466,7 +470,12 @@ describe("processCreatePR", () => {
           metadata: { installationId: 42 },
           organizationId: "org-1",
         },
-        changeEvent: { id: "change-1", title: "Test Change", organizationId: "org-1" },
+        changeEvent: {
+          id: "change-1",
+          title: "Test Change",
+          organizationId: "org-1",
+          vendor: { slug: "openai" },
+        },
       },
     } as never);
 
@@ -512,7 +521,7 @@ describe("processCreatePR", () => {
           name: "app",
           organizationId: "org-1",
         },
-        changeEvent: { title: "Test Change", organizationId: "org-1" },
+        changeEvent: { title: "Test Change", organizationId: "org-1", vendor: { slug: "openai" } },
       },
     } as never);
 
@@ -524,6 +533,42 @@ describe("processCreatePR", () => {
 
     await expect(processCreatePR(mockJob)).rejects.toThrow(
       /PR creation throttled by circuit breaker/,
+    );
+    expect(providerMock.createDraftPullRequest).not.toHaveBeenCalled();
+  });
+
+  it("refuses an uncertified vendor with the same refusal as the web vector (gate parity)", async () => {
+    vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValueOnce({
+      id: "plan-1",
+      pullRequests: [],
+      impactAssessment: {
+        repository: { id: "repo-1", organizationId: "org-1" },
+        changeEvent: { id: "change-1", organizationId: "org-1", vendor: { slug: "auth0" } },
+      },
+    } as never);
+    await expect(processCreatePR(mockJob)).rejects.toThrow(/not certified for DRAFT_PR/);
+    expect(providerMock.createDraftPullRequest).not.toHaveBeenCalled();
+  });
+
+  it("refuses a suspended capability with the same refusal as the web vector (gate parity)", async () => {
+    vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValueOnce({
+      id: "plan-1",
+      pullRequests: [],
+      impactAssessment: {
+        repository: { id: "repo-1", organizationId: "org-1" },
+        changeEvent: {
+          id: "change-1",
+          organizationId: "org-1",
+          vendor: { slug: "openai" },
+        },
+      },
+    } as never);
+    vi.mocked(prisma.capabilityGate.findUnique).mockResolvedValueOnce({
+      status: "SUSPENDED",
+      reason: "merge rate below threshold",
+    } as never);
+    await expect(processCreatePR(mockJob)).rejects.toThrow(
+      /is suspended: merge rate below threshold/,
     );
     expect(providerMock.createDraftPullRequest).not.toHaveBeenCalled();
   });

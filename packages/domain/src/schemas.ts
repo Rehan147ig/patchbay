@@ -324,11 +324,13 @@ export type ReviewVerdict = z.infer<typeof reviewVerdictSchema>;
 
 export const policyDecisionResultSchema = z.object({
   decision: z.enum([
-    PolicyDecision.ALLOW_PLAN_ONLY,
+    PolicyDecision.ASSESS,
+    PolicyDecision.PLAN_ONLY,
     PolicyDecision.ALLOW_VALIDATE,
     PolicyDecision.ALLOW_DRAFT_PR,
     PolicyDecision.REQUIRE_APPROVAL,
     PolicyDecision.DENY,
+    PolicyDecision.SUPPRESSED,
   ]),
   matchedPolicyIds: z.array(z.string()),
   reasons: z.array(z.string()),

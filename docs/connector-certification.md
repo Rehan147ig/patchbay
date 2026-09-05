@@ -35,7 +35,7 @@ Register in `packages/vendor-connectors/src/connectors/registry.ts` and `CAPABIL
 
 ```ts
 { id:"my-vendor-2.0.0", vendor:"my-vendor", fixture:"my-vendor-node-legacy", packageName:"my-package", releaseVersion:"2.0.0", previousVersion:"1.0.0", payload:{sdk:"my-vendor"}, expectedMatched:true, expectedFiles:["src/app.ts"], facts:{breaking:true,requiresHumanReview:true,riskTags:[]}, expectedDecision:PolicyDecision.REQUIRE_APPROVAL },
-{ id:"my-vendor-1.0.0", vendor:"my-vendor", fixture:"my-vendor-node-legacy", packageName:"my-package", releaseVersion:"1.0.0", previousVersion:"0.9.0", payload:{fromVersion:"1.x",toVersion:"2.x"}, expectedMatched:false, expectedFiles:[], facts:{breaking:false,requiresHumanReview:false,riskTags:[]}, expectedDecision:PolicyDecision.ALLOW_PLAN_ONLY },
+{ id:"my-vendor-1.0.0", vendor:"my-vendor", fixture:"my-vendor-node-legacy", packageName:"my-package", releaseVersion:"1.0.0", previousVersion:"0.9.0", payload:{fromVersion:"1.x",toVersion:"2.x"}, expectedMatched:false, expectedFiles:[], facts:{breaking:false,requiresHumanReview:false,riskTags:[]}, expectedDecision:PolicyDecision.PLAN_ONLY },
 ```
 
 4. **Verify gates**:

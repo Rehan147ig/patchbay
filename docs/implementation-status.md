@@ -250,9 +250,45 @@ only; server-side metering/quota-exhaustion states missing.
   559 tests green (worker + db + domain + touched web routes). `CaseReasonCode.CONTRACT_CHANGE`
   added (pre-existed in domain enums; String column, no migration).
 
-## 9. Next steps
+## 9. WP5 — Policy + certification hardening (DONE 2026-09-05, branch `feat/production-spec`)
 
-WP5 (policy + certification hardening) per spec §17 order.
+- Enum alignment (spec §8.1): `ALLOW_PLAN_ONLY`→`PLAN_ONLY` + new `ASSESS`/`SUPPRESSED`
+  across domain, Prisma (migration renames + adds), `policyDecisionResultSchema`,
+  engine, corpus expectations (~20 entries), policy tests, and docs. Deliberate,
+  documented deviation: `ALLOW_VALIDATE` stays — the staged engine needs the
+  transient "validated, PR not yet permitted" state §8.1 does not name; folding
+  it into REQUIRE_APPROVAL would force approvals where none are needed.
+  Corpus 35/35 confirms zero behavior drift from the rename.
+- Models + migration `20260905000004_policy_certification` (applied clean):
+  `PolicyDecisionRecord` (org/case/policy/decision/reasonCodes/riskTags/
+  confidence/versions + RLS + org-leading indexes) and `ConnectorCertification`
+  (global catalog mirror, unique connector+version, no RLS — same rationale as
+  shared Vendor rows). `PolicyDecisionRecord` scoped; drift green.
+- Org-policy overlay: `then: SUPPRESSED/ASSESS` flow through existing `when`
+  matchers (riskTags/vendor/validationStatus) with strength
+  DENY>SUPPRESSED>ASSESS>REQUIRE_APPROVAL>… — safety refusals always beat admin
+  silence. Suppressed cases record + audit but never notify. Quiet hours and
+  grouping are explicitly deferred (documented in code), not implied.
+- `PolicyDecisionRecord` writer in `upsertRemediationCase` (best-effort,
+  never breaks reconciliation) + overlay/suppression/snapshot tests.
+- `syncConnectorCertifications` worker helper: mirrors the static registry with
+  honestly-mapped corpus metrics (usage precision→precision, patch-validation→
+  patch rate, validation success stays null — never duplicated), expires
+  superseded rule-pack versions. Standalone + tested; WP10 ops views consume it.
+- Gate parity closed (the WP5 find): worker `create-pr` never called
+  `requireCertified` nor the kill switch — an uncertified/suspended vendor
+  reaching the job sailed through. Now enforced identically on both vectors
+  (certification refusal + `assertWorkerCapabilityGateOpen`, worker-side twin of
+  the web gate to respect app boundaries), failing loudly into the DLQ/alert
+  path. Parity tests mirror the web fixtures verbatim (auth0 uncertified,
+  openai suspended).
+- Verification: prettier clean, eslint 0 warnings, typecheck 19/19, 434 tests
+  green across worker/policy/domain/DB suites, corpus 35/35, migration applied
+  to local Postgres.
+
+## 10. Next steps
+
+WP6 (deterministic remediation packs) per spec §17 order.
 Branch hygiene: one work package per commit/PR, gates re-run per package, this file
 updated per §19.9. `main` stays locked (branch protection + Railway tracking `main`
 only); merges via green PR only.

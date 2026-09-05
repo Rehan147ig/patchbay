@@ -172,11 +172,13 @@ enum ActorType {
 }
 
 enum PolicyDecision {
-  ALLOW_PLAN_ONLY
+  ASSESS
+  PLAN_ONLY
   ALLOW_VALIDATE
   ALLOW_DRAFT_PR
   REQUIRE_APPROVAL
   DENY
+  SUPPRESSED
 }
 
 // ---------------------------------------------------------------------------
@@ -352,6 +354,7 @@ model Organization {
   contractSources        ContractSource[]
   contractConsumers      ContractConsumer[]
   remediationAttempts    RemediationAttempt[]
+  policyDecisionRecords  PolicyDecisionRecord[]
   workspaces             Workspace[]
   workspaceMembers       WorkspaceMember[]
   subscription           Subscription?
@@ -821,6 +824,7 @@ model RemediationCase {
   outcomes       PrOutcome[]
   impactAssessments ImpactAssessment[]
   attempts       RemediationAttempt[]
+  policyDecisions PolicyDecisionRecord[]
   @@unique([scopeKey])
   @@unique([organizationId, dedupeKey])
   @@index([organizationId, status, updatedAt])
@@ -1582,6 +1586,64 @@ model Policy {
 
   @@unique([organizationId, name])
   @@index([organizationId])
+  decisions    PolicyDecisionRecord[]
+}
+
+/**
+ * Immutable snapshot of one policy evaluation (WP5, spec §4.1/§8.1).
+ * Append-only: evaluations are never updated, only superseded by newer rows.
+ * Wired at case creation (upsertRemediationCase); policy-version tracking on
+ * the Policy row itself follows in a later package (policyVersion stays null
+ * until Policy rows carry versions).
+ */
+model PolicyDecisionRecord {
+  id String @id @default(uuid())
+  organizationId String
+  caseId         String?
+  policyId       String?
+  /** Spec §8.1 decision vocabulary (ASSESS/PLAN_ONLY/.../SUPPRESSED). */
+  decision       String
+  reasonCodes    Json?
+  riskTags       Json?
+  confidence     Int?
+  policyVersion  String?
+  evaluatedAt    DateTime @default(now())
+  /** Harness/code version that evaluated (prompt template, engine, or rule id). */
+  evaluatorVersion String?
+
+  createdAt DateTime @default(now())
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  remediationCase RemediationCase? @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  policy       Policy?          @relation(fields: [policyId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, caseId, createdAt])
+  @@index([caseId])
+}
+
+/**
+ * Versioned connector certification record (WP5, spec §4.1): the database
+ * mirror of the static capability registry. Sync writes come from
+ * syncConnectorCertifications (worker lib); precision/success rates are
+ * measured by evaluations, not asserted statically, so they start null.
+ * Status: CERTIFIED, EXPIRED, or REVOKED.
+ */
+model ConnectorCertification {
+  id String @id @default(uuid())
+  connectorSlug String
+  capability    String
+  version       String
+  corpusVersion String?
+  precision     Float?
+  patchSuccessRate Float?
+  validationSuccessRate Float?
+  status        String   @default("CERTIFIED")
+  approvedBy    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([connectorSlug, version])
+  @@index([connectorSlug, status])
 }
 
 model Approval {

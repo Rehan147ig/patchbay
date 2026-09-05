@@ -223,11 +223,18 @@ export const ActorType = {
 export type ActorType = (typeof ActorType)[keyof typeof ActorType];
 
 export const PolicyDecision = {
-  ALLOW_PLAN_ONLY: "ALLOW_PLAN_ONLY",
+  /**
+   * Spec §8.1 decision vocabulary. ALLOW_VALIDATE is a deliberate extension:
+   * the staged engine needs a transient "validated, PR not yet permitted"
+   * state the spec list does not name; everything else matches §8.1 exactly.
+   */
+  ASSESS: "ASSESS",
+  PLAN_ONLY: "PLAN_ONLY",
   ALLOW_VALIDATE: "ALLOW_VALIDATE",
   ALLOW_DRAFT_PR: "ALLOW_DRAFT_PR",
   REQUIRE_APPROVAL: "REQUIRE_APPROVAL",
   DENY: "DENY",
+  SUPPRESSED: "SUPPRESSED",
 } as const;
 export type PolicyDecision = (typeof PolicyDecision)[keyof typeof PolicyDecision];
 

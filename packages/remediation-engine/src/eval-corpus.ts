@@ -151,7 +151,7 @@ export const EVAL_CORPUS: EvalCorpusEntry[] = [
     expectedMatched: false,
     expectedFiles: [],
     facts: { breaking: false, requiresHumanReview: false, riskTags: [] },
-    expectedDecision: PolicyDecision.ALLOW_PLAN_ONLY,
+    expectedDecision: PolicyDecision.PLAN_ONLY,
   },
   {
     id: "openai-python-0.28.1",
@@ -186,7 +186,7 @@ export const EVAL_CORPUS: EvalCorpusEntry[] = [
     expectedMatched: false,
     expectedFiles: [],
     facts: { breaking: false, requiresHumanReview: false, riskTags: [] },
-    expectedDecision: PolicyDecision.ALLOW_PLAN_ONLY,
+    expectedDecision: PolicyDecision.PLAN_ONLY,
   },
   {
     id: "stripe-16.12.0",
@@ -212,7 +212,7 @@ export const EVAL_CORPUS: EvalCorpusEntry[] = [
     expectedMatched: false,
     expectedFiles: [],
     facts: { breaking: false, requiresHumanReview: false, riskTags: [] },
-    expectedDecision: PolicyDecision.ALLOW_PLAN_ONLY,
+    expectedDecision: PolicyDecision.PLAN_ONLY,
   },
   {
     id: "twilio-3.84.0",
@@ -238,7 +238,7 @@ export const EVAL_CORPUS: EvalCorpusEntry[] = [
     expectedMatched: false,
     expectedFiles: [],
     facts: { breaking: false, requiresHumanReview: false, riskTags: [] },
-    expectedDecision: PolicyDecision.ALLOW_PLAN_ONLY,
+    expectedDecision: PolicyDecision.PLAN_ONLY,
   },
   {
     id: "auth0-3.3.0",
@@ -251,7 +251,7 @@ export const EVAL_CORPUS: EvalCorpusEntry[] = [
     expectedMatched: true,
     expectedFiles: [],
     facts: { breaking: true, requiresHumanReview: true, riskTags: ["AUTH"] },
-    expectedDecision: PolicyDecision.ALLOW_PLAN_ONLY,
+    expectedDecision: PolicyDecision.PLAN_ONLY,
   },
   {
     id: "auth0-3.1.0",
@@ -264,7 +264,7 @@ export const EVAL_CORPUS: EvalCorpusEntry[] = [
     expectedMatched: false,
     expectedFiles: [],
     facts: { breaking: false, requiresHumanReview: false, riskTags: [] },
-    expectedDecision: PolicyDecision.ALLOW_PLAN_ONLY,
+    expectedDecision: PolicyDecision.PLAN_ONLY,
   },
   {
     id: "anthropic-0.20.0",
@@ -290,7 +290,7 @@ export const EVAL_CORPUS: EvalCorpusEntry[] = [
     expectedMatched: false,
     expectedFiles: [],
     facts: { breaking: false, requiresHumanReview: false, riskTags: [] },
-    expectedDecision: PolicyDecision.ALLOW_PLAN_ONLY,
+    expectedDecision: PolicyDecision.PLAN_ONLY,
   },
   {
     id: "aws-sdk-2.1691.0",
@@ -304,7 +304,7 @@ export const EVAL_CORPUS: EvalCorpusEntry[] = [
     // Demoted to PLAN: renames without imports produce TS2304 (semantic gate).
     expectedFiles: [],
     facts: { breaking: true, requiresHumanReview: true, riskTags: ["INFRASTRUCTURE"] },
-    expectedDecision: PolicyDecision.ALLOW_PLAN_ONLY,
+    expectedDecision: PolicyDecision.PLAN_ONLY,
   },
   {
     id: "aws-sdk-3.0.0",
@@ -317,7 +317,7 @@ export const EVAL_CORPUS: EvalCorpusEntry[] = [
     expectedMatched: false,
     expectedFiles: [],
     facts: { breaking: false, requiresHumanReview: false, riskTags: [] },
-    expectedDecision: PolicyDecision.ALLOW_PLAN_ONLY,
+    expectedDecision: PolicyDecision.PLAN_ONLY,
   },
   {
     id: "supabase-1.35.7",
@@ -343,7 +343,7 @@ export const EVAL_CORPUS: EvalCorpusEntry[] = [
     expectedMatched: false,
     expectedFiles: [],
     facts: { breaking: false, requiresHumanReview: false, riskTags: [] },
-    expectedDecision: PolicyDecision.ALLOW_PLAN_ONLY,
+    expectedDecision: PolicyDecision.PLAN_ONLY,
   },
   {
     id: "langchain-0.1.0",
@@ -356,7 +356,7 @@ export const EVAL_CORPUS: EvalCorpusEntry[] = [
     expectedMatched: true,
     expectedFiles: [],
     facts: { breaking: true, requiresHumanReview: true, riskTags: [] },
-    expectedDecision: PolicyDecision.ALLOW_PLAN_ONLY,
+    expectedDecision: PolicyDecision.PLAN_ONLY,
   },
   {
     id: "vercel-ai-sdk-3.0.0",
@@ -382,7 +382,7 @@ export const EVAL_CORPUS: EvalCorpusEntry[] = [
     expectedMatched: false,
     expectedFiles: [],
     facts: { breaking: false, requiresHumanReview: false, riskTags: [] },
-    expectedDecision: PolicyDecision.ALLOW_PLAN_ONLY,
+    expectedDecision: PolicyDecision.PLAN_ONLY,
   },
   {
     id: "google-gemini-3.0.0",
@@ -395,7 +395,7 @@ export const EVAL_CORPUS: EvalCorpusEntry[] = [
     expectedMatched: false,
     expectedFiles: [],
     facts: { breaking: true, requiresHumanReview: true, riskTags: [] },
-    expectedDecision: PolicyDecision.ALLOW_PLAN_ONLY,
+    expectedDecision: PolicyDecision.PLAN_ONLY,
   },
   {
     id: "google-gemini-0.21.0",
@@ -428,7 +428,7 @@ export const EVAL_CORPUS: EvalCorpusEntry[] = [
     expectedMatched: false,
     expectedFiles: [],
     facts: { breaking: true, requiresHumanReview: true, riskTags: [] },
-    expectedDecision: PolicyDecision.ALLOW_PLAN_ONLY,
+    expectedDecision: PolicyDecision.PLAN_ONLY,
   },
   {
     id: "mistral-4.0.0",
@@ -441,7 +441,7 @@ export const EVAL_CORPUS: EvalCorpusEntry[] = [
     expectedMatched: false,
     expectedFiles: [],
     facts: { breaking: false, requiresHumanReview: false, riskTags: [] },
-    expectedDecision: PolicyDecision.ALLOW_PLAN_ONLY,
+    expectedDecision: PolicyDecision.PLAN_ONLY,
   },
   {
     id: "cohere-3.0.0",
@@ -454,7 +454,7 @@ export const EVAL_CORPUS: EvalCorpusEntry[] = [
     expectedMatched: false,
     expectedFiles: [],
     facts: { breaking: true, requiresHumanReview: true, riskTags: [] },
-    expectedDecision: PolicyDecision.ALLOW_PLAN_ONLY,
+    expectedDecision: PolicyDecision.PLAN_ONLY,
   },
   {
     id: "cohere-4.0.0",
@@ -467,7 +467,7 @@ export const EVAL_CORPUS: EvalCorpusEntry[] = [
     expectedMatched: false,
     expectedFiles: [],
     facts: { breaking: false, requiresHumanReview: false, riskTags: [] },
-    expectedDecision: PolicyDecision.ALLOW_PLAN_ONLY,
+    expectedDecision: PolicyDecision.PLAN_ONLY,
   },
 ];
 

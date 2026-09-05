@@ -150,7 +150,7 @@ export function evaluatePolicy(
     };
   }
 
-  // 2. Low confidence or no patches -> ALLOW_PLAN_ONLY
+  // 2. Low confidence or no patches -> PLAN_ONLY
   if (plan.patchCount === 0 || plan.confidence < policy.minConfidenceForPatch) {
     if (plan.patchCount === 0) {
       reasons.push("No automated patches generated; plan-only remediation");
@@ -161,7 +161,7 @@ export function evaluatePolicy(
       );
     }
     return {
-      decision: PolicyDecision.ALLOW_PLAN_ONLY,
+      decision: PolicyDecision.PLAN_ONLY,
       reasons,
       matchedPolicyIds,
       canCreatePR: false,

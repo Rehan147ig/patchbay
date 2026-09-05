@@ -118,7 +118,7 @@ export interface PlanLimitsInput {
 
 /**
  * Evaluates plan-level circuit breakers (file count, edits per file, patch size).
- * When tripped, degrades to REQUIRE_APPROVAL or ALLOW_PLAN_ONLY without crashing.
+ * When tripped, degrades to REQUIRE_APPROVAL or PLAN_ONLY without crashing.
  */
 export function evaluatePlanCircuitBreaker(
   input: PlanLimitsInput,

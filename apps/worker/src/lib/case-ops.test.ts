@@ -1,5 +1,23 @@
-import { describe, expect, it } from "vitest";
-import { evaluateCasePolicies, scopeKeyOf, type CasePolicyRule } from "./case-ops";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  evaluateCasePolicies,
+  scopeKeyOf,
+  upsertRemediationCase,
+  type CasePolicyRule,
+} from "./case-ops";
+import { prisma, createNotification } from "@patchbay/db";
+
+vi.mock("@patchbay/db", () => ({
+  prisma: {
+    remediationCase: { findUnique: vi.fn(), upsert: vi.fn() },
+    remediationCaseEvent: { create: vi.fn() },
+    auditEvent: { create: vi.fn() },
+    notification: { create: vi.fn() },
+    policyDecisionRecord: { create: vi.fn() },
+  },
+  createNotification: vi.fn(),
+  NotificationType: { CASE_CREATED: "CASE_CREATED" },
+}));
 
 const paymentApproval: CasePolicyRule = {
   id: "p-payment-approval",
@@ -104,6 +122,52 @@ describe("evaluateCasePolicies", () => {
     });
     expect(result.decision).toBe("DENY");
   });
+
+  it("SUPPRESSED outranks action decisions but never safety DENY", () => {
+    const suppress: CasePolicyRule = {
+      id: "p-quiet",
+      name: "Mute noisy vendor",
+      enabled: true,
+      definitionJson: {
+        when: { vendor: "generic-openapi" },
+        then: "SUPPRESSED",
+        reason: "Acknowledged noise",
+      },
+    };
+    const quiet = evaluateCasePolicies([paymentApproval, suppress], {
+      riskTags: ["PAYMENT"],
+      vendor: "generic-openapi",
+      validationStatus: "none",
+    });
+    expect(quiet.decision).toBe("SUPPRESSED");
+
+    const stillDenied = evaluateCasePolicies([suppress, denyPolicy], {
+      riskTags: [],
+      vendor: "generic-openapi",
+      validationStatus: "none",
+    });
+    expect(stillDenied.decision).toBe("DENY");
+  });
+
+  it("ASSESS outranks REQUIRE_APPROVAL (observe-only beats gated action)", () => {
+    const assessOnly: CasePolicyRule = {
+      id: "p-assess",
+      name: "Observe experimental vendor only",
+      enabled: true,
+      definitionJson: {
+        when: { vendor: "experimental-sdk" },
+        then: "ASSESS",
+        reason: "No patch promise yet",
+      },
+    };
+    const result = evaluateCasePolicies([paymentApproval, assessOnly], {
+      riskTags: ["PAYMENT"],
+      vendor: "experimental-sdk",
+      validationStatus: "none",
+    });
+    expect(result.decision).toBe("ASSESS");
+    expect(result.matchedPolicyIds).toEqual(["p-payment-approval", "p-assess"]);
+  });
 });
 
 describe("scopeKeyOf", () => {
@@ -113,5 +177,81 @@ describe("scopeKeyOf", () => {
     expect(withSnapshot).toBe("r:repo:dep:snap-1");
     expect(without).toBe("r:repo:dep:no-snapshot");
     expect(scopeKeyOf("r", "repo", "dep", "snap-1")).toBe(withSnapshot);
+  });
+});
+
+describe("upsertRemediationCase policy snapshots (WP5)", () => {
+  const context = {
+    organizationId: "org-1",
+    releaseId: "rel-1",
+    repositoryId: "repo-1",
+    dependencyId: "dep-1",
+    matchId: null,
+    snapshotId: null,
+    vendorSlug: "openai",
+    correlationId: "corr-1",
+  };
+  const evidence = {
+    hasClassification: true,
+    breaking: true,
+    affectedUsageCount: 2,
+    ownerCount: 1,
+    riskTags: ["PAYMENT"],
+    hasSnapshot: true,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(prisma.remediationCase.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.remediationCase.upsert).mockImplementation((async (args: unknown) => ({
+      id: "case-1",
+      status: "POLICY_ELIGIBLE",
+      reasonCode: "usage-evidence",
+      ...((args as { create: Record<string, unknown> }).create ?? {}),
+    })) as never);
+    vi.mocked(prisma.remediationCaseEvent.create).mockResolvedValue({} as never);
+    vi.mocked(prisma.auditEvent.create).mockResolvedValue({} as never);
+    vi.mocked(createNotification).mockResolvedValue({} as never);
+    vi.mocked(prisma.policyDecisionRecord.create).mockResolvedValue({ id: "pdr-1" } as never);
+  });
+
+  it("records an immutable policy snapshot on creation", async () => {
+    const result = await upsertRemediationCase(
+      context,
+      evidence,
+      false,
+      { decision: "ALLOW", reasons: [], matchedPolicyIds: [] },
+      "corr-1",
+    );
+    expect(result.created).toBe(true);
+    expect(prisma.policyDecisionRecord.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          organizationId: "org-1",
+          caseId: "case-1",
+          decision: "ALLOW",
+          riskTags: ["PAYMENT"],
+          evaluatorVersion: "case-ops/funnel-v1",
+        }),
+      }),
+    );
+    expect(createNotification).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays quiet on SUPPRESSED cases but still records the snapshot", async () => {
+    const result = await upsertRemediationCase(
+      context,
+      evidence,
+      false,
+      { decision: "SUPPRESSED", reasons: ["Acknowledged noise"], matchedPolicyIds: ["p-quiet"] },
+      "corr-1",
+    );
+    expect(result.created).toBe(true);
+    expect(createNotification).not.toHaveBeenCalled();
+    expect(prisma.policyDecisionRecord.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ decision: "SUPPRESSED", caseId: "case-1" }),
+      }),
+    );
   });
 });

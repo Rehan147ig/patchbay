@@ -20,8 +20,10 @@ import { resolveFixtureDir } from "@patchbay/repo-analysis";
 import { createGitProviderFromEnv } from "@patchbay/git-provider";
 import { approvalCoversPatches, evaluatePolicy, evaluateQuorum } from "@patchbay/policy-engine";
 import { rateLimitRedis } from "@patchbay/queue";
+import { requireCertified } from "@patchbay/vendor-connectors";
 import type { Job } from "bullmq";
 import { writeAuditEvent } from "../lib/audit";
+import { assertWorkerCapabilityGateOpen } from "../lib/capability-gates";
 import { assertInstallationBelongsToOrganization } from "../lib/repository-source";
 import { ACQUIRE_LUA, RELEASE_LUA } from "@patchbay/queue";
 
@@ -103,7 +105,7 @@ async function createDraftPR(
       impactAssessment: {
         include: {
           repository: true,
-          changeEvent: true,
+          changeEvent: { include: { vendor: { select: { slug: true } } } },
           affectedUsages: { include: { usage: true } },
         },
       },
@@ -142,6 +144,32 @@ async function createDraftPR(
       `remediation plan ${remediationPlanId} does not belong to organization ${organizationId}`,
     );
   }
+
+  // Gate parity with the web PR vectors (WP5): certification kit + kill-switch
+  // gate, enforced identically here. A suspended or uncertified vendor fails
+  // loudly into the job DLQ path (alert + audit) instead of opening a PR the
+  // web routes would refuse.
+  const vendorSlug = changeEvent.vendor.slug;
+  const certification = requireCertified(vendorSlug, "DRAFT_PR");
+  if (!certification.ok) {
+    await writeAuditEvent({
+      organizationId,
+      actorType: ActorType.SYSTEM,
+      actorId: null,
+      action: AuditAction.POLICY_BLOCKED,
+      entityType: "remediationPlan",
+      entityId: plan.id,
+      correlationId,
+      after: {
+        reason: `connector ${vendorSlug} is not certified for DRAFT_PR`,
+        certificationReasons: certification.reasons,
+      },
+    });
+    throw new Error(
+      `PR creation blocked: connector ${vendorSlug} is not certified for DRAFT_PR: ${certification.reasons.join("; ")}`,
+    );
+  }
+  await assertWorkerCapabilityGateOpen(organizationId, vendorSlug, "DRAFT_PR");
 
   // Idempotency check: Return existing PR if already created by a prior attempt
   if (plan.pullRequests && plan.pullRequests.length > 0) {

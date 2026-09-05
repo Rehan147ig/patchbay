@@ -101,7 +101,7 @@ describe("H8 full-loop evaluation corpus (launch-metric gates)", () => {
       const approvalGated = EVAL_CORPUS.filter(
         (entry) => entry.expectedDecision === "REQUIRE_APPROVAL",
       );
-      const planOnly = EVAL_CORPUS.filter((entry) => entry.expectedDecision === "ALLOW_PLAN_ONLY");
+      const planOnly = EVAL_CORPUS.filter((entry) => entry.expectedDecision === "PLAN_ONLY");
       expect(matched.length).toBeGreaterThanOrEqual(3);
       expect(patched.length).toBeGreaterThanOrEqual(3);
       expect(approvalGated.length).toBeGreaterThanOrEqual(3);
