@@ -131,3 +131,20 @@ export type {
   GenerationMethodValue,
   SubmissionRequest,
 } from "./schemas";
+export {
+  ContractKind,
+  DetectionMode,
+  NormalizationMode,
+  AnalysisMode,
+  RemediationMode,
+  ValidationMode,
+  DeliveryMode,
+  CertificationState,
+  certificationAtLeast,
+  capabilityMatrixSchema,
+  parseCapabilityMatrix,
+  serializeCapabilityMatrix,
+  CAPABILITY_VOCABULARY,
+  CAPABILITY_MATRIX_VERSION,
+} from "./capability-matrix";
+export type { CapabilityMatrix } from "./capability-matrix";

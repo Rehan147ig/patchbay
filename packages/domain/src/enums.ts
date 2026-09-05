@@ -109,7 +109,10 @@ export type UsageType = (typeof UsageType)[keyof typeof UsageType];
 export const RiskTag = {
   PAYMENT: "PAYMENT",
   AUTH: "AUTH",
+  AUTHORIZATION: "AUTHORIZATION",
   PII: "PII",
+  SECRETS: "SECRETS",
+  ENCRYPTION: "ENCRYPTION",
   WEBHOOK: "WEBHOOK",
   INFRASTRUCTURE: "INFRASTRUCTURE",
   TEST_ONLY: "TEST_ONLY",

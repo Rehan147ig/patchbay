@@ -118,8 +118,34 @@ only; server-side metering/quota-exhaustion states missing.
 - `apps/web/src/app/(marketing)/page.tsx` (uncommitted, carried into this branch): says
   "8 vendors ship with proven auto-fixes" — stale (9 DRAFT_PR connectors). Fix on this branch.
 
-## 5. Next steps
+## 5. WP1 — Domain vocabulary & capability matrix (DONE 2026-09-05, branch `feat/production-spec`)
 
-WP1 (domain vocabulary + capability matrix) per spec §17 order. Branch hygiene: one work
-package per commit/PR, gates re-run per package, this file updated per §19.9. `main` stays
-locked (branch protection + Railway tracking `main` only); merges via green PR only.
+- `packages/domain/src/capability-matrix.ts` (new): 7 contract kinds (REST, GRAPHQL,
+  SDK, MCP, WEBHOOK, ASYNC, AUTH_CONFIG) + 7 capability dimensions per spec §2.2
+  (detection/normalization/analysis/remediation/validation/delivery/certification) as
+  const objects + Zod schemas, `certificationAtLeast` rank ordering,
+  parse/serialize helpers (byte-identical round-trip), `CAPABILITY_VOCABULARY` export.
+  Deliberately not mirrored in Prisma yet (no table stores a matrix until WP2).
+- `RiskTag` extended with AUTHORIZATION, SECRETS, ENCRYPTION (spec §8.2 classes) +
+  Prisma schema + migration `20260905000000_risk_tag_extended`. Policy wiring of the
+  new tags stays in WP5 by design (vocabulary now, enforcement later).
+- Drift kills found by the compiler during WP1 (the process working as designed):
+  `aiPlanDraftSchema`/`patchPlanSchema` hardcoded the 7-value tag list (now
+  `z.nativeEnum(RiskTag)`); `apps/web/src/lib/format.ts` label/tone maps gained the
+  three tags; `HIGH_RISK_APPROVAL_TAGS` untouched (WP5).
+- Stability tests: `capability-matrix.test.ts` (6: value pins, rank ordering,
+  serialization round-trip, rejection, vocabulary export) + `errors-stable.test.ts`
+  (2: 12-code public set pinned, round-trip). Policy `reasons` stay free-form human
+  strings; standardizing them into codes is WP5, not WP1.
+- API: `GET /api/capability-matrix` (public, registry-route shape) + route test.
+- Verification: prettier clean, eslint 0 warnings, typecheck 19/19, domain suite
+  363 passed (drift 308 both directions), capability-matrix route green, regression
+  sweep 38 files / 336 tests green (ai-provider, ai-harness, policy-engine,
+  remediation-engine engine, vendor-connectors, web lib).
+
+## 6. Next steps
+
+WP2 (source/snapshot pipeline — extend watchtower; new models) per spec §17 order.
+Branch hygiene: one work package per commit/PR, gates re-run per package, this file
+updated per §19.9. `main` stays locked (branch protection + Railway tracking `main`
+only); merges via green PR only.
