@@ -40,6 +40,7 @@ export const ORG_SCOPED_MODELS = [
   "RemediationCase",
   "RemediationCaseEvent",
   "PrOutcome",
+  "AutonomyPolicy",
   "CapabilityGate",
   "Subscription",
   "Notification",

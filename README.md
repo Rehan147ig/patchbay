@@ -298,7 +298,7 @@ The repository enforces strict quality gates across all 19 workspace projects:
 # Typecheck all 19 projects (zero errors)
 pnpm typecheck
 
-# Run full Vitest suite (1,067+ passing tests across 99 test files)
+# Run full Vitest suite (1,326 tests across 404 test suites, 14 pending)
 pnpm test
 
 # Eval corpus certification gate (DRAFT_PR prerequisite)

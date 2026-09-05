@@ -5,11 +5,44 @@
 // and final counter = limit across all 1000 rounds.
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { Redis } from "ioredis";
 import { createRedisTestClient } from "./redis-test-client.js";
 import { ACQUIRE_LUA } from "./index.js";
 
-const REDIS_URL = "redis://127.0.0.1:6379";
+const REDIS_URL = process.env.REDIS_URL ?? "redis://127.0.0.1:6379";
 const CONFORMANCE_REDIS_DB = 15; // Dedicated DB to avoid key collision with other Redis suites
+
+/**
+ * Environment gate (same idiom as worm-db.test.ts): this suite needs a live
+ * Redis. Skipped automatically when none is reachable; run with env loaded:
+ *
+ *   npx dotenv -e .env -- pnpm vitest run packages/queue/src/redis-conformance.test.ts
+ *
+ * The probe uses its own client (no retries, silenced errors) so an absent
+ * Redis stays quiet instead of failing the file.
+ */
+const redisReachable = await (async () => {
+  const probe = new Redis(REDIS_URL, {
+    lazyConnect: true,
+    maxRetriesPerRequest: 1,
+    enableOfflineQueue: false,
+    retryStrategy: () => null,
+  });
+  probe.on("error", () => {});
+  try {
+    await probe.connect();
+    await probe.ping();
+    return true;
+  } catch {
+    return false;
+  } finally {
+    try {
+      await probe.quit();
+    } catch {
+      // best-effort cleanup
+    }
+  }
+})();
 
 let testClient: import("./redis-test-client.js").IRedisTestClient | undefined;
 
@@ -29,7 +62,7 @@ afterAll(async () => {
 });
 
 // === Organization Concurrency Exact-Limit Race (B2 conformance) ===
-describe("CONFORMED: Org exact-limit race (B2 conformance)", () => {
+describe.skipIf(!redisReachable)("CONFORMED: Org exact-limit race (B2 conformance)", () => {
   it("should allow exactly 1 of 2 concurrent acquires when starting at limit-1, 1000 rounds", async () => {
     let violations = 0;
     let firstViolationRound = -1;
@@ -128,7 +161,7 @@ describe("CONFORMED: Org exact-limit race (B2 conformance)", () => {
 });
 
 // === Global Concurrency Exact-Limit Race (C3 conformance) ===
-describe("CONFORMED: Global exact-limit race (C3 conformance)", () => {
+describe.skipIf(!redisReachable)("CONFORMED: Global exact-limit race (C3 conformance)", () => {
   it("should allow exactly 1 of 2 concurrent acquires when starting at limit-1, 1000 rounds", async () => {
     let violations = 0;
     let firstViolationRound = -1;
@@ -226,7 +259,7 @@ describe("CONFORMED: Global exact-limit race (C3 conformance)", () => {
 });
 
 // === PR-Slot Path Conformance ===
-describe("CONFORMED: PR-slot path conformance", () => {
+describe.skipIf(!redisReachable)("CONFORMED: PR-slot path conformance", () => {
   it("should independently prove the PR-slot admission path at limit-1, 1000 rounds", async () => {
     let violations = 0;
     let firstViolationRound = -1;

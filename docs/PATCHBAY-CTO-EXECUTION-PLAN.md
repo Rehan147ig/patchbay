@@ -14,7 +14,7 @@ foundation.
 
 | Area           | Current implementation                                                                                                                    |
 | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| Vendor catalog | 57 registered connectors across AI, cloud, auth, payments, data, messaging, frameworks, and observability                                 |
+| Vendor catalog | 64 registered connectors across AI, cloud, auth, payments, data, messaging, frameworks, and observability                                 |
 | Watchtower     | npm, GitHub Release, OpenAPI, and signed vendor-agent sources; scheduled polling; global release records/evidence/classification/matching |
 | Software graph | TypeScript/JavaScript dependency inventory, commit-versioned snapshots, AST nodes/edges/evidence, baseline and incremental indexing       |
 | Impact         | deterministic semver matching, explainable repository matches, graph evidence API and release views                                       |
@@ -22,7 +22,7 @@ foundation.
 | AI harness     | provider-neutral planner/reviewer, typed plans, budgets, replay, AgentRun/AgentStep persistence, Mastra-compatible contract               |
 | Delivery       | GitHub App, signed webhooks, short-lived tokens, draft PR lifecycle, append-only audit                                                    |
 | Validation     | allowlisted commands, secret redaction, process/container runtimes, container no-network tests                                            |
-| Quality        | 19-project typecheck and 1,067+ tests in 99 files pass (34/34 eval corpus)                                                                |
+| Quality        | 19-project typecheck and 1,326 tests (404 suites, 14 pending) in the full vitest suite pass (35/35 eval corpus)                           |
 
 ## Non-Negotiable Rules
 
@@ -56,7 +56,7 @@ Add a `ConnectorCapability` registry (database or source-controlled configuratio
 - validation profile and required policy class;
 - evaluation corpus ID, owner, status, and expiry/review date.
 
-All 57 connectors can be marketed under the appropriate `DETECT`/`ASSESS` level. Promotion to
+All 64 connectors can be marketed under the appropriate `DETECT`/`ASSESS` level. Promotion to
 `PLAN`, `VALIDATE`, or `DRAFT_PR` requires a trusted adapter, deterministic normalization, usage
 analysis, migration rules, positive and negative fixtures, sandbox profile, and passing metrics.
 

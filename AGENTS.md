@@ -70,8 +70,8 @@ pnpm lint                    # eslint, zero warnings allowed
 pnpm format:check            # prettier check
 pnpm format                  # prettier write
 pnpm typecheck               # tsc --noEmit across all 19 packages
-pnpm test                    # full vitest suite (1,067+ tests)
-pnpm test:corpus             # 34/34 eval-corpus certification gate
+pnpm test                    # full vitest suite (1,326 tests, 404 suites, 14 pending)
+pnpm test:corpus             # 35/35 eval-corpus certification gate
 pnpm build                   # production Next.js build (all 37 dynamic routes)
 pnpm e2e                     # Playwright (needs port 3000 free + worker running)
 ```
@@ -80,7 +80,7 @@ After ANY code change run: `pnpm format` → `pnpm lint` → `pnpm typecheck` �
 
 ## Architecture rules
 
-- **Certification requires the eval corpus green** (`pnpm test:corpus`): Exactly 7 connectors are certified for `DRAFT_PR` (`openai`, `stripe`, `twilio`, `anthropic`, `supabase`, `vercel-ai-sdk`, `openai-python`). Uncertified connectors operate at `ASSESS`/`PLAN` (graph inventory & blast-radius analysis). Never promote `ASSESS` → `DRAFT_PR` without all corpus fixtures passing.
+- **Certification requires the eval corpus green** (`pnpm test:corpus`): 35/35 eval-corpus tests pass. Exactly 7 connectors are certified for `DRAFT_PR` (`openai`, `stripe`, `twilio`, `anthropic`, `supabase`, `vercel-ai-sdk`, `openai-python`). Uncertified connectors operate at `ASSESS`/`PLAN` (graph inventory & blast-radius analysis). Never promote `ASSESS` → `DRAFT_PR` without all corpus fixtures passing.
 - `packages/domain`, `packages/audit`, `packages/policy-engine`, `packages/remediation-engine`, `packages/operations` must stay DB-free and runnable in plain unit tests (no database, no network).
 - The DB is only touched by `apps/web` route handlers/pages, `apps/worker`, and seed code.
 - Enums are defined once in `packages/domain` and mirrored in `prisma/schema.prisma`. A drift test in `packages/domain` verifies Prisma values stay in sync.

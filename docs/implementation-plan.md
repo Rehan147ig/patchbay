@@ -116,7 +116,7 @@ README updated. Status legend: [x] done, [ ] pending.
       extended (`gpt-4o`); strict exact-symbol impact matching (no prefix false positives)
 - [x] First-impression wins: searchable repo picker, zero-install demo simulator,
       blast-radius radar card; billing success toast; seeded outcomes + healthy gate
-- [x] Verified: 19-project typecheck, lint 0 warnings, 34/34 eval corpus, full CI green
+- [x] Verified: 19-project typecheck, lint 0 warnings, 35/35 eval corpus, full CI green
 
 ## Definition of Done (overall)
 

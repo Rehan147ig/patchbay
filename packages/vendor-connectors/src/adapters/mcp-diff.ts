@@ -36,9 +36,36 @@ export interface McpDiffFact {
   isSecuritySensitive: boolean;
 }
 
-/** Tool names/descriptions that can destroy data or access. Never auto-merge these. */
-const DESTRUCTIVE_STEMS =
-  "drop|delet|remov|destroy|truncat|revok|terminat|kill|shutdown|wip|purg|uninstall|grant|chmod|execut";
+/**
+ * Stems that indicate destructive or privilege-granting actions.
+ * Never auto-merge tools matching these.
+ *
+ * Negative lookaheads prevent false positives on common non-destructive terms:
+ * - `grant(?!ed|ee|_type)`: matches `grant`, `grant_role`, `granting`, but excludes
+ *   read-only past-participle `granted` (e.g. `is_granted`, `get_granted_scopes`),
+ *   `grantee`, and OAuth `grant_type`.
+ * - `drop(?!down|box)`: matches `drop_table`, `drop_db`, but excludes UI `dropdown`
+ *   and storage `dropbox`.
+ * - `wipe|wiping`: matches destructive wipes, but excludes developer `wip` (work in progress).
+ */
+const DESTRUCTIVE_STEMS = [
+  "drop(?!down|box)",
+  "delet",
+  "remov",
+  "destroy",
+  "truncat",
+  "revok",
+  "terminat",
+  "kill",
+  "shutdown",
+  "wipe|wiping",
+  "purg",
+  "uninstall",
+  "grant(?!ed|ee|_type)",
+  "chmod",
+  "execut",
+].join("|");
+
 const DESTRUCTIVE_PATTERN = new RegExp(`(^|[^a-z])(${DESTRUCTIVE_STEMS})[a-z]*([^a-z]|$)`, "i");
 
 export function isPrivilegedTool(name: string, description?: string): boolean {
