@@ -55,7 +55,7 @@ jobs:
         run: pnpm test:corpus
       - name: Full suite with production hardening report (scorecard gate)
         run: |
-          pnpm test -- --reporter=json --outputFile=test-results.vitest.json
+          pnpm vitest run --reporter=json --outputFile=test-results.vitest.json
           pnpm exec tsx scripts/test-report.ts test-results.vitest.json
       - name: Apply migrations
         run: pnpm db:migrate
