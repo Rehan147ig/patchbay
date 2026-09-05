@@ -8,6 +8,7 @@ import {
   OutcomeSource,
   PatchbayError,
   PullRequestStatus,
+  ValidationStatus,
   logger,
   unauthorized,
 } from "@patchbay/domain";
@@ -64,6 +65,23 @@ const PushPayloadSchema = z.object({
 
 /** Replays of an identical payload are dropped atomically via the unique payloadHash. */
 const MAX_WEBHOOK_BODY_BYTES = 5 * 1024 * 1024;
+
+const CheckRunPayloadSchema = z.object({
+  action: z.string(),
+  repository: z.object({ id: z.number() }),
+  check_run: z.object({
+    id: z.number().int(),
+    head_sha: z.string(),
+    name: z.string(),
+    status: z.string(),
+    conclusion: z.string().nullable().optional(),
+    html_url: z.string().optional(),
+  }),
+  pull_requests: z
+    .array(z.object({ number: z.number().int() }))
+    .optional()
+    .default([]),
+});
 
 export async function POST(request: NextRequest): Promise<Response> {
   const correlationId = getCorrelationId(request);
@@ -126,6 +144,8 @@ export async function POST(request: NextRequest): Promise<Response> {
       await handlePullRequest(PullRequestPayloadSchema.parse(body), correlationId);
     } else if (event === "push") {
       await handlePush(PushPayloadSchema.parse(body), correlationId);
+    } else if (event === "check_run") {
+      await handleCheckRun(CheckRunPayloadSchema.parse(body), correlationId);
     } else {
       logger.info("github webhook ignored (unhandled event type)", { correlationId, event });
     }
@@ -379,4 +399,162 @@ async function handlePullRequest(
       correlationId,
     });
   }
+}
+
+type CheckRunPayload = z.infer<typeof CheckRunPayloadSchema>;
+
+/**
+ * Conclusions that prove the patch broke customer CI. Everything else
+ * (neutral, cancelled, skipped, stale, or a missing conclusion) is recorded
+ * as evidence but never flips a verdict — a cancelled matrix leg is not
+ * proof the patch failed.
+ */
+const CHECK_RUN_FAILURE_CONCLUSIONS = new Set(["failure", "timed_out", "action_required"]);
+
+/**
+ * Customer-CI verdict ingestion (github-checks-only validation mode).
+ *
+ * In github-checks-only mode Patchbay never executes customer code, so the
+ * ValidationRun is recorded SKIPPED and the customer's own Actions runs are
+ * the sandbox. Their `check_run.completed` deliveries close that loop: each
+ * check run is merged as evidence into the latest ValidationRun for the PR's
+ * plan, and the run flips SKIPPED → PASSED / FAILED.
+ *
+ * Fail-closed aggregation across a PR's check matrix (many check_runs share
+ * one ValidationRun): any failure conclusion flips to FAILED; a success
+ * flips to PASSED only on a clean sheet (current status still SKIPPED, which
+ * implies no failure was recorded — any prior failure would already have
+ * flipped it). FAILED never flips back: a later green leg does not erase a
+ * real failure, and a fresh validation attempt writes a fresh SKIPPED row to
+ * start the loop again.
+ *
+ * Idempotency (three layers): the receipt path dedupes redelivered payloads;
+ * evidence is keyed by check_run id so reprocessing is a no-op merge; status
+ * transitions fire only out of SKIPPED (or PASSED → FAILED), never twice for
+ * the same verdict. Audits fire on transitions only, so matrix builds do not
+ * spam the audit trail.
+ *
+ * Scoping note: the run is located by PR number + repository id, not by
+ * head_sha (the PR row carries no stored SHA). A superseded check_run from an
+ * older push lands as evidence under its own id; worst case is a stale FAILED
+ * awaiting human eyes — humans merge regardless, and outcomes still learn.
+ */
+async function handleCheckRun(payload: CheckRunPayload, correlationId: string): Promise<void> {
+  if (payload.action !== "completed") return;
+  const checkRun = payload.check_run;
+  const conclusion = checkRun.conclusion ?? null;
+  if (!conclusion) {
+    logger.info("github check_run completed without a conclusion; ignored", {
+      correlationId,
+      checkRunId: checkRun.id,
+    });
+    return;
+  }
+  const prNumber = payload.pull_requests[0]?.number;
+  if (prNumber === undefined) {
+    logger.info("github check_run without pull-request scope ignored", {
+      correlationId,
+      checkRunId: checkRun.id,
+      headSha: checkRun.head_sha,
+    });
+    return;
+  }
+
+  const pullRequest = await prisma.pullRequest.findFirst({
+    where: {
+      externalId: String(prNumber),
+      remediationPlan: {
+        impactAssessment: {
+          repository: { externalId: { in: repositoryExternalIds(payload.repository.id) } },
+        },
+      },
+    },
+    select: { id: true, organizationId: true, remediationPlanId: true },
+  });
+  if (!pullRequest) {
+    logger.info("github check_run for unknown pull request ignored", {
+      correlationId,
+      checkRunId: checkRun.id,
+      prNumber,
+      repositoryId: payload.repository.id,
+    });
+    return;
+  }
+
+  const run = await prisma.validationRun.findFirst({
+    where: { remediationPlanId: pullRequest.remediationPlanId },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, organizationId: true, status: true, runtimeMetadata: true },
+  });
+  if (!run) {
+    logger.info("github check_run with no validation run ignored", {
+      correlationId,
+      checkRunId: checkRun.id,
+      pullRequestId: pullRequest.id,
+    });
+    return;
+  }
+
+  const meta = (run.runtimeMetadata ?? {}) as Record<string, unknown>;
+  const checks = (meta.customerChecks ?? {}) as Record<string, unknown>;
+  const evidence = {
+    name: checkRun.name,
+    headSha: checkRun.head_sha,
+    conclusion,
+    htmlUrl: checkRun.html_url ?? null,
+    recordedAt: new Date().toISOString(),
+  };
+  const checkKey = String(checkRun.id);
+  if (checks[checkKey] !== undefined) return;
+  checks[checkKey] = evidence;
+  const runtimeMetadata = { ...meta, customerChecks: checks } as Prisma.InputJsonValue;
+
+  const isFailure = CHECK_RUN_FAILURE_CONCLUSIONS.has(conclusion);
+  const nextStatus =
+    isFailure && run.status !== ValidationStatus.FAILED
+      ? ValidationStatus.FAILED
+      : !isFailure && conclusion === "success" && run.status === ValidationStatus.SKIPPED
+        ? ValidationStatus.PASSED
+        : null;
+
+  if (nextStatus === null) {
+    await prisma.validationRun.update({
+      where: { id: run.id },
+      data: { runtimeMetadata },
+    });
+    return;
+  }
+
+  await prisma.validationRun.update({
+    where: { id: run.id },
+    data: { status: nextStatus, completedAt: new Date(), runtimeMetadata },
+  });
+  await writeAuditEvent({
+    organizationId: run.organizationId,
+    actorType: ActorType.SYSTEM,
+    actorId: null,
+    action:
+      nextStatus === ValidationStatus.PASSED
+        ? AuditAction.PLAN_VALIDATION_PASSED
+        : AuditAction.PLAN_VALIDATION_FAILED,
+    entityType: "validationRun",
+    entityId: run.id,
+    correlationId,
+    before: { status: run.status },
+    after: {
+      status: nextStatus,
+      validationRunId: run.id,
+      checkRunId: checkRun.id,
+      checkRunName: checkRun.name,
+      conclusion,
+      headSha: checkRun.head_sha,
+    },
+  });
+  logger.info("github check_run verdict recorded", {
+    correlationId,
+    validationRunId: run.id,
+    checkRunId: checkRun.id,
+    conclusion,
+    status: nextStatus,
+  });
 }

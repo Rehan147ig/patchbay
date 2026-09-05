@@ -40,11 +40,12 @@ Patch itself creates.
 
 Subscribe Patch to exactly these events:
 
-| Event          | What Patch does with it                                                                                                                                                              |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `installation` | Syncs installation metadata; marks the install suspended on `deleted`/`suspend`.                                                                                                     |
-| `pull_request` | Tracks the lifecycle of PRs Patch opened (e.g. closed/merged → outcome learning). Never opens a PR from a webhook; PRs only come from the remediation pipeline after human approval. |
-| `push`         | Enqueues an incremental repository-graph refresh for connected repositories (no code is executed).                                                                                   |
+| Event          | What Patch does with it                                                                                                                                                                                          |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `installation` | Syncs installation metadata; marks the install suspended on `deleted`/`suspend`.                                                                                                                                 |
+| `pull_request` | Tracks the lifecycle of PRs Patch opened (e.g. closed/merged → outcome learning). Never opens a PR from a webhook; PRs only come from the remediation pipeline after human approval.                             |
+| `push`         | Enqueues an incremental repository-graph refresh for connected repositories (no code is executed).                                                                                                               |
+| `check_run`    | Closes the github-checks-only validation loop: completed customer-CI runs flip the PR's SKIPPED ValidationRun to PASSED/FAILED (fail-closed aggregation, evidence per check-run id, audits on transitions only). |
 
 All deliveries are HMAC-verified against `GITHUB_APP_WEBHOOK_SECRET`
 (`x-hub-signature-256`). Any other event type is acknowledged and ignored.

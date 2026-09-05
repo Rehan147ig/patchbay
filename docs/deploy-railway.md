@@ -126,7 +126,9 @@ login route 404s there).
    - **No Checks API permission** — Patch has no code path that creates
      check runs.
 5. Webhook events — subscribe to exactly **`installation`**, **`pull_request`**,
-   and **`push`**. Any other event is acknowledged and ignored by the code.
+   **`push`**, and **`check_run`**. `check_run` closes the github-checks-only
+   validation loop (customer CI verdicts flip SKIPPED ValidationRuns to
+   PASSED/FAILED). Any other event is acknowledged and ignored by the code.
 6. Put the App id, slug, and the **base64-encoded** private key in the
    variables from Step 3.
 7. Install the App on your organization/repo. Watch `GITHUB_APP_SLUG`
