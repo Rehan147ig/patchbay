@@ -286,9 +286,36 @@ only; server-side metering/quota-exhaustion states missing.
   green across worker/policy/domain/DB suites, corpus 35/35, migration applied
   to local Postgres.
 
-## 10. Next steps
+## 10. WP6 — Deterministic remediation packs (DONE 2026-09-05, branch `feat/production-spec`)
 
-WP6 (deterministic remediation packs) per spec §17 order.
+- `RulePack` declaration (`packages/domain/src/rule-pack.ts`): packVersion,
+  vendorSlug, contractKind, supportedChanges, editBudget (capped at global
+  breaker ceilings by schema), expectedEvidence, validationProfile, riskTags,
+  rollback strategy+instructions; stability tests pin required fields.
+- All 9 DRAFT_PR connectors + mcp-generic declare packs (per-connector literals;
+  `defineConnector` specs gained a `rulePack` passthrough). `requireRulePack`
+  fails loudly for unknown/pack-less slugs. Linkage tests prove every certified
+  kit's pack mirrors the capability registry (version, profile) and budgets fit
+  inside global caps.
+- Enforcement is real, not declarative: `resolvePlanLimits` (policy-engine)
+  takes per-field minimums so packs only tighten; `generatePlan` accepts an
+  optional pack and threads it into the circuit breaker (absent pack = global
+  defaults, byte-identical behavior). Wired live in the plan route and the
+  corpus replay — certified kits now plan under their own budgets everywhere.
+- Fixtures per spec §6.3: `openai-unrelated-3.3.0` (absent-symbol rename stays
+  silent, PLAN_ONLY), `stripe-monorepo-16.12.0` (new `monorepo-legacy` workspace
+  fixture: pnpm-workspace + packages/app + packages/tooling; patch lands exactly
+  in `packages/app/src/payments/customers.ts`, tooling untouched), engine-level
+  stale-hash drift refusal + hash-match application. Corpus 36/36, zero mismatches.
+- Drive-by fix: pnpm parser silently dropped double-quoted scoped keys
+  (`"@scope/pkg@1.0.0":`) — the exact shape MCP SDK versions ship in. Fixed +
+  covered.
+- Verification: prettier clean, eslint 0 warnings, typecheck 19/19, 26 files /
+  197 tests green across connectors/engine/policy/domain/routes, corpus 36/36.
+
+## 11. Next steps
+
+WP7 (constrained agent workflow) per spec §17 order.
 Branch hygiene: one work package per commit/PR, gates re-run per package, this file
 updated per §19.9. `main` stays locked (branch protection + Railway tracking `main`
 only); merges via green PR only.

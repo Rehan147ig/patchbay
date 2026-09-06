@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PolicyDecision } from "@patchbay/domain";
+import { PolicyDecision, type RulePack } from "@patchbay/domain";
 
 /**
  * Circuit breaker safety limits (P0).
@@ -41,6 +41,29 @@ export const DEFAULT_CIRCUIT_BREAKER_LIMITS: CircuitBreakerLimits = {
   maxGraphTraversalDepth: 10,
   maxGraphNodesVisited: 500,
 };
+
+/**
+ * Resolves effective plan limits for one remediation run (WP6): the pack
+ * budget tightened against the global breaker caps via per-field minimum, so
+ * a pack can only ever tighten safety, never loosen it. Absent pack =
+ * globals unchanged (existing callers behave identically).
+ *
+ * Mapping note: the pack declares a plan-total byte budget while the breaker
+ * checks per-file bytes; the per-file cap is bounded by the pack total, which
+ * is conservative in exactly the safe direction.
+ */
+export function resolvePlanLimits(rulePack?: RulePack): Partial<CircuitBreakerLimits> {
+  if (!rulePack) return {};
+  const global = loadCircuitBreakerLimits();
+  return {
+    maxFilesPerRemediationPlan: Math.min(
+      global.maxFilesPerRemediationPlan,
+      rulePack.editBudget.maxFiles,
+    ),
+    maxEditsPerFile: Math.min(global.maxEditsPerFile, rulePack.editBudget.maxEditsPerFile),
+    maxPatchBytesPerFile: Math.min(global.maxPatchBytesPerFile, rulePack.editBudget.maxTotalBytes),
+  };
+}
 
 /**
  * Loads circuit breaker limits with optional environment variable overrides.

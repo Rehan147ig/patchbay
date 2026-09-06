@@ -1,4 +1,4 @@
-import type { GenerationMethod } from "@patchbay/domain";
+import type { GenerationMethod, RulePack } from "@patchbay/domain";
 import type { NormalizedChangeDraft, PatchSuggestion } from "@patchbay/vendor-connectors";
 
 /**
@@ -36,6 +36,11 @@ export interface PlanInput {
    * sha256Hex / PatchPlanEdit.expectedSourceHash infrastructure.
    */
   expectedFileHashes?: ReadonlyMap<string, string> | Record<string, string>;
+  /**
+   * WP6 certified rule pack: its edit budget tightens the circuit-breaker
+   * caps for this plan (packs only tighten, never loosen). Absent = globals.
+   */
+  rulePack?: RulePack;
 }
 
 export interface PatchDraft {

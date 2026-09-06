@@ -154,6 +154,26 @@ export const EVAL_CORPUS: EvalCorpusEntry[] = [
     expectedDecision: PolicyDecision.PLAN_ONLY,
   },
   {
+    id: "openai-unrelated-3.3.0",
+    vendor: "openai",
+    fixture: "openai-node-legacy",
+    packageName: "openai",
+    releaseVersion: "3.3.0",
+    previousVersion: "3.2.1",
+    payload: {
+      sdk: "openai",
+      fromVersion: "3.x",
+      toVersion: "4.x",
+      migration: {
+        methodRenames: [{ from: "openai.createFineTune", to: "openai.fineTunes.create" }],
+      },
+    },
+    expectedMatched: true,
+    expectedFiles: [],
+    facts: { breaking: false, requiresHumanReview: false, riskTags: [] },
+    expectedDecision: PolicyDecision.PLAN_ONLY,
+  },
+  {
     id: "openai-python-0.28.1",
     vendor: "openai-python",
     fixture: "openai-python-legacy",
@@ -213,6 +233,19 @@ export const EVAL_CORPUS: EvalCorpusEntry[] = [
     expectedFiles: [],
     facts: { breaking: false, requiresHumanReview: false, riskTags: [] },
     expectedDecision: PolicyDecision.PLAN_ONLY,
+  },
+  {
+    id: "stripe-monorepo-16.12.0",
+    vendor: "stripe",
+    fixture: "monorepo-legacy",
+    packageName: "stripe",
+    releaseVersion: "16.12.0",
+    previousVersion: "16.11.0",
+    payload: { sdk: "stripe" },
+    expectedMatched: true,
+    expectedFiles: ["packages/app/src/payments/customers.ts"],
+    facts: { breaking: true, requiresHumanReview: true, riskTags: ["PAYMENT"] },
+    expectedDecision: PolicyDecision.REQUIRE_APPROVAL,
   },
   {
     id: "twilio-3.84.0",
@@ -540,6 +573,10 @@ export async function runEvalCase(entry: EvalCorpusEntry): Promise<EvalCaseResul
     patchSuggestions: suggestions,
     normalizations,
     assessmentConfidence: 90,
+    // WP6: certified kits plan under their own declared budgets, exactly like
+    // production (plan route passes connector.rulePack). A kit that throttles
+    // its own corpus patches fails here, not in production.
+    ...(connector.rulePack ? { rulePack: connector.rulePack } : {}),
   });
 
   const validationPassed = plan.patches.every((patch) =>

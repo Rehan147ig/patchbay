@@ -1,4 +1,5 @@
 import type { NormalizedChangeDraft, PatchSuggestion, VendorConnector } from "../types";
+import type { RulePack } from "@patchbay/domain";
 import { diffMcpTools, type McpDiffFact, type McpToolDefinition } from "../adapters/mcp-diff";
 
 /**
@@ -89,6 +90,29 @@ function changeTypeFor(fact: McpDiffFact): NormalizedChangeDraft["changeType"] {
 
 export const mcpGenericConnector: VendorConnector = {
   slug: MCP_GENERIC_SLUG,
+
+  /** WP6 rule-pack declaration (see openai.ts for the contract semantics). */
+  rulePack: {
+    packVersion: "mcp-diff/1.0.0",
+    vendorSlug: MCP_GENERIC_SLUG,
+    contractKind: "MCP",
+    supportedChanges: [
+      "METHOD_REMOVED",
+      "METHOD_RENAMED",
+      "PARAMETER_REMOVED",
+      "PARAMETER_RENAMED",
+      "PARAMETER_REQUIRED",
+      "AUTH_CHANGE",
+    ],
+    editBudget: { maxFiles: 10, maxEditsPerFile: 10, maxTotalBytes: 30_000 },
+    expectedEvidence: { requiresSourceHash: true, requiresLockfileVersion: false, minUsages: 1 },
+    validationProfile: "node-ts-reparse",
+    riskTags: [],
+    rollback: {
+      strategy: "revert-commit",
+      instructions: "Revert the Patchbay draft PR branch before merge.",
+    },
+  } satisfies RulePack,
 
   supports(rawPayload: unknown): boolean {
     return isMcpDiffPayload(rawPayload);

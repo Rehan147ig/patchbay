@@ -1,4 +1,4 @@
-import type { ChangeType } from "@patchbay/domain";
+import type { ChangeType, RulePack } from "@patchbay/domain";
 
 /**
  * Contract for vendor connectors. Connectors encode vendor-specific, deterministic
@@ -69,4 +69,10 @@ export interface VendorConnector {
   normalizeChange(input: NormalizeChangeInput): NormalizedChangeDraft[];
   /** Patch rules for affected usage symbols derived from the normalized changes. */
   buildPatchSuggestions(normalizations: NormalizedChangeDraft[]): PatchSuggestion[];
+  /**
+   * WP6 rule-pack declaration (budgets, evidence, validation profile, risk
+   * tags, rollback). Required for DRAFT_PR-certified connectors (enforced by
+   * requireRulePack); uncertified connectors omit it.
+   */
+  rulePack?: RulePack;
 }

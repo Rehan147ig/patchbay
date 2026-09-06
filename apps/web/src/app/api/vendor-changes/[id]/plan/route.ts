@@ -133,6 +133,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           normalizations: drafts,
           assessmentConfidence: assessment.confidence,
           expectedFileHashes,
+          // WP6: the certified pack's edit budget tightens breaker caps for
+          // this plan; uncertified connectors (no pack) keep global defaults.
+          ...(connector?.rulePack ? { rulePack: connector.rulePack } : {}),
         });
 
         // Patches are generated from repository content that may be hostile.

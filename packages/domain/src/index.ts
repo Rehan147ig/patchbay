@@ -65,6 +65,14 @@ export {
 export type { ErrorCode, PatchbayErrorOptions } from "./errors";
 export { logger, getCorrelationId, runWithCorrelationId } from "./logger";
 export type { LogLevel, LogFields } from "./logger";
+export {
+  editBudgetSchema,
+  expectedEvidenceSchema,
+  rollbackSchema,
+  rulePackSchema,
+  parseRulePack,
+} from "./rule-pack";
+export type { EditBudget, ExpectedEvidence, RollbackPlan, RulePack } from "./rule-pack";
 export { migrationRecipeSchema, recipeListEntrySchema, recipeRuleSchema } from "./recipe";
 export type { MigrationRecipe, RecipeListEntry, RecipeRule } from "./recipe";
 export { classifySemverBump, compareVersions, parseVersion, satisfiesRange } from "./semver";

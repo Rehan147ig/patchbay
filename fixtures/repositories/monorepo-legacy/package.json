@@ -1,0 +1,6 @@
+{
+  "name": "@acme/monorepo-legacy",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0"
+}

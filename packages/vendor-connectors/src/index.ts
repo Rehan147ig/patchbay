@@ -1,6 +1,6 @@
 export { openaiConnector } from "./connectors/openai";
 export { OPENAI_PYTHON_CLIENT_VARIABLE, openaiPythonConnector } from "./connectors/openai-python";
-export { connectors, getConnector } from "./registry";
+export { connectors, getConnector, requireRulePack } from "./registry";
 export {
   getRegistryRecipe,
   getSigningKeys,
