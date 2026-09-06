@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   defaultPlanTier,
+  deliveryQuotaForTier,
   formatPrice,
   isPlanTier,
   planLabel,
@@ -95,5 +96,16 @@ describe("plan helpers", () => {
   it("keeps caps consistent with the tier definitions", () => {
     expect(repositoryCapForTier("FREE")).toBe(PLAN_DEFINITIONS.FREE.repositoryCap);
     expect(repositoryCapForTier("TEAM")).toBe(50);
+  });
+
+  it("defines monthly delivery quotas per tier (WP11)", () => {
+    expect(deliveryQuotaForTier("FREE", "VALIDATE")).toBe(50);
+    expect(deliveryQuotaForTier("FREE", "DRAFT_PR")).toBe(10);
+    expect(deliveryQuotaForTier("PRO", "VALIDATE")).toBe(1000);
+    expect(deliveryQuotaForTier("PRO", "DRAFT_PR")).toBe(200);
+    expect(deliveryQuotaForTier("TEAM", "VALIDATE")).toBe(5000);
+    expect(deliveryQuotaForTier("TEAM", "DRAFT_PR")).toBe(1000);
+    expect(deliveryQuotaForTier("ENTERPRISE", "VALIDATE")).toBeNull();
+    expect(deliveryQuotaForTier("ENTERPRISE", "DRAFT_PR")).toBeNull();
   });
 });

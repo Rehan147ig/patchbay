@@ -10,6 +10,7 @@ export {
   planTierFromStripePriceId,
   repositoryCapForTier,
   repositoryCapacity,
+  deliveryQuotaForTier,
   stripePriceIdForTier,
 } from "./plans";
 export type { PlanDefinition, RepositoryCapacityResult } from "./plans";

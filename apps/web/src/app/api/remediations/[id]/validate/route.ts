@@ -8,6 +8,7 @@ import { getCorrelationId, jsonError, jsonOk, writeAuditEvent } from "@/lib/api"
 import { requireRole } from "@/lib/auth";
 import { assertCsrfToken } from "@/lib/csrf-server";
 import { assertCapabilityGateOpen } from "@/lib/capability-gates";
+import { assertDeliveryQuota } from "@/lib/billing";
 
 /** Deterministic validation command set (ADR-0004 allowlist). */
 const VALIDATION_COMMANDS = ["pnpm install --frozen-lockfile"];
@@ -63,6 +64,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       );
     }
     await assertCapabilityGateOpen(user.organizationId, changeEvent.vendor.slug, "VALIDATE");
+    // Monthly validation budget first: fast 402 here, terminal refusal in the
+    // worker — same math, two layers, never a silent execution past quota.
+    await assertDeliveryQuota(user.organizationId, "VALIDATE");
     if (plan.patches.length === 0) {
       throw validationFailed("This plan has no patches to validate");
     }

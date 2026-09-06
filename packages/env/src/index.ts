@@ -156,3 +156,13 @@ export function parseEnv(source: NodeJS.ProcessEnv = process.env): Env {
 
 export { EnvSecretStore, getSecretStore } from "./secrets";
 export type { SecretStore, SecretStoreOptions } from "./secrets";
+export {
+  EncryptedSecretStore,
+  decryptEnvelope,
+  encryptSecret,
+  isEnvelope,
+  parseKekRing,
+  rotateEnvelope,
+  ENVELOPE_PREFIX,
+} from "./envelope";
+export type { KekEntry, KekRing, KeyState, SecretAccessEvent } from "./envelope";

@@ -18,5 +18,12 @@ export type {
 } from "./capability-health";
 export { computeOrganizationMetrics } from "./metrics";
 export type { ComputeMetricsInput, OrganizationMetrics, MetricsPrisma } from "./metrics";
+export {
+  checkDeliveryQuota,
+  effectiveQuotaTier,
+  monthStartUtc,
+  quotaBlockedMessage,
+} from "./delivery-quota";
+export type { DeliveryQuotaKind, DeliveryQuotaPrisma, DeliveryQuotaResult } from "./delivery-quota";
 export { purgeExpiredAgentRuns } from "./retention";
 export type { PurgeInput, PurgeResult, RetentionPrisma } from "./retention";

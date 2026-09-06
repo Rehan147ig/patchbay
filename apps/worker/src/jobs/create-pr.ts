@@ -33,7 +33,8 @@ import {
 import { approvalCoversPatches, evaluatePolicy, evaluateQuorum } from "@patchbay/policy-engine";
 import { rateLimitRedis } from "@patchbay/queue";
 import { requireCertified } from "@patchbay/vendor-connectors";
-import type { Job } from "bullmq";
+import { UnrecoverableError, type Job } from "bullmq";
+import { checkDeliveryQuota, quotaBlockedMessage } from "@patchbay/operations";
 import { writeAuditEvent } from "../lib/audit";
 import { assertWorkerCapabilityGateOpen } from "../lib/capability-gates";
 import { assertInstallationBelongsToOrganization } from "../lib/repository-source";
@@ -190,6 +191,33 @@ async function createDraftPR(
     );
   }
   await assertWorkerCapabilityGateOpen(organizationId, vendorSlug, "DRAFT_PR");
+
+  // Server-side delivery quota (WP11, spec §16): the monthly draft-PR budget
+  // is enforced here — not just at registration — so direct enqueues and
+  // retry storms cannot overshoot it. Unrecoverable: retrying inside the same
+  // month is futile, so the job fails terminally with audits (never silent,
+  // never retried blindly).
+  const quota = await checkDeliveryQuota(prisma, { organizationId, kind: "DRAFT_PR" });
+  if (!quota.allowed) {
+    const message = quotaBlockedMessage(quota);
+    await writeAuditEvent({
+      organizationId,
+      actorType: ActorType.SYSTEM,
+      actorId: null,
+      action: AuditAction.POLICY_BLOCKED,
+      entityType: "remediationPlan",
+      entityId: plan.id,
+      correlationId,
+      after: {
+        reason: "delivery quota exceeded",
+        tier: quota.tier,
+        quota: quota.quota,
+        used: quota.used,
+        periodStart: quota.periodStart.toISOString(),
+      },
+    });
+    throw new UnrecoverableError(message);
+  }
 
   const repository = plan.impactAssessment.repository;
 

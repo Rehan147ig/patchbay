@@ -16,6 +16,10 @@ vi.mock("@/lib/auth", () => ({
   requireRole: vi.fn(),
 }));
 
+vi.mock("@/lib/billing", () => ({
+  assertDeliveryQuota: vi.fn(),
+}));
+
 vi.mock("@patchbay/queue", () => ({
   JobType: { RUN_VALIDATION: "RUN_VALIDATION" },
   enqueue: vi.fn(),
@@ -23,6 +27,7 @@ vi.mock("@patchbay/queue", () => ({
 
 import { prisma } from "@patchbay/db";
 import { requireRole } from "@/lib/auth";
+import { assertDeliveryQuota } from "@/lib/billing";
 import { enqueue } from "@patchbay/queue";
 
 const memberUser = { id: "u-member", organizationId: "org-acme" };
@@ -182,5 +187,19 @@ describe("POST /api/remediations/[id]/validate (WP9 certification gate)", () => 
         }),
       }),
     );
+  });
+
+  it("returns 402 when the monthly validation quota is spent (WP11)", async () => {
+    const { planLimitExceeded } = await import("@patchbay/domain");
+    vi.mocked(assertDeliveryQuota).mockRejectedValueOnce(
+      planLimitExceeded("Monthly validations quota exceeded", { tier: "FREE" }),
+    );
+    vi.mocked(prisma.remediationPlan.findFirst).mockResolvedValue(planFor("openai") as never);
+    const response = await POST(requestWithCsrf(), { params: Promise.resolve({ id: "p-1" }) });
+    expect(response.status).toBe(402);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("PLAN_LIMIT_EXCEEDED");
+    expect(prisma.validationRun.create).not.toHaveBeenCalled();
+    expect(enqueue).not.toHaveBeenCalled();
   });
 });

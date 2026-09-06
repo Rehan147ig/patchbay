@@ -3,6 +3,12 @@ import { prisma, type Subscription } from "@patchbay/db";
 import { DodoClient, StripeClient, createDodoClient, createStripeClient } from "@patchbay/billing";
 import type { PlanTier } from "@patchbay/domain";
 import { billingUnavailable, notFound, planLimitExceeded } from "@patchbay/domain";
+import {
+  checkDeliveryQuota,
+  quotaBlockedMessage,
+  type DeliveryQuotaKind,
+  type DeliveryQuotaResult,
+} from "@patchbay/operations";
 import { env } from "./env";
 
 /**
@@ -102,4 +108,27 @@ export async function countActiveRepositories(organizationId: string): Promise<n
   return prisma.repository.count({
     where: { organizationId, status: "ACTIVE" },
   });
+}
+
+/**
+ * Enforces the monthly delivery quota for the organization's effective plan.
+ * Throws a 402 PLAN_LIMIT_EXCEEDED (predictable, upgrade-path message) when
+ * the budget is spent. The worker re-checks server-side before executing, so
+ * this fast refusal and that terminal refusal can never disagree on the math.
+ */
+export async function assertDeliveryQuota(
+  organizationId: string,
+  kind: DeliveryQuotaKind,
+): Promise<DeliveryQuotaResult> {
+  const quota = await checkDeliveryQuota(prisma, { organizationId, kind });
+  if (!quota.allowed) {
+    throw planLimitExceeded(quotaBlockedMessage(quota), {
+      tier: quota.tier,
+      kind,
+      quota: quota.quota,
+      used: quota.used,
+      periodStart: quota.periodStart.toISOString(),
+    });
+  }
+  return quota;
 }

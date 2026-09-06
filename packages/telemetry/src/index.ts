@@ -145,10 +145,7 @@ export async function withSpan<T>(
 export function instrumentProcessor<
   TJob extends { id?: string; data: unknown; attemptsMade?: number },
   TResult,
->(
-  jobType: string,
-  processor: (job: TJob) => Promise<TResult>,
-): (job: TJob) => Promise<TResult> {
+>(jobType: string, processor: (job: TJob) => Promise<TResult>): (job: TJob) => Promise<TResult> {
   return async (job) => {
     const data = (job.data ?? {}) as Record<string, unknown>;
     const correlationId = typeof data.correlationId === "string" ? data.correlationId : undefined;

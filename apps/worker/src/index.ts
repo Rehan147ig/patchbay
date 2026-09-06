@@ -54,6 +54,7 @@ import { failedJobInfoFrom, handlePermanentlyFailedJob } from "./lib/job-failure
 import { sweepWatchtowerStaleness } from "./lib/watchtower-staleness";
 import { registerWatchtowerSchedulers } from "./schedule/watchtower";
 import { purgeExpiredAgentRuns } from "@patchbay/operations";
+import { purgeValidationArtifacts } from "@patchbay/db";
 import { sweepCapabilityHealth } from "./lib/capability-sweep";
 
 const TASK_SWEEP_INTERVAL_MS = 60_000;
@@ -62,6 +63,9 @@ const RETENTION_SWEEP_INTERVAL_MS = 6 * 60 * 60 * 1_000;
 const CAPABILITY_SWEEP_INTERVAL_MS = 30 * 60 * 1_000;
 const WATCHTOWER_STALENESS_SWEEP_INTERVAL_MS = 30 * 60 * 1_000;
 const AGENT_RUN_RETENTION_DAYS = Number(process.env.AGENT_RUN_RETENTION_DAYS ?? 90);
+const VALIDATION_ARTIFACT_RETENTION_DAYS = Number(
+  process.env.VALIDATION_ARTIFACT_RETENTION_DAYS ?? 90,
+);
 
 // Fail fast at boot: refuse to start with a missing or invalid configuration.
 const env = parseEnv();
@@ -211,6 +215,14 @@ async function main(): Promise<void> {
     }).catch((error: unknown) => {
       logger.error("agent run retention sweep failed", { error: String(error) });
     });
+    // Validation attestation is ephemeral: rows past the window go, and
+    // unreferenced log objects go with them (shared objects survive while
+    // any live artifact references them).
+    purgeValidationArtifacts({ olderThanDays: VALIDATION_ARTIFACT_RETENTION_DAYS }).catch(
+      (error: unknown) => {
+        logger.error("validation artifact retention sweep failed", { error: String(error) });
+      },
+    );
   }, RETENTION_SWEEP_INTERVAL_MS);
 
   const capabilitySweepTimer = setInterval(() => {

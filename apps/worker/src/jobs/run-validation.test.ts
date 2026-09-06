@@ -14,10 +14,14 @@ vi.mock("@patchbay/db", () => ({
     validationRun: {
       findUnique: vi.fn(),
       update: vi.fn(),
+      count: vi.fn(),
     },
     remediationPlan: {
       findUnique: vi.fn(),
       update: vi.fn(),
+    },
+    subscription: {
+      findUnique: vi.fn(),
     },
     vendorChangeEvent: {
       findUnique: vi.fn(),
@@ -67,6 +71,8 @@ describe("processRunValidation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRun.mockReset();
+    vi.mocked(prisma.subscription.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.validationRun.count).mockResolvedValue(0);
   });
 
   const validJobData: RunValidationJobData = {
@@ -283,6 +289,8 @@ describe("processRunValidation (WP8 execution plane)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRun.mockReset();
+    vi.mocked(prisma.subscription.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.validationRun.count).mockResolvedValue(0);
     // The SKIPPED test above leaves the mode mock pinned to
     // github-checks-only (clearAllMocks keeps implementations); restore the
     // hosted path explicitly for the execution-plane tests.
@@ -415,6 +423,64 @@ describe("processRunValidation (WP8 execution plane)", () => {
     expect(prisma.validationRun.update).toHaveBeenCalledWith({
       where: { id: "val-1" },
       data: expect.objectContaining({ status: "FAILED", exitCode: -1 }),
+    });
+  });
+});
+
+describe("processRunValidation (WP11 delivery quota)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRun.mockReset();
+    vi.mocked(resolveSandboxValidationMode).mockReturnValue("hosted-docker");
+    vi.mocked(prisma.subscription.findUnique).mockResolvedValue(null);
+  });
+
+  const mockJob = {
+    data: {
+      validationRunId: "val-1",
+      remediationPlanId: "plan-1",
+      organizationId: "org-1",
+      correlationId: "corr-1",
+    },
+  } as Job;
+
+  it("marks the run FAILED terminally when the monthly validation quota is spent", async () => {
+    vi.mocked(prisma.validationRun.findUnique).mockResolvedValueOnce({
+      id: "val-1",
+      remediationPlanId: "plan-1",
+      commands: ["pnpm install --frozen-lockfile"],
+    } as never);
+    vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValueOnce({
+      id: "plan-1",
+      impactAssessment: {
+        changeEventId: "change-1",
+        repository: {
+          id: "repo-1",
+          metadata: { fixture: "openai-node-legacy" },
+          organizationId: "org-1",
+        },
+      },
+      patches: [],
+    } as never);
+    vi.mocked(prisma.vendorChangeEvent.findUnique).mockResolvedValueOnce({
+      id: "change-1",
+      organizationId: "org-1",
+    } as never);
+    // FREE tier (no subscription) with all 50 monthly validations consumed.
+    vi.mocked(prisma.validationRun.count).mockResolvedValueOnce(50);
+
+    await expect(processRunValidation(mockJob)).rejects.toThrow(
+      /Monthly validations quota exceeded/,
+    );
+    // Nothing executed: no runner, no RUNNING transition, run FAILED with
+    // the quota message for UI visibility.
+    expect(mockRun).not.toHaveBeenCalled();
+    expect(prisma.validationRun.update).toHaveBeenCalledWith({
+      where: { id: "val-1" },
+      data: expect.objectContaining({
+        status: "FAILED",
+        stdout: expect.stringContaining("Monthly validations quota exceeded"),
+      }),
     });
   });
 });

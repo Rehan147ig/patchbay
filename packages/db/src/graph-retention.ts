@@ -28,8 +28,14 @@ export async function pruneGraphSnapshots(args: {
   organizationId: string;
   repositoryId: string;
   now?: Date;
+  /** Override for MAX_READY_SNAPSHOTS (operator-tunable retention). */
+  maxReady?: number;
+  /** Override for STALE_SNAPSHOT_AGE_MS (operator-tunable retention). */
+  staleAgeMs?: number;
 }): Promise<RetentionResult> {
   const now = args.now ?? new Date();
+  const maxReady = args.maxReady ?? MAX_READY_SNAPSHOTS;
+  const staleAgeMs = args.staleAgeMs ?? STALE_SNAPSHOT_AGE_MS;
 
   const ready = await prisma.graphSnapshot.findMany({
     where: {
@@ -41,7 +47,7 @@ export async function pruneGraphSnapshots(args: {
     orderBy: { completedAt: "desc" },
   });
 
-  const keepIds = new Set(ready.slice(0, MAX_READY_SNAPSHOTS).map((s) => s.id));
+  const keepIds = new Set(ready.slice(0, maxReady).map((s) => s.id));
   const readyToDelete = ready.filter((s) => !keepIds.has(s.id)).map((s) => s.id);
 
   const stale = await prisma.graphSnapshot.findMany({
@@ -49,7 +55,7 @@ export async function pruneGraphSnapshots(args: {
       organizationId: args.organizationId,
       repositoryId: args.repositoryId,
       status: { in: ["INDEXING", "FAILED"] },
-      createdAt: { lt: new Date(now.getTime() - STALE_SNAPSHOT_AGE_MS) },
+      createdAt: { lt: new Date(now.getTime() - staleAgeMs) },
     },
     select: { id: true },
   });

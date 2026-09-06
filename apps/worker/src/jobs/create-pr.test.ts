@@ -25,6 +25,9 @@ vi.mock("@patchbay/db", () => ({
       update: vi.fn(),
       count: vi.fn(),
     },
+    subscription: {
+      findUnique: vi.fn(),
+    },
     deliveryAttempt: {
       create: vi.fn(),
       findUnique: vi.fn(),
@@ -119,6 +122,8 @@ describe("processCreatePR", () => {
     vi.mocked(prisma.pullRequest.findFirst).mockResolvedValue(null);
     vi.mocked(prisma.capabilityGate.findUnique).mockResolvedValue(null);
     vi.mocked(prisma.remediationPlan.count).mockResolvedValue(1);
+    vi.mocked(prisma.subscription.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.pullRequest.count).mockResolvedValue(0);
     vi.mocked(prisma.deliveryAttempt.create).mockResolvedValue({ id: "att-x" } as never);
     vi.mocked(claimDeliveryAttempt).mockResolvedValue({
       duplicate: false,
@@ -622,6 +627,8 @@ describe("processCreatePR (WP9 delivery reliability)", () => {
     vi.mocked(prisma.pullRequest.findFirst).mockResolvedValue(null);
     vi.mocked(prisma.capabilityGate.findUnique).mockResolvedValue(null);
     vi.mocked(prisma.remediationPlan.count).mockResolvedValue(2);
+    vi.mocked(prisma.subscription.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.pullRequest.count).mockResolvedValue(0);
     vi.mocked(prisma.deliveryAttempt.create).mockResolvedValue({ id: "att-x" } as never);
     vi.mocked(claimDeliveryAttempt).mockResolvedValue({ duplicate: false, attemptId: "att-1" });
     vi.mocked(completeDeliveryAttempt).mockResolvedValue(undefined);
@@ -858,5 +865,19 @@ describe("processCreatePR (WP9 delivery reliability)", () => {
       "att-1",
       expect.objectContaining({ status: "SUCCEEDED", pullRequestId: "pr-old" }),
     );
+  });
+
+  it("blocks delivery terminally when the monthly draft-PR quota is spent (WP11)", async () => {
+    vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValueOnce(advancedPlan());
+    // FREE tier (no subscription) with all 10 monthly draft PRs consumed.
+    vi.mocked(prisma.pullRequest.count).mockResolvedValueOnce(10);
+
+    await expect(processCreatePR(mockJob)).rejects.toThrow(/Monthly draft PRs quota exceeded/);
+    // Nothing executed, nothing claimed: no provider call, no ledger row.
+    expect(providerMock.createDraftPullRequest).not.toHaveBeenCalled();
+    expect(claimDeliveryAttempt).not.toHaveBeenCalled();
+    expect(completeDeliveryAttempt).not.toHaveBeenCalled();
+    // Loud, not silent: the block is audited.
+    expect(prisma.auditEvent.create).toHaveBeenCalled();
   });
 });

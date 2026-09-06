@@ -13,7 +13,8 @@ import {
   type RunProvenance,
   type SandboxRunner,
 } from "@patchbay/sandbox-runner";
-import type { Job } from "bullmq";
+import { UnrecoverableError, type Job } from "bullmq";
+import { checkDeliveryQuota, quotaBlockedMessage } from "@patchbay/operations";
 import { writeAuditEvent } from "../lib/audit";
 import { recordRemediationAttempt } from "../lib/case-orchestration";
 import {
@@ -187,6 +188,36 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
       correlationId,
     });
     return { validationRunId, status: "SKIPPED", commandsRun: 0, durationMs: 0 };
+  }
+
+  // Server-side delivery quota (WP11, spec §16): enforced here — not just in
+  // the web route — so direct enqueues cannot overshoot the monthly budget.
+  // SKIPPED runs (above) consume nothing and skip this check. Terminal and
+  // loud: the run is marked FAILED with the quota message, audited, and never
+  // retried inside the same month.
+  const quota = await checkDeliveryQuota(prisma, { organizationId, kind: "VALIDATE" });
+  if (!quota.allowed) {
+    const message = quotaBlockedMessage(quota);
+    await prisma.validationRun.update({
+      where: { id: validationRunId },
+      data: { status: ValidationStatus.FAILED, stdout: message, completedAt: new Date() },
+    });
+    await writeAuditEvent({
+      organizationId,
+      actorType: ActorType.SYSTEM,
+      actorId: null,
+      action: AuditAction.PLAN_VALIDATION_FAILED,
+      correlationId,
+      ...entity,
+      after: {
+        validationRunId,
+        reason: "delivery quota exceeded",
+        tier: quota.tier,
+        quota: quota.quota,
+        used: quota.used,
+      },
+    });
+    throw new UnrecoverableError(message);
   }
 
   // Execution-plane profile (WP8): every execution parameter comes from the

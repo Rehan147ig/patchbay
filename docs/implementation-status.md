@@ -457,9 +457,43 @@ only; server-side metering/quota-exhaustion states missing.
   corpus 36/36. New: 4 telemetry + 3 heartbeat + 9 dead-letter + 9
   replay + 3 queues + 5 capability + 3 sweep/job tests.
 
-## 15. Next steps
+## 15. WP11 — Enterprise controls and pilot readiness (DONE 2026-09-06, branch `feat/production-spec`)
 
-WP11 (pilot readiness) per spec §17 order.
+- Envelope encryption: `EncryptedSecretStore` (AES-256-GCM `enc1.<kid>.<b64>`,
+  PRIMARY seals + opens / PREVIOUS opens-only, `rotateEnvelope` reseal,
+  plaintext passthrough for migration, name-only access audit, malformed
+  `enc1.` values fail closed). 16 tests incl. GCM tamper rejection.
+- RLS hardening: the coverage test caught 3 app-scoped tables with NO
+  database policy (`Workspace`, `WorkspaceMember`, `AutonomyPolicy`) — fixed
+  by migration `20260906000004_wp11_rls_backfill`; explicit exemptions
+  (`User`, `WebhookDelivery`, `Vendor`, `ContractSource`) mirror
+  ORG_SCOPE_EXEMPT_MODELS. Negative suite runs against real Postgres as a
+  NOSUPERUSER probe role (superusers bypass RLS even with FORCE — the suite
+  would pass vacuously otherwise): cross-tenant reads empty, writes 42501,
+  updates/deletes touch zero rows, own-tenant access intact. 4/4 green live.
+- Retention: `purgeValidationArtifacts` (90d default, batch 500, shared log
+  objects survive while any live artifact references them, per-key
+  best-effort, wired into the worker 6h sweep via
+  `VALIDATION_ARTIFACT_RETENTION_DAYS`) + `deleteEvidenceObject`
+  (key-shape + traversal guards, idempotent); graph pruning gained
+  operator-tunable `maxReady`/`staleAgeMs`.
+- Quotas: monthly UTC budgets in `PLAN_DEFINITIONS` (FREE 50 val/10 PRs …
+  ENTERPRISE unlimited), shared `checkDeliveryQuota` (SKIPPED consumes
+  nothing), enforced web-fast (402 `PLAN_LIMIT_EXCEEDED`) AND worker-terminal
+  (`UnrecoverableError` + `POLICY_BLOCKED` audit in create-pr; FAILED run +
+  audit in run-validation) — same math, never silent.
+- Docs: `docs/pilot-readiness.md` (7 trust boundaries with enforcement
+  mapping, data inventory, subprocessor table, KEK operations + rotation +
+  loss warning, backup/restore runbook with RPO/RTO + verification, retention
+  and quota ops, acceptance checklist).
+- Verification: prettier clean, eslint 0 warnings, typecheck 20/20, full
+  suite 158 passed files (RLS executed live) with only the known eval-corpus
+  30s timeout flake under parallel load (36/36 solo). New: 16 envelope + 4
+  RLS + 9 retention/object-store + 5 quota + 3 worker + 1 route tests.
+
+## 16. Next steps
+
+WP12 (pilot execution) per spec §17 order.
 Branch hygiene: one work package per commit/PR, gates re-run per package, this file
 updated per §19.9. `main` stays locked (branch protection + Railway tracking `main`
 only); merges via green PR only.

@@ -15,8 +15,11 @@ export { impactByKind, latestSnapshot, packageImpact } from "./graph-reads";
 export type { ImpactedModule, PackageImpact, SnapshotSummary } from "./graph-reads";
 export { MAX_READY_SNAPSHOTS, pruneGraphSnapshots, STALE_SNAPSHOT_AGE_MS } from "./graph-retention";
 export type { RetentionResult } from "./graph-retention";
+export { DEFAULT_ARTIFACT_RETENTION_DAYS, purgeValidationArtifacts } from "./artifact-retention";
+export type { ArtifactPurgeResult } from "./artifact-retention";
 export {
   contentHashOf,
+  deleteEvidenceObject,
   evidenceObjectExists,
   evidenceStoreDir,
   objectKeyForHash,
