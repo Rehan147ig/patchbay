@@ -73,6 +73,16 @@ export {
   parseRulePack,
 } from "./rule-pack";
 export type { EditBudget, ExpectedEvidence, RollbackPlan, RulePack } from "./rule-pack";
+export {
+  assertMemoryLimitWithinCeiling,
+  memoryLimitSchema,
+  parseMemoryLimitToBytes,
+  validationNetworkPolicySchema,
+  validationProfileSchema,
+  VALIDATION_PROFILE_MAX_MEMORY_BYTES,
+  VALIDATION_PROFILE_MAX_TIMEOUT_MS,
+} from "./validation-profile";
+export type { ValidationNetworkPolicy, ValidationProfileInput } from "./validation-profile";
 export { migrationRecipeSchema, recipeListEntrySchema, recipeRuleSchema } from "./recipe";
 export type { MigrationRecipe, RecipeListEntry, RecipeRule } from "./recipe";
 export { classifySemverBump, compareVersions, parseVersion, satisfiesRange } from "./semver";

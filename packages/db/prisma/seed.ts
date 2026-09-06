@@ -78,6 +78,7 @@ async function main(): Promise<void> {
   await seedOutcomes();
   await seedAuditHistory(org.id);
   await seedTaskParameters();
+  await seedValidationProfiles();
 
   console.log("[seed] done");
 }
@@ -140,6 +141,36 @@ async function seedTaskParameters(): Promise<void> {
     });
   }
   console.log(`[seed] task parameters (${products.length})`);
+}
+
+/**
+ * Seeds the org-default validation execution profile (WP8): the legacy static
+ * command set expressed as registry ids, pinned to the default image with
+ * standard bounds. findFirst-then-create (not upsert) because the compound
+ * key carries a NULL repositoryId. Idempotent.
+ */
+async function seedValidationProfiles(): Promise<void> {
+  const existing = await prisma.validationProfile.findFirst({
+    where: { organizationId: ORG_ID, repositoryId: null, name: "default" },
+  });
+  if (existing) {
+    console.log(`[seed] validation profile already exists (${existing.id})`);
+    return;
+  }
+  await prisma.validationProfile.create({
+    data: {
+      organizationId: ORG_ID,
+      repositoryId: null,
+      name: "default",
+      commandIds: ["pnpm-install-frozen"],
+      image: "node:20-slim",
+      imageDigest: null,
+      timeoutMs: 120_000,
+      memoryLimit: "512m",
+      networkPolicy: "none",
+    },
+  });
+  console.log("[seed] validation profile (default)");
 }
 
 async function seedVendors(): Promise<void> {

@@ -355,6 +355,8 @@ model Organization {
   contractConsumers      ContractConsumer[]
   remediationAttempts    RemediationAttempt[]
   policyDecisionRecords  PolicyDecisionRecord[]
+  validationProfiles     ValidationProfile[]
+  validationArtifacts    ValidationArtifact[]
   workspaces             Workspace[]
   workspaceMembers       WorkspaceMember[]
   subscription           Subscription?
@@ -563,6 +565,7 @@ model Repository {
   graphIndexJobs     GraphIndexJob[]
   remediationCases   RemediationCase[]
   contractConsumers  ContractConsumer[]
+  validationProfiles ValidationProfile[]
 
   @@unique([organizationId, externalId])
   @@index([organizationId])
@@ -1546,10 +1549,81 @@ model ValidationRun {
   organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   remediationPlan RemediationPlan @relation(fields: [remediationPlanId], references: [id], onDelete: Cascade)
   outcomes        PrOutcome[]
+  /** Execution-plane profile that backed this run (null = legacy static command set). */
+  validationProfileId String?
+  validationProfile   ValidationProfile? @relation(fields: [validationProfileId], references: [id], onDelete: SetNull)
+  artifact            ValidationArtifact?
 
   @@index([organizationId])
   @@index([remediationPlanId])
   @@index([status])
+  @@index([createdAt])
+}
+
+/**
+ * Pinned validation execution profile (WP8, spec §19/§9). Commands are fixed
+ * allowlist identifiers resolved server-side against the sandbox-runner
+ * registry — never raw command strings from models or repositories. An
+ * optional repositoryId scopes the profile to one repo; null means the
+ * org-wide default. Image digests pin the exact OCI content; timeouts and
+ * memory are bounded server-side at resolution time.
+ */
+model ValidationProfile {
+  id String @id @default(uuid())
+  organizationId String
+  repositoryId   String?
+  name           String
+  commandIds     String[]
+  image          String
+  imageDigest    String?
+  timeoutMs      Int
+  memoryLimit    String @default("512m")
+  networkPolicy  String @default("none")
+  version        Int    @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  repository      Repository?     @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  validationRuns  ValidationRun[]
+  artifacts       ValidationArtifact[]
+
+  @@unique([organizationId, repositoryId, name])
+  @@index([organizationId])
+  @@index([repositoryId])
+}
+
+/**
+ * Attestation for one terminal validation run (WP8, spec §19/§9). One row per
+ * run: the exact commands executed, their exit codes, the resolved image
+ * digest, content-addressed full logs in the evidence object store, and a
+ * hash over the canonical descriptor. SKIPPED and harness-error runs record
+ * no artifact — there is nothing to attest.
+ */
+model ValidationArtifact {
+  id String @id @default(uuid())
+  organizationId    String
+  validationRunId   String @unique
+  validationProfileId String?
+  /** SHA-256 over the canonical resolved command set (set identity). */
+  commandSetHash    String
+  commandsExecuted  String[]
+  exitCodes         Int[]
+  image             String?
+  imageDigest       String?
+  stdoutUri         String?
+  stderrUri         String?
+  stdoutComplete    Boolean @default(true)
+  stderrComplete    Boolean @default(true)
+  /** SHA-256 over the canonical artifact descriptor (tamper-evident). */
+  artifactHash      String
+  createdAt         DateTime @default(now())
+
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  validationRun     ValidationRun      @relation(fields: [validationRunId], references: [id], onDelete: Cascade)
+  validationProfile ValidationProfile? @relation(fields: [validationProfileId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
   @@index([createdAt])
 }
 

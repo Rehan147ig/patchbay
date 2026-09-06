@@ -337,9 +337,55 @@ only; server-side metering/quota-exhaustion states missing.
   green across harness/workflow/agent-plan suites (3 new job tests incl. FAILED
   isolation and legacy skip; 4 workflow tests incl. over-budget integration).
 
-## 12. Next steps
+## 12. WP8 — Isolated execution plane (DONE 2026-09-06, branch `feat/production-spec`)
 
-WP8 (isolated execution plane) per spec §17 order.
+- Models: `ValidationProfile` (org + nullable repo scope, name, commandIds as
+  registry ids, image + nullable digest pin, timeoutMs, memoryLimit,
+  networkPolicy, version; unique org/repo/name) + `ValidationArtifact`
+  (one-per-run: commandSetHash, commandsExecuted, exitCodes, image/digest,
+  stdout/stderr content URIs, completeness flags, tamper-evident
+  artifactHash) + `ValidationRun.validationProfileId` provenance FK. RLS on
+  both tables, both in ORG_SCOPED_MODELS, migration
+  `20260906000000_wp8_execution_plane`. Seed gains the org-default profile
+  (`pnpm-install-frozen`, node:20-slim, 120s, 512m, none).
+- Bounded command surface: `VALIDATION_COMMAND_REGISTRY` (8 ids → exact
+  allowlist strings, import-time fail-fast that every value is allowlisted);
+  ids and raw commands are disjoint namespaces — a stored raw string like
+  `"pnpm test"` is NOT a valid id. Resolution fails closed (unknown id →
+  SandboxPolicyError); the runner re-checks the resolved string.
+- Image supply chain: `SANDBOX_ALLOWED_IMAGES` allowlist (default
+  `node:20-slim`, operator-extensible via env) enforced in
+  `buildDockerRunArgs` — closes the arbitrary-image-pull hole a bare
+  `SANDBOX_IMAGE` override opened. Digest pins enforced pre-spawn
+  (mismatch/unresolvable → `policy-rejected`, no spawn); pins on
+  process/microVM runners reject (no image identity to bind).
+- Per-run bounds: profile timeout/memory/network/image reach the runner per
+  command; ceilings enforced at resolve (600s, 4GiB, none|registry-only).
+  Results carry redacted full-fidelity logs (100k cap) alongside the 4k
+  inline bounds; artifacts store full logs content-addressed with
+  command-set + descriptor hashes. Artifact write failure fails the run
+  loudly — an unattested PASS is impossible.
+- Wiring: validate route selects repo-profile ?? org-default (name-ordered)
+  and stamps `validationProfileId` (null = legacy static set, still
+  allowlist-enforced); run-validation executes with profile bounds and
+  attests every terminal PASSED/FAILED (SKIPPED/harness-error: nothing to
+  attest, no artifact). github-checks-only path byte-identical otherwise.
+- Two real bugs found by the new tests: (1) profile-resolution failure
+  thrown outside the try escaped with the run stuck unmarked — resolution is
+  now the first step inside the try (FAILED + attempt recorded); (2) the
+  shared finally crashed on `rmSync(undefined)` for ANY pre-checkout throw
+  (pre-existing — even tenant-check failures masked themselves) — workspace
+  is now `string | undefined` with a guarded finally (if-block, never
+  return-from-finally).
+- Verification: prettier clean (incl. 2 incidental pre-existing violations
+  fixed: generated `next-env.d.ts`, WP4-era `cases/[id]/page.tsx` chain
+  wrap), eslint 0 warnings, typecheck 19/19, full suite 147 files / 1456
+  tests green, corpus 36/36. New: 9 runner isolation + 13 profile/artifact +
+  2 job orchestration + 3 route selection tests.
+
+## 13. Next steps
+
+WP9 (trustworthy producer outputs) per spec §17 order.
 Branch hygiene: one work package per commit/PR, gates re-run per package, this file
 updated per §19.9. `main` stays locked (branch protection + Railway tracking `main`
 only); merges via green PR only.

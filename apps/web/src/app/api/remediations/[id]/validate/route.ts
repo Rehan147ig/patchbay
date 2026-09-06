@@ -67,6 +67,24 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       throw validationFailed("This plan has no patches to validate");
     }
 
+    // Execution-plane profile (WP8): repo-specific wins, org default
+    // (repositoryId null) is the fallback, deterministic by name. Null =
+    // legacy static command set (still allowlist-enforced at execution).
+    const repositoryId = plan.impactAssessment.repository.id as string | undefined;
+    const repoProfile = repositoryId
+      ? await prisma.validationProfile.findFirst({
+          where: { organizationId: user.organizationId, repositoryId },
+          orderBy: { name: "asc" },
+        })
+      : null;
+    const validationProfile =
+      repoProfile ??
+      (await prisma.validationProfile.findFirst({
+        where: { organizationId: user.organizationId, repositoryId: null },
+        orderBy: { name: "asc" },
+      }));
+    const validationProfileId = validationProfile?.id ?? null;
+
     // github-checks-only: record the run as SKIPPED without enqueuing anything —
     // customer code never executes on this host. SKIPPED is not PASSED, so the
     // draft-PR policy gate still applies as-is.
@@ -77,6 +95,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           remediationPlanId: plan.id,
           status: ValidationStatus.SKIPPED,
           commands: VALIDATION_COMMANDS as never,
+          validationProfileId,
           stdout: SKIPPED_MESSAGE,
           completedAt: new Date(),
         },
@@ -108,6 +127,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         remediationPlanId: plan.id,
         status: ValidationStatus.QUEUED,
         commands: VALIDATION_COMMANDS as never,
+        validationProfileId,
       },
     });
 
@@ -126,7 +146,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       entityType: "remediationPlan",
       entityId: plan.id,
       correlationId,
-      after: { validationRunId: validationRun.id, commands: VALIDATION_COMMANDS },
+      after: {
+        validationRunId: validationRun.id,
+        commands: VALIDATION_COMMANDS,
+        validationProfileId,
+      },
     });
 
     return jsonOk(

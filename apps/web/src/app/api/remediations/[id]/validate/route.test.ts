@@ -6,6 +6,7 @@ vi.mock("@patchbay/db", () => ({
   prisma: {
     remediationPlan: { findFirst: vi.fn() },
     validationRun: { create: vi.fn() },
+    validationProfile: { findFirst: vi.fn() },
     auditEvent: { create: vi.fn() },
     capabilityGate: { findUnique: vi.fn() },
   },
@@ -41,7 +42,7 @@ function planFor(slug: string, overrides: Record<string, unknown> = {}) {
   return {
     id: "p-1",
     impactAssessment: {
-      repository: { organizationId: "org-acme" },
+      repository: { id: "repo-1", organizationId: "org-acme" },
       changeEvent: { vendor: { slug } },
     },
     patches: [{ id: "patch-1" }],
@@ -51,13 +52,16 @@ function planFor(slug: string, overrides: Record<string, unknown> = {}) {
 
 describe("POST /api/remediations/[id]/validate (WP9 certification gate)", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    // reset (not clear): mockResolvedValueOnce queues from prior tests must
+    // not leak into the next test's profile-selection sequence.
+    vi.resetAllMocks();
     vi.mocked(requireRole).mockResolvedValue(memberUser as never);
     vi.mocked(prisma.validationRun.create).mockResolvedValue({
       id: "vr-1",
       remediationPlanId: "p-1",
       status: "QUEUED",
     } as never);
+    vi.mocked(prisma.validationProfile.findFirst).mockResolvedValue(null as never);
     vi.mocked(prisma.auditEvent.create).mockResolvedValue({} as never);
     vi.mocked(prisma.capabilityGate.findUnique).mockResolvedValue(null as never);
   });
@@ -124,5 +128,59 @@ describe("POST /api/remediations/[id]/validate (WP9 certification gate)", () => 
     );
     expect(enqueue).not.toHaveBeenCalled();
     vi.unstubAllEnvs();
+  });
+
+  it("attaches the repo-specific profile over the org default (WP8)", async () => {
+    vi.mocked(prisma.remediationPlan.findFirst).mockResolvedValue(planFor("openai") as never);
+    vi.mocked(prisma.validationProfile.findFirst)
+      .mockResolvedValueOnce({ id: "prof-repo" } as never)
+      .mockResolvedValueOnce({ id: "prof-default" } as never);
+    const response = await POST(requestWithCsrf(), { params: Promise.resolve({ id: "p-1" }) });
+    expect(response.status).toBe(202);
+    expect(prisma.validationProfile.findFirst).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        where: { organizationId: "org-acme", repositoryId: "repo-1" },
+      }),
+    );
+    expect(prisma.validationRun.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ validationProfileId: "prof-repo" }),
+      }),
+    );
+  });
+
+  it("falls back to the org-default profile when no repo profile exists (WP8)", async () => {
+    vi.mocked(prisma.remediationPlan.findFirst).mockResolvedValue(planFor("openai") as never);
+    vi.mocked(prisma.validationProfile.findFirst)
+      .mockResolvedValueOnce(null as never)
+      .mockResolvedValueOnce({ id: "prof-default" } as never);
+    const response = await POST(requestWithCsrf(), { params: Promise.resolve({ id: "p-1" }) });
+    expect(response.status).toBe(202);
+    expect(prisma.validationProfile.findFirst).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        where: { organizationId: "org-acme", repositoryId: null },
+      }),
+    );
+    expect(prisma.validationRun.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ validationProfileId: "prof-default" }),
+      }),
+    );
+  });
+
+  it("records a null profile when no profile exists (legacy static commands, WP8)", async () => {
+    vi.mocked(prisma.remediationPlan.findFirst).mockResolvedValue(planFor("openai") as never);
+    const response = await POST(requestWithCsrf(), { params: Promise.resolve({ id: "p-1" }) });
+    expect(response.status).toBe(202);
+    expect(prisma.validationRun.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          validationProfileId: null,
+          commands: ["pnpm install --frozen-lockfile"],
+        }),
+      }),
+    );
   });
 });

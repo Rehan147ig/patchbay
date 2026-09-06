@@ -312,7 +312,9 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
                 remediationCase.release?.product.packageName ??
                 remediationCase.contractChange?.source.vendorSlug ??
                 "Contract case"
-              ).charAt(0).toUpperCase()}
+              )
+                .charAt(0)
+                .toUpperCase()}
             </span>
             <div>
               <div className="flex flex-wrap items-center gap-2">

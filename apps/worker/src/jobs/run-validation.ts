@@ -16,6 +16,11 @@ import {
 import type { Job } from "bullmq";
 import { writeAuditEvent } from "../lib/audit";
 import { recordRemediationAttempt } from "../lib/case-orchestration";
+import {
+  recordValidationArtifact,
+  resolveValidationProfile,
+  type ResolvedValidationProfile,
+} from "../lib/validation-profiles";
 import { sha256Hex } from "@patchbay/vendor-connectors";
 import {
   assertInstallationBelongsToOrganization,
@@ -184,6 +189,17 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
     return { validationRunId, status: "SKIPPED", commandsRun: 0, durationMs: 0 };
   }
 
+  // Execution-plane profile (WP8): every execution parameter comes from the
+  // profile — command ids resolve against the server-side registry, the image
+  // against the deployment allowlist, and timeouts/memory against server
+  // ceilings. Declared here so the harness-error path can hash a defined
+  // (possibly empty — nothing ran) command set; ASSIGNED as the first step
+  // inside the try below so a resolution failure marks the run FAILED loudly
+  // instead of escaping unmarked. Runs without a profile keep the legacy
+  // static row commands (still allowlist-enforced at execution time).
+  let resolvedProfile: ResolvedValidationProfile | null = null;
+  let effectiveCommands: string[] = [];
+
   await prisma.$transaction([
     prisma.validationRun.update({
       where: { id: validationRunId },
@@ -194,16 +210,6 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
       data: { status: PlanStatus.VALIDATING },
     }),
   ]);
-  await writeAuditEvent({
-    organizationId,
-    actorType: ActorType.SYSTEM,
-    actorId: null,
-    action: AuditAction.PLAN_VALIDATION_STARTED,
-    correlationId,
-    ...entity,
-    after: { validationRunId, commandCount: commandsOf(validationRun.commands).length },
-  });
-  logger.info("validation started", { validationRunId, remediationPlanId, correlationId });
 
   // Create git provider based on repository type
   const repository = plan.impactAssessment.repository;
@@ -228,7 +234,7 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
       })
     : createGitProviderFromEnv();
 
-  let workspace: string;
+  let workspace: string | undefined;
   if (fixtureDir) {
     // Fixture fast path: disposable copy of the local fixture directory.
     const checkoutResult = await provider.checkout({
@@ -264,6 +270,33 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
   }
 
   try {
+    // Profile assignment first: a resolution failure throws straight into
+    // this try's harness-error path (run marked FAILED, attempt recorded),
+    // never escaping with the run stuck in RUNNING.
+    if (validationRun.validationProfileId) {
+      resolvedProfile = await resolveValidationProfile(
+        validationRun.validationProfileId,
+        organizationId,
+      );
+      effectiveCommands = resolvedProfile.commands;
+    } else {
+      effectiveCommands = commandsOf(validationRun.commands);
+    }
+    await writeAuditEvent({
+      organizationId,
+      actorType: ActorType.SYSTEM,
+      actorId: null,
+      action: AuditAction.PLAN_VALIDATION_STARTED,
+      correlationId,
+      ...entity,
+      after: {
+        validationRunId,
+        commandCount: effectiveCommands.length,
+        validationProfileId: resolvedProfile?.profileId ?? null,
+      },
+    });
+    logger.info("validation started", { validationRunId, remediationPlanId, correlationId });
+
     // Symlink-hardened workspace boundary: resolve the real workspace path once
     // (checkout dirs are not symlinks themselves), then verify each patch's
     // parent directory through realpath so a repo-controlled symlink cannot
@@ -287,29 +320,42 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
       writeFileSync(target, patch.patchedContent, "utf8");
     }
 
-    const commands = commandsOf(validationRun.commands);
+    const commands = effectiveCommands;
     for (const command of commands) {
       if (!isAllowedCommand(command)) {
         throw new Error(`command not on the validation allowlist: ${command}`);
       }
     }
 
+    const runOptions = resolvedProfile
+      ? {
+          timeoutMs: resolvedProfile.timeoutMs,
+          networkPolicy: resolvedProfile.networkPolicy,
+          image: resolvedProfile.image,
+          expectedDigest: resolvedProfile.expectedDigest,
+          memory: resolvedProfile.memoryLimit,
+        }
+      : {};
     const results: Array<{
       command: string;
       ok: boolean;
       exitCode: number | null;
       durationMs: number;
       output: string;
+      fullStdout: string;
+      fullStderr: string;
       provenance: RunProvenance | null;
     }> = [];
     for (const command of commands) {
-      const result = await runner().run(command, workspace);
+      const result = await runner().run(command, workspace, runOptions);
       results.push({
         command,
         ok: result.ok,
         exitCode: result.exitCode,
         durationMs: result.durationMs,
         output: result.output,
+        fullStdout: result.fullStdout,
+        fullStderr: result.fullStderr,
         provenance: result.provenance ?? null,
       });
       if (!result.ok) break;
@@ -348,6 +394,22 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
       }),
     ]);
 
+    // Attest the terminal run (WP8): full logs to the evidence object store,
+    // tamper-evident descriptor hash on the row. A store failure throws into
+    // the harness-error path — an unattested PASS is a loud failure, never a
+    // silent one.
+    await recordValidationArtifact({
+      validationRunId,
+      organizationId,
+      validationProfileId: resolvedProfile?.profileId ?? null,
+      commandsExecuted: results.map((result) => result.command),
+      exitCodes: results.map((result) => result.exitCode),
+      image: resolvedProfile?.image ?? null,
+      imageDigest: provenance?.imageDigest ?? null,
+      fullStdout: results.map((result) => `$ ${result.command}\n${result.fullStdout}`).join("\n"),
+      fullStderr: results.map((result) => `$ ${result.command}\n${result.fullStderr}`).join("\n"),
+    });
+
     await writeAuditEvent({
       organizationId,
       actorType: ActorType.SYSTEM,
@@ -380,7 +442,7 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
     await recordRemediationAttempt({
       caseId: plan.remediationCaseId ?? null,
       strategyId: strategyOf(plan),
-      inputHash: sha256Hex(JSON.stringify(validationRun.commands ?? [])),
+      inputHash: sha256Hex(JSON.stringify(effectiveCommands)),
       outputHash: sha256Hex(stdout),
       status: passed ? "SUCCEEDED" : "FAILED",
       organizationId,
@@ -429,7 +491,7 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
     await recordRemediationAttempt({
       caseId: plan.remediationCaseId ?? null,
       strategyId: strategyOf(plan),
-      inputHash: sha256Hex(JSON.stringify(validationRun.commands ?? [])),
+      inputHash: sha256Hex(JSON.stringify(effectiveCommands)),
       status: "FAILED",
       failureCode: message.slice(0, 200),
       organizationId,
@@ -437,12 +499,18 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
     });
     throw error;
   } finally {
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      try {
-        rmSync(workspace, { recursive: true, force: true });
-        break;
-      } catch {
-        await new Promise((resolve) => setTimeout(resolve, 150));
+    // Workspace may never have been assigned (e.g. profile resolution or
+    // tenant checks threw before checkout) — removing undefined would mask
+    // the real error with a TypeError. (An if-block, never return: returning
+    // from finally would swallow the in-flight result or throw.)
+    if (workspace !== undefined) {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        try {
+          rmSync(workspace, { recursive: true, force: true });
+          break;
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 150));
+        }
       }
     }
   }

@@ -12,11 +12,13 @@ import {
   ProcessSandboxRunner,
   resolveSandboxMode,
   resolveSandboxValidationMode,
+  resolveValidationCommandIds,
   runValidation,
   SandboxError,
   SandboxPolicyError,
   SANDBOX_CONTAINER_USER,
   SANDBOX_MAX_OUTPUT_CHARS,
+  VALIDATION_COMMAND_REGISTRY,
 } from "./index";
 
 const tempDirs: string[] = [];
@@ -476,4 +478,127 @@ describe("container runner", async () => {
     },
     60_000,
   );
+});
+
+describe("WP8 execution plane", () => {
+  it("resolves registry ids to exact allowlisted commands and rejects anything else", () => {
+    expect(resolveValidationCommandIds(["pnpm-install-frozen", "pnpm-test"])).toEqual([
+      "pnpm install --frozen-lockfile",
+      "pnpm test",
+    ]);
+    // A raw command string is NOT a valid id — ids and commands are disjoint
+    // namespaces, so model/repo text can never smuggle a command through.
+    for (const bad of ["npm test", "rm -rf /", "", "NPM-TEST", "pnpm test"]) {
+      expect(() => resolveValidationCommandIds([bad])).toThrow(SandboxPolicyError);
+    }
+    expect(() => resolveValidationCommandIds(["pnpm-install-frozen", "nope"])).toThrow(
+      SandboxPolicyError,
+    );
+  });
+
+  it("keeps every registry value on the execution allowlist", () => {
+    for (const command of Object.values(VALIDATION_COMMAND_REGISTRY)) {
+      expect(isAllowedCommand(command)).toBe(true);
+    }
+    expect(Object.keys(VALIDATION_COMMAND_REGISTRY)).toHaveLength(ALLOWED_COMMANDS.length);
+  });
+
+  it("rejects container images outside the deployment allowlist before docker runs", () => {
+    expect(() => buildDockerRunArgs("npm test", tmpdir(), { image: "evil:latest" })).toThrow(
+      SandboxPolicyError,
+    );
+    expect(() =>
+      buildDockerRunArgs("npm test", tmpdir(), { image: "registry.attacker.io/pwn:latest" }),
+    ).toThrow(SandboxPolicyError);
+    // Default allowlist is the pinned default image.
+    expect(() => buildDockerRunArgs("npm test", tmpdir(), { image: "node:20-slim" })).not.toThrow();
+    // Operators extend the allowlist explicitly via env; anything else still fails.
+    vi.stubEnv("SANDBOX_ALLOWED_IMAGES", "node:20-slim,internal-registry/node:20-slim");
+    expect(() =>
+      buildDockerRunArgs("npm test", tmpdir(), { image: "internal-registry/node:20-slim" }),
+    ).not.toThrow();
+    expect(() => buildDockerRunArgs("npm test", tmpdir(), { image: "node:22-slim" })).toThrow(
+      SandboxPolicyError,
+    );
+  });
+
+  it("rejects a disallowed SANDBOX_IMAGE override at run time", async () => {
+    vi.stubEnv("SANDBOX_IMAGE", "evil:latest");
+    const runner = new ContainerSandboxRunner({ probe: async () => true });
+    const error = await runner.run("npm test", tmpdir()).then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+    expect(error).toBeInstanceOf(SandboxPolicyError);
+  });
+
+  it("refuses execution on image digest mismatch without spawning anything", async () => {
+    // probe:true lies about the daemon; the mismatch return happens BEFORE
+    // spawn, so this is deterministic with or without a real Docker daemon —
+    // a spawn attempt would surface as spawn-error, not policy-rejected.
+    const runner = new ContainerSandboxRunner({
+      probe: async () => true,
+      digestResolver: async () => "sha256:actual",
+    });
+    const result = await runner.run("npm test", tmpdir(), {
+      expectedDigest: "sha256:pinned",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.exitCode).toBeNull();
+    expect(result.provenance.failureClass).toBe("policy-rejected");
+    expect(result.provenance.imageDigest).toBe("sha256:actual");
+    expect(result.stderr).toContain("digest mismatch");
+  });
+
+  it("refuses execution when a pinned digest cannot be resolved", async () => {
+    const runner = new ContainerSandboxRunner({
+      probe: async () => true,
+      digestResolver: async () => null,
+    });
+    const result = await runner.run("npm test", tmpdir(), {
+      expectedDigest: "sha256:pinned",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.provenance.failureClass).toBe("policy-rejected");
+    expect(result.stderr).toContain("unresolvable");
+  });
+
+  it("rejects digest pins on runtimes without image identity", async () => {
+    const processError = await new ProcessSandboxRunner()
+      .run("npm test", tmpdir(), { expectedDigest: "sha256:pinned" })
+      .then(
+        () => null,
+        (caught: unknown) => caught,
+      );
+    expect(processError).toBeInstanceOf(SandboxPolicyError);
+    const microvmError = await new MicroVmSandboxRunner({ available: true })
+      .run("npm test", tmpdir(), { expectedDigest: "sha256:pinned" })
+      .then(
+        () => null,
+        (caught: unknown) => caught,
+      );
+    expect(microvmError).toBeInstanceOf(SandboxPolicyError);
+  });
+
+  it("applies a per-run memory bound to the container limits", () => {
+    const args = buildDockerRunArgs("npm test", tmpdir(), {
+      containerName: "patchbay-sb-mem",
+      memory: "1g",
+    });
+    expect(args[args.indexOf("--memory") + 1]).toBe("1g");
+  });
+
+  it("returns redacted full-fidelity logs beyond the inline bound", async () => {
+    const dir = makeWorkspace({
+      test: 'node -e "console.log(\\"sk-abcdefghijklmnopqrstuvwxyz\\"); console.log(\\"y\\".repeat(9000))"',
+    });
+    const result = await new ProcessSandboxRunner().run("npm test", dir);
+    expect(result.ok).toBe(true);
+    // Inline stays bounded; full carries everything (redacted, not truncated).
+    expect(result.stdout.length).toBeLessThan(result.fullStdout.length);
+    expect(result.fullStdout.length).toBeGreaterThan(9_000);
+    expect(result.fullStdout).toContain("[REDACTED]");
+    expect(result.fullStdout).not.toContain("sk-abcdefghijklmnopqrstuvwxyz");
+    expect(result.output).toContain("[REDACTED]");
+  });
 });
