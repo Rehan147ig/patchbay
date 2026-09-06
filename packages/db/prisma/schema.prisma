@@ -358,6 +358,7 @@ model Organization {
   validationProfiles     ValidationProfile[]
   validationArtifacts    ValidationArtifact[]
   deliveryAttempts       DeliveryAttempt[]
+  deadLetterJobs         DeadLetterJob[]
   workspaces             Workspace[]
   workspaceMembers       WorkspaceMember[]
   subscription           Subscription?
@@ -1703,6 +1704,46 @@ model DeliveryAttempt {
   @@index([status])
 }
 /**
+ * Persistent dead-letter record (WP10, spec §10). The BullMQ DLQ queue holds
+ * the payload for transport; this row is the queryable system of record:
+ * WHAT failed terminally, with a redacted payload, a classified error code,
+ * and replay state. One row per idempotency key — a repeated terminal
+ * failure refreshes the row instead of duplicating it.
+ */
+model DeadLetterJob {
+  id String @id @default(uuid())
+  organizationId String
+  /** BullMQ job name (scan-repository, create-pr, ...). */
+  jobType        String
+  /** BullMQ job id, when the job carried one. */
+  jobId          String?
+  /** Stable key: dlq:<jobType>:<jobId-or-payloadHash>. First writer wins. */
+  idempotencyKey String @unique
+  /** Redacted job payload (secret-looking values scrubbed at write). */
+  payload        Json
+  /** SHA-256 over the canonical redacted payload (dedup + integrity). */
+  payloadHash    String
+  /** Classified failure (GITHUB_RATE_LIMITED, POLICY_BLOCKED, Error name...). */
+  errorCode      String?
+  /** Bounded, redacted failure detail. */
+  errorMessage   String?
+  attemptsMade   Int
+  correlationId  String?
+  /** OPEN | REPLAYED (validated by domain schema). */
+  status         String @default("OPEN")
+  replayedAt     DateTime?
+  /** BullMQ id of the replay job, when replayed through the API. */
+  replayJobId    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([jobType])
+}
+/**
  * Immutable snapshot of one policy evaluation (WP5, spec §4.1/§8.1).
  * Append-only: evaluations are never updated, only superseded by newer rows.
  * Wired at case creation (upsertRemediationCase); policy-version tracking on
@@ -1885,6 +1926,12 @@ model CapabilityGate {
   status         CapabilityGateStatus @default(ACTIVE)
   reason         String?
   suspendedAt    DateTime?
+  /**
+   * Consecutive unhealthy evaluations (WP10 hardening). Suspension fires
+   * only at minConsecutiveBreaches so one bad window cannot flap a gate;
+   * resets to 0 on a healthy evaluation (status itself restores by admin).
+   */
+  consecutiveBreaches Int @default(0)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 

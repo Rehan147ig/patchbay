@@ -423,9 +423,43 @@ only; server-side metering/quota-exhaustion states missing.
   the untouched eval-corpus under parallel load (green solo, green in full
   suite, green on idle re-run) — recorded, not acted on.
 
-## 14. Next steps
+## 14. WP10 — Operations and observability (DONE 2026-09-06, branch `feat/production-spec`)
 
-WP10 (ops Garden) per spec §17 order.
+- Telemetry: new `@patchbay/telemetry` (OTEL API only) — `withSpan`
+  (exception → ERROR status, always ends), `recordJobOutcome` (low-cardinality
+  job.type/outcome labels + duration histogram), `recordHttpDuration`, and an
+  in-process job mirror backing the queues endpoint. No-op without an SDK;
+  registering a NodeSDK/OTLP exporter starts the flow with zero code changes
+  (documented deployment contract). Worker dispatch wrapped per job
+  (`job.<type>` spans incl. unknown-type rejections); replay/queues routes
+  span + time themselves.
+- Dead letters: `DeadLetterJob` (unique idempotencyKey `dlq:<type>:<id|hash>`,
+  secret-scrubbed payload + SHA-256, classified errorCode via the delivery
+  classifier, bounded message, OPEN/REPLAYED; RLS + ORG_SCOPED, migration
+  `20260906000002_wp10_dead_letters`). Recorded once per exhausted job from
+  the failure handler (4th best-effort step; repeats refresh, never duplicate).
+- Replay: `POST /api/operations/replay` (ADMIN + CSRF) — closed 4-type
+  allowlist, per-type entity-freshness guards (no delivered PR, no resolved
+  validation, ACTIVE repo only), OPEN→REPLAYED conditional claim (concurrent
+  losers get 422), `replay:<id>` transport id, `JOB_REPLAYED` audit with both
+  correlation ids.
+- Queues: `GET /api/operations/queues` (ADMIN) — BullMQ depth for main + DLQ,
+  OPEN dead-letter count, worker heartbeats (15s Redis-hash beats, 90s stale
+  line, opportunistic prune, no KEYS scans), job-outcome mirror. Degrades to
+  `degraded` with nulls when Redis is down — never a 500 hiding fleet state.
+- Suspension hardening: `consecutiveBreaches` on CapabilityGate (migration
+  `20260906000003_wp10_breach_counter`) — strikes record quietly, suspension
+  fires at 2 consecutive breaches (configurable), healthy resets the counter
+  (status still restores by admin). Sweep + job now cover DRAFT_PR and
+  VALIDATE (no-data levels stay healthy no-ops).
+- Verification: prettier clean, eslint 0 warnings, typecheck 20/20 (new
+  telemetry package included), full suite 154 files / 1523 tests green,
+  corpus 36/36. New: 4 telemetry + 3 heartbeat + 9 dead-letter + 9
+  replay + 3 queues + 5 capability + 3 sweep/job tests.
+
+## 15. Next steps
+
+WP11 (pilot readiness) per spec §17 order.
 Branch hygiene: one work package per commit/PR, gates re-run per package, this file
 updated per §19.9. `main` stays locked (branch protection + Railway tracking `main`
 only); merges via green PR only.

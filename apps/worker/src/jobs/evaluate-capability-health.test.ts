@@ -9,7 +9,7 @@ vi.mock("@patchbay/db", () => ({
   prisma: {
     pullRequest: { findMany: vi.fn() },
     agentRun: { findMany: vi.fn() },
-    capabilityGate: { upsert: vi.fn(), findUnique: vi.fn() },
+    capabilityGate: { upsert: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     auditEvent: { create: vi.fn() },
   },
   createNotification: vi.fn(),
@@ -63,7 +63,12 @@ describe("processEvaluateCapabilityHealth", () => {
     expect(prisma.capabilityGate.upsert).not.toHaveBeenCalled();
   });
 
-  it("suspends the DRAFT_PR gate when the merge rate fails", async () => {
+  it("suspends the DRAFT_PR gate on the second consecutive breach", async () => {
+    vi.mocked(prisma.capabilityGate.findUnique).mockResolvedValue({
+      status: "ACTIVE",
+      reason: null,
+      consecutiveBreaches: 1,
+    } as never);
     vi.mocked(prisma.pullRequest.findMany).mockResolvedValue([
       {
         status: "CLOSED",
@@ -107,9 +112,56 @@ describe("processEvaluateCapabilityHealth", () => {
     );
   });
 
+  it("records a first strike without suspending (hardened)", async () => {
+    vi.mocked(prisma.pullRequest.findMany).mockResolvedValue([
+      {
+        status: "CLOSED",
+        remediationPlan: {
+          impactAssessment: {
+            changeEvent: { vendor: { slug: "stripe" } },
+          },
+        },
+      },
+      {
+        status: "CLOSED",
+        remediationPlan: {
+          impactAssessment: {
+            changeEvent: { vendor: { slug: "stripe" } },
+          },
+        },
+      },
+    ] as never);
+    const verdict = await processEvaluateCapabilityHealth(
+      jobWith({
+        organizationId: "org-acme",
+        vendorSlug: "stripe",
+        correlationId: "corr-1",
+      }),
+    );
+    expect(verdict.healthy).toBe(false);
+    // Strike recorded, gate left ACTIVE — no suspension audit, no bell.
+    expect(prisma.auditEvent.create).not.toHaveBeenCalled();
+    expect(createNotification).not.toHaveBeenCalled();
+  });
+
+  it("evaluates the VALIDATE level when requested", async () => {
+    const verdict = await processEvaluateCapabilityHealth(
+      jobWith({
+        organizationId: "org-acme",
+        vendorSlug: "stripe",
+        level: "VALIDATE",
+        correlationId: "corr-1",
+      }),
+    );
+    expect(verdict.healthy).toBe(true);
+    expect(verdict.level).toBe("VALIDATE");
+  });
+
   it("notifies on the transition into SUSPENDED only", async () => {
+    // Call order: gateBefore, enforce counter read, gateAfter.
     vi.mocked(prisma.capabilityGate.findUnique)
       .mockResolvedValueOnce({ status: "ACTIVE", reason: null } as never)
+      .mockResolvedValueOnce({ status: "ACTIVE", consecutiveBreaches: 1 } as never)
       .mockResolvedValueOnce({
         status: "SUSPENDED",
         reason: "merge rate 0% below threshold",

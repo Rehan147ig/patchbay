@@ -18,6 +18,8 @@ export const EvaluateCapabilityHealthJobDataSchema = z.object({
   organizationId: z.string().min(1),
   vendorSlug: z.string().min(1),
   correlationId: z.string().min(1),
+  /** Capability level under evaluation; the sweep covers DRAFT_PR + VALIDATE. */
+  level: z.enum(["DRAFT_PR", "VALIDATE"]).default("DRAFT_PR"),
 });
 export type EvaluateCapabilityHealthJobData = z.infer<typeof EvaluateCapabilityHealthJobDataSchema>;
 
@@ -37,14 +39,14 @@ export async function processEvaluateCapabilityHealth(job: Job): Promise<Capabil
   if (!parsed.success) {
     throw new Error(`invalid evaluate-capability-health job data: ${parsed.error.message}`);
   }
-  const { organizationId, vendorSlug, correlationId } = parsed.data;
+  const { organizationId, vendorSlug, correlationId, level } = parsed.data;
 
   const gateBefore = await prisma.capabilityGate.findUnique({
     where: {
       organizationId_vendorSlug_level: {
         organizationId,
         vendorSlug,
-        level: "DRAFT_PR",
+        level,
       },
     },
     select: { status: true, reason: true },
@@ -53,7 +55,7 @@ export async function processEvaluateCapabilityHealth(job: Job): Promise<Capabil
   const verdict = await enforceCapabilityHealth(prisma, {
     organizationId,
     vendorSlug,
-    level: "DRAFT_PR",
+    level,
     ...CAPABILITY_HEALTH_DEFAULTS,
     correlationId,
   });
@@ -63,7 +65,7 @@ export async function processEvaluateCapabilityHealth(job: Job): Promise<Capabil
       organizationId_vendorSlug_level: {
         organizationId,
         vendorSlug,
-        level: "DRAFT_PR",
+        level,
       },
     },
     select: { status: true, reason: true },
@@ -77,7 +79,7 @@ export async function processEvaluateCapabilityHealth(job: Job): Promise<Capabil
     await createNotification({
       organizationId,
       type: NotificationType.CAPABILITY_GATE_SUSPENDED,
-      title: `Capability suspended: ${vendorSlug} DRAFT_PR`,
+      title: `Capability suspended: ${vendorSlug} ${level}`,
       body: gateAfter.reason ?? "Auto-suspended after failing SLO thresholds",
       correlationId,
     });

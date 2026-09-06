@@ -45,6 +45,7 @@ export const AuditAction = {
   TASK_COMPLETED: "task.completed",
   TASK_FAILED: "task.failed",
   JOB_PERMANENTLY_FAILED: "job.permanently_failed",
+  JOB_REPLAYED: "job.replayed",
   WATCHTOWER_STALE: "watchtower.stale",
   GRAPH_INDEX_QUEUED: "graph.index_queued",
   GRAPH_INDEX_STARTED: "graph.index.started",

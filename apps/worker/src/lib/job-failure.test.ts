@@ -10,12 +10,14 @@ import {
 function deps(): JobFailureDeps & {
   alert: ReturnType<typeof vi.fn>;
   enqueueDlq: ReturnType<typeof vi.fn>;
+  recordDeadLetter: ReturnType<typeof vi.fn>;
   audit: ReturnType<typeof vi.fn>;
   systemOrg: ReturnType<typeof vi.fn>;
 } {
   return {
     alert: vi.fn().mockResolvedValue(undefined),
     enqueueDlq: vi.fn().mockResolvedValue({ id: "dlq-1" }),
+    recordDeadLetter: vi.fn().mockResolvedValue({ id: "dead-1", created: true }),
     audit: vi.fn().mockResolvedValue(undefined),
     systemOrg: vi.fn().mockResolvedValue("org-watchtower"),
   };
@@ -63,13 +65,22 @@ describe("handlePermanentlyFailedJob", () => {
     expect(d.audit).not.toHaveBeenCalled();
   });
 
-  it("alerts, DLQs, and audits an exhausted job against its own org", async () => {
+  it("alerts, DLQs, records a dead letter, and audits an exhausted job against its own org", async () => {
     const d = deps();
     await handlePermanentlyFailedJob(exhausted, new Error("boom"), d);
     expect(d.alert).toHaveBeenCalledWith("create-pr", expect.stringContaining("boom"));
     expect(d.enqueueDlq).toHaveBeenCalledWith(
       "create-pr",
       expect.objectContaining({ jobId: "job-1", attemptsMade: 3 }),
+    );
+    expect(d.recordDeadLetter).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: "org-1",
+        jobType: "create-pr",
+        jobId: "job-1",
+        attemptsMade: 3,
+        errorCode: "DELIVERY_FAILED",
+      }),
     );
     expect(d.systemOrg).not.toHaveBeenCalled();
     expect(d.audit).toHaveBeenCalledWith(
@@ -107,13 +118,20 @@ describe("handlePermanentlyFailedJob", () => {
     expect(alerted).toContain("[REDACTED]");
   });
 
-  it("never throws when alert, DLQ, or audit blow up", async () => {
+  it("never throws when alert, DLQ, dead-letter, or audit blow up", async () => {
     const d = deps();
     d.alert.mockRejectedValue(new Error("webhook down"));
     d.enqueueDlq.mockRejectedValue(new Error("redis down"));
+    d.recordDeadLetter.mockRejectedValue(new Error("db down"));
     d.audit.mockRejectedValue(new Error("db down"));
     await expect(handlePermanentlyFailedJob(exhausted, new Error("boom"), d)).resolves.toBe(
       undefined,
     );
+  });
+
+  it("skips the dead-letter record while still alerting when attempts remain", async () => {
+    const d = deps();
+    await handlePermanentlyFailedJob({ ...exhausted, attemptsMade: 1 }, new Error("boom"), d);
+    expect(d.recordDeadLetter).not.toHaveBeenCalled();
   });
 });

@@ -102,6 +102,8 @@ export {
   updateDeliveryKey,
 } from "./delivery-attempt";
 export type { DeliveryAction, DeliveryStatus } from "./delivery-attempt";
+export { deadLetterStatusSchema, replayableJobTypeSchema } from "./dead-letter";
+export type { DeadLetterStatus, ReplayableJobType } from "./dead-letter";
 export { migrationRecipeSchema, recipeListEntrySchema, recipeRuleSchema } from "./recipe";
 export type { MigrationRecipe, RecipeListEntry, RecipeRule } from "./recipe";
 export { classifySemverBump, compareVersions, parseVersion, satisfiesRange } from "./semver";
