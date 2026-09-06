@@ -51,6 +51,47 @@ export interface PullRequestResult {
   localWorkspaceDir?: string;
   /** Provider-side identifier, e.g. the GitHub PR number. */
   externalId?: string;
+  /** Tip commit of the delivery branch after patches land (GitHub only). */
+  headSha?: string;
+}
+
+/** Push new patches to an existing delivery branch (WP9 update-on-advance). */
+export interface SyncBranchInput {
+  branchName: string;
+  base?: string;
+  title: string;
+  patches: Array<{ filePath: string; patchedContent: string }>;
+}
+
+export interface UpdatePullRequestInput {
+  number: number;
+  title?: string;
+  body?: string;
+}
+
+export interface UpdatedPullRequest {
+  number: number;
+  htmlUrl: string;
+}
+
+export type CheckRunConclusion = "success" | "failure" | "neutral" | "cancelled";
+
+export interface CreateCheckRunInput {
+  headSha: string;
+  name: string;
+  conclusion: CheckRunConclusion;
+  summary: string;
+  text?: string;
+}
+
+export interface CreatedCheckRun {
+  id: number;
+  htmlUrl: string | null;
+}
+
+export interface CreatedIssueComment {
+  id: number;
+  htmlUrl: string;
 }
 
 export interface GitProvider {
@@ -66,6 +107,15 @@ export interface GitProvider {
    * callers never take a commit sha from tenant-writable metadata.
    */
   resolveHeadSha(baseBranch?: string): Promise<string>;
+  /**
+   * Delivery-plane methods (WP9). Optional: only GitHub-backed providers
+   * implement them; the worker fails loudly when a delivery needs one the
+   * active provider lacks (local/demo and roadmap stubs stay create-only).
+   */
+  syncBranchWithPatches?(input: SyncBranchInput): Promise<{ commitSha: string }>;
+  updatePullRequest?(input: UpdatePullRequestInput): Promise<UpdatedPullRequest>;
+  createCheckRun?(input: CreateCheckRunInput): Promise<CreatedCheckRun>;
+  createIssueComment?(input: { number: number; body: string }): Promise<CreatedIssueComment>;
 }
 
 export interface CheckoutInput {

@@ -8,9 +8,22 @@ export {
   type GitProvider,
   type CheckoutInput,
   type CheckoutResult,
+  type SyncBranchInput,
+  type UpdatePullRequestInput,
+  type UpdatedPullRequest,
+  type CheckRunConclusion,
+  type CreateCheckRunInput,
+  type CreatedCheckRun,
+  type CreatedIssueComment,
 } from "./local-provider";
-export { GitHubProvider, createGitProviderFromEnv, redactTokenInError } from "./github-provider";
-export type { GitHubConfig } from "./github-provider";
+export {
+  GitHubProvider,
+  GitHubApiError,
+  classifyGitHubFailure,
+  createGitProviderFromEnv,
+  redactTokenInError,
+} from "./github-provider";
+export type { GitHubConfig, GitHubErrorCode } from "./github-provider";
 export {
   GitHubAppProvider,
   createAppJwt,

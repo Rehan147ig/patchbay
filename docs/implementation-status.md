@@ -383,9 +383,49 @@ only; server-side metering/quota-exhaustion states missing.
   tests green, corpus 36/36. New: 9 runner isolation + 13 profile/artifact +
   2 job orchestration + 3 route selection tests.
 
-## 13. Next steps
+## 13. WP9 — GitHub delivery reliability (DONE 2026-09-06, branch `feat/production-spec`)
 
-WP9 (trustworthy producer outputs) per spec §17 order.
+- Ledger: `DeliveryAttempt` (org/plan/PR refs, unique idempotencyKey, action,
+  status, attemptCount, classified errorCode, bounded redacted message; RLS +
+  ORG_SCOPED, migration `20260906000001_wp9_delivery_ledger`). First writer
+  wins: retries observe SUCCEEDED winners (return, never re-deliver), wait on
+  IN_PROGRESS (retryable throw), or adopt FAILED rows (attemptCount+1).
+  Keys: `create:<remediationKey>`, `update:<planId>`, `checkrun:<planId>:<sha>`,
+  `comment:<planId>:<purpose>`. Pre-WP9 PR rows backfill SUCCEEDED on sight.
+- §7.4 evidence block (domain, DB-free): machine comment
+  `<!-- patchbay:evidence {canonical JSON v1} -->` (case/plan/case-version,
+  policy, validation run + artifact hash + commands + image digest, risks,
+  approval, agent verdict, correlation) + human table with branch-based
+  rollback (close unmerged + `git push origin --delete <branch>`; base
+  untouched). `parseEvidenceBlock` returns null on anything unexpected —
+  automation refuses to guess.
+- Update-on-advance: a case PR from a prior plan is refreshed in place (same
+  branch, new commit via `syncBranchWithPatches`, PATCH title/body,
+  `PullRequest` row repointed to the new plan, `PR_UPDATED` audit,
+  `case-version-advance` case event) — no orphan PRs. Case version = plan
+  index, no schema counter. Local/demo rows repoint without remote calls; a
+  numbered PR with an incapable provider fails closed instead of repointing.
+- Check runs: `patchbay-validation` run on the delivery tip (success/failure/
+  neutral from validation status, artifact hash in summary, human evidence as
+  text). Best-effort by design: failure → status comment fallback → ledger
+  row + warning. Delivery never fails over reporting (permissions vary by
+  installation); the evidence block is already on the PR.
+- Error hardening: `GitHubApiError` (status/code/retryable/retryAfterMs from
+  Retry-After/x-ratelimit-reset) — 401 terminal, 403 split permission-loss vs
+  rate-limit, 404 terminal, already-exists stays an idempotency signal,
+  409/fast-forward conflicts retryable (retry refetches tip, never force),
+  5xx/network retryable. Message format unchanged (App 401-retry intact),
+  tokens redacted on every new throw path. Worker classifies by name/code
+  (no cross-bundle instanceof) onto attempt rows.
+- Verification: prettier clean, eslint 0 warnings, typecheck 19/19, full
+  suite 149 files / 1489 tests green, corpus 36/36. New: 6 evidence + 13
+  ledger + 10 provider + 5 job tests. Two transient 30s-timeout flakes in
+  the untouched eval-corpus under parallel load (green solo, green in full
+  suite, green on idle re-run) — recorded, not acted on.
+
+## 14. Next steps
+
+WP10 (ops Garden) per spec §17 order.
 Branch hygiene: one work package per commit/PR, gates re-run per package, this file
 updated per §19.9. `main` stays locked (branch protection + Railway tracking `main`
 only); merges via green PR only.

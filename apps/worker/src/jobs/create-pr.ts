@@ -11,13 +11,25 @@ import {
 import { AuditAction } from "@patchbay/audit";
 import {
   ActorType,
+  buildEvidenceBlock,
+  buildEvidenceHumanSection,
+  checkRunDeliveryKey,
+  commentDeliveryKey,
+  createDeliveryKey,
   PlanStatus,
   PullRequestStatus,
+  updateDeliveryKey,
   ValidationStatus,
   logger,
+  type DeliveryEvidencePayload,
+  type EvidenceHumanInput,
 } from "@patchbay/domain";
 import { resolveFixtureDir } from "@patchbay/repo-analysis";
-import { createGitProviderFromEnv } from "@patchbay/git-provider";
+import {
+  createGitProviderFromEnv,
+  type CheckRunConclusion,
+  type GitProvider,
+} from "@patchbay/git-provider";
 import { approvalCoversPatches, evaluatePolicy, evaluateQuorum } from "@patchbay/policy-engine";
 import { rateLimitRedis } from "@patchbay/queue";
 import { requireCertified } from "@patchbay/vendor-connectors";
@@ -25,6 +37,12 @@ import type { Job } from "bullmq";
 import { writeAuditEvent } from "../lib/audit";
 import { assertWorkerCapabilityGateOpen } from "../lib/capability-gates";
 import { assertInstallationBelongsToOrganization } from "../lib/repository-source";
+import {
+  claimDeliveryAttempt,
+  classifyDeliveryError,
+  completeDeliveryAttempt,
+  recordBestEffortAttempt,
+} from "../lib/delivery-attempts";
 import { ACQUIRE_LUA, RELEASE_LUA } from "@patchbay/queue";
 
 export const CreatePRJobDataSchema = z.object({
@@ -38,6 +56,8 @@ export interface CreatePRResult {
   pullRequestId: string;
   url: string;
   branchName: string;
+  /** True when a case-advance refreshed an existing PR instead of opening one. */
+  updated: boolean;
 }
 
 /**
@@ -110,7 +130,7 @@ async function createDraftPR(
         },
       },
       patches: true,
-      validations: true,
+      validations: { include: { artifact: true }, orderBy: { createdAt: "desc" } },
       approvals: { orderBy: { createdAt: "desc" } },
       pullRequests: true,
     },
@@ -171,19 +191,92 @@ async function createDraftPR(
   }
   await assertWorkerCapabilityGateOpen(organizationId, vendorSlug, "DRAFT_PR");
 
-  // Idempotency check: Return existing PR if already created by a prior attempt
+  const repository = plan.impactAssessment.repository;
+
+  // Deterministic branch name derived from the remediation idempotency key.
+  // Computed before the early return so pre-WP9 PR rows can be backfilled
+  // into the ledger with the same key a retry would claim.
+  const remediationKey = computeRemediationKey({
+    organizationId,
+    repositoryId: repository.id,
+    changeEventId: changeEvent.id,
+    remediationPlanId: plan.id,
+    sourceHash: plan.patches[0]?.originalHash ?? null,
+  });
+  const branchName = `patchbay/remediation-${remediationKey.slice(0, 12)}`;
+
+  // Idempotency check: return the existing PR when a prior attempt already
+  // delivered this plan. Pre-WP9 rows predate the ledger: backfill a
+  // SUCCEEDED CREATE attempt so the ledger is complete (a key conflict means
+  // an earlier retry already backfilled — skip silently, still no duplicate).
   if (plan.pullRequests && plan.pullRequests.length > 0) {
     const existingPR = plan.pullRequests[0]!;
     logger.info("pull request already exists for plan", {
       remediationPlanId: plan.id,
       pullRequestId: existingPR.id,
     });
+    await recordBestEffortAttempt({
+      organizationId,
+      remediationPlanId: plan.id,
+      pullRequestId: existingPR.id,
+      idempotencyKey: createDeliveryKey("CREATE", remediationKey),
+      action: "CREATE",
+      status: "SUCCEEDED",
+      externalId: existingPR.externalId ?? null,
+      url: existingPR.url,
+    });
     return {
       pullRequestId: existingPR.id,
       url: existingPR.url,
       branchName: existingPR.branchName,
+      updated: false,
     };
   }
+
+  // Case-version advance (WP9): when the case already carries a PR from a
+  // prior plan, refresh THAT PR (same branch, new commit, current evidence
+  // body) instead of orphaning it with a second PR. The newest sibling wins;
+  // pre-WP9 duplicate orphans converge onto the latest row from here on.
+  const siblingPR = plan.remediationCaseId
+    ? await prisma.pullRequest.findFirst({
+        where: { remediationPlan: { remediationCaseId: plan.remediationCaseId } },
+        orderBy: { createdAt: "desc" },
+      })
+    : null;
+  const isUpdate = siblingPR !== null;
+  const idempotencyKey = isUpdate
+    ? updateDeliveryKey(plan.id)
+    : createDeliveryKey("CREATE", remediationKey);
+  const claim = await claimDeliveryAttempt({
+    organizationId,
+    remediationPlanId: plan.id,
+    idempotencyKey,
+    action: isUpdate ? "UPDATE" : "CREATE",
+  });
+  if (claim.duplicate) {
+    // A prior attempt (this retry's predecessor or a concurrent worker)
+    // already delivered: return its PR, never deliver twice.
+    const winnerPR = claim.attempt.pullRequestId
+      ? await prisma.pullRequest.findUnique({ where: { id: claim.attempt.pullRequestId } })
+      : null;
+    const row =
+      winnerPR ?? (await prisma.pullRequest.findFirst({ where: { remediationPlanId: plan.id } }));
+    if (!row) {
+      throw new Error(
+        `delivery ledger reports success for ${idempotencyKey} but no pull request row exists; retrying`,
+      );
+    }
+    return { pullRequestId: row.id, url: row.url, branchName: row.branchName, updated: isUpdate };
+  }
+  const attemptId = claim.attemptId;
+  const markAttemptFailed = async (error: unknown): Promise<void> => {
+    const message = error instanceof Error ? error.message : String(error);
+    await completeDeliveryAttempt(attemptId, {
+      status: "FAILED",
+      errorCode: classifyDeliveryError(error),
+      errorMessage: message,
+    });
+  };
 
   // Atomic PR slot reservation — INCR + limit check + TTL in one Lua op.
   // Imported from @patchbay/queue: ACQUIRE_LUA, RELEASE_LUA
@@ -199,6 +292,10 @@ async function createDraftPR(
       String(PR_SLOT_TTL_SECONDS),
     )) as [number, number];
   } catch {
+    const error = new Error(
+      `PR creation safety unavailable: Redis is unreachable. Automated PR creation blocked until Redis recovers.`,
+    );
+    await markAttemptFailed(error);
     await writeAuditEvent({
       organizationId,
       actorType: ActorType.SYSTEM,
@@ -224,6 +321,10 @@ async function createDraftPR(
   const allowed = evalResult[0] === 1;
   const newSlotCount = evalResult[1];
   if (!allowed) {
+    const error = new Error(
+      `PR creation throttled by circuit breaker: organization has reached its maximum concurrent draft PR limit`,
+    );
+    await markAttemptFailed(error);
     await writeAuditEvent({
       organizationId,
       actorType: ActorType.SYSTEM,
@@ -311,7 +412,6 @@ async function createDraftPR(
       );
     }
 
-    const repository = plan.impactAssessment.repository;
     const fixtureName = fixtureOf(repository.metadata);
     const installationId = installationIdOf(repository.metadata);
     if (installationId) {
@@ -321,16 +421,6 @@ async function createDraftPR(
     }
     const fixtureDir = fixtureName ? resolveFixtureDir(fixtureName) : "";
 
-    // Deterministic branch name derived from the remediation idempotency key
-    const remediationKey = computeRemediationKey({
-      organizationId,
-      repositoryId: repository.id,
-      changeEventId: changeEvent.id,
-      remediationPlanId: plan.id,
-      sourceHash: plan.patches[0]?.originalHash ?? null,
-    });
-    const branchName = `patchbay/remediation-${remediationKey.slice(0, 12)}`;
-
     const title = `[Patch] ${changeEvent.title}`;
     const agentVerdict = plan.remediationCaseId
       ? await loadSucceededAgentVerdict(organizationId, plan.remediationCaseId)
@@ -338,22 +428,55 @@ async function createDraftPR(
     const passingValidation = plan.validations.find(
       (val) => val.status === ValidationStatus.PASSED,
     );
-    const body = buildPrBody(
-      {
-        repositoryName: repository.name,
-        score: plan.impactAssessment.score,
-        confidence: plan.confidence,
-        rationale: plan.impactAssessment.rationale,
-        policyDecision: policyResult.decision,
-        policyReasons: policyResult.reasons,
-        approvalDecision: latestApproval?.decision ?? null,
-        validationStatus: passingValidation?.status ?? plan.validations[0]?.status ?? null,
-        riskTags,
-        affectedUsageCount: plan.impactAssessment.affectedUsages.length,
-        patchCount: plan.patches.length,
-      },
-      agentVerdict,
-    );
+    const latestValidation = passingValidation ?? plan.validations[0] ?? null;
+    const validationStatus = latestValidation?.status ?? "NO_RUNS";
+    const validationArtifact = passingValidation?.artifact ?? null;
+    // Case version = 1-based index of this plan among the case's plans. No
+    // schema counter needed: ordering by creation is deterministic and the
+    // evidence block pins the number it was delivered as.
+    const caseVersion = plan.remediationCaseId
+      ? await prisma.remediationPlan.count({
+          where: { remediationCaseId: plan.remediationCaseId, createdAt: { lte: plan.createdAt } },
+        })
+      : 1;
+
+    const evidencePayload: DeliveryEvidencePayload = {
+      version: 1,
+      // Normalize to null: Prisma returns null for the unset FK, but a
+      // missing property (undefined) must never reach the evidence schema.
+      caseId: plan.remediationCaseId ?? null,
+      remediationPlanId: plan.id,
+      caseVersion,
+      policyDecision: policyResult.decision,
+      policyReasons: policyResult.reasons,
+      validationStatus,
+      validationRunId: latestValidation?.id ?? null,
+      validationArtifactHash: validationArtifact?.artifactHash ?? null,
+      commandsExecuted: validationArtifact?.commandsExecuted ?? [],
+      imageDigest: validationArtifact?.imageDigest ?? null,
+      riskTags,
+      affectedUsageCount: plan.impactAssessment.affectedUsages.length,
+      patchCount: plan.patches.length,
+      approvalDecision: latestApproval?.decision ?? null,
+      agentVerdict: agentVerdict?.reviewSummary ?? null,
+      correlationId,
+      createdAt: new Date().toISOString(),
+    };
+    const evidenceHuman: EvidenceHumanInput = {
+      repositoryName: repository.name,
+      branchName: siblingPR ? siblingPR.branchName : branchName,
+      baseBranch: repository.defaultBranch,
+      caseVersion,
+      policyDecision: policyResult.decision,
+      policyReasons: policyResult.reasons,
+      validationStatus,
+      validationArtifactHash: validationArtifact?.artifactHash ?? null,
+      approvalDecision: latestApproval?.decision ?? null,
+      riskTags,
+      affectedUsageCount: plan.impactAssessment.affectedUsages.length,
+      patchCount: plan.patches.length,
+    };
+    const body = buildPrBody(evidencePayload, evidenceHuman, agentVerdict);
 
     const provider =
       repository.provider === "GITHUB" && installationId
@@ -368,33 +491,103 @@ async function createDraftPR(
     }
 
     const gitStartTime = Date.now();
-    const prResult = await provider.createDraftPullRequest({
-      repositoryName: repository.name,
-      fixtureDir,
-      branchName,
-      title,
-      body,
-      patches: plan.patches.map((patch) => ({
-        filePath: patch.filePath,
-        patchedContent: patch.patchedContent,
-      })),
-    });
-    const gitDurationMs = Date.now() - gitStartTime;
+    const patchInputs = plan.patches.map((patch) => ({
+      filePath: patch.filePath,
+      patchedContent: patch.patchedContent,
+    }));
+    let pullRequestRecord: {
+      id: string;
+      url: string;
+      branchName: string;
+      externalId: string | null;
+    };
+    let headSha: string | undefined;
+    let gitDurationMs = 0;
 
-    // Idempotent database record creation: check if row was inserted during retry/race
-    let pullRequestRecord = await prisma.pullRequest.findFirst({
-      where: { remediationPlanId: plan.id },
-    });
-    if (!pullRequestRecord) {
-      pullRequestRecord = await prisma.pullRequest.create({
-        data: {
-          organizationId,
-          remediationPlanId: plan.id,
-          provider: prResult.provider,
+    if (siblingPR) {
+      // UPDATE: same branch, new commit, refreshed evidence — no orphan PR.
+      if (typeof provider.syncBranchWithPatches === "function") {
+        const synced = await provider.syncBranchWithPatches({
+          branchName: siblingPR.branchName,
+          base: repository.defaultBranch,
+          title,
+          patches: patchInputs,
+        });
+        headSha = synced.commitSha;
+      }
+      // Local/demo rows carry no remote number: repoint only, no remote call.
+      const prNumber = parseExternalId(siblingPR.externalId);
+      if (prNumber !== null) {
+        if (typeof provider.updatePullRequest !== "function") {
+          throw new Error(
+            `delivery provider cannot update PR #${prNumber} on ${repository.fullName}; ` +
+              "refusing to repoint the row without refreshing the remote",
+          );
+        }
+        await provider.updatePullRequest({ number: prNumber, title, body });
+      }
+      gitDurationMs = Date.now() - gitStartTime;
+      pullRequestRecord = await prisma.pullRequest.update({
+        where: { id: siblingPR.id },
+        data: { remediationPlanId: plan.id, status: PullRequestStatus.DRAFT },
+      });
+      await writeAuditEvent({
+        organizationId,
+        actorType: ActorType.SYSTEM,
+        actorId: null,
+        action: AuditAction.PR_UPDATED,
+        entityType: "remediationPlan",
+        entityId: plan.id,
+        correlationId,
+        after: {
+          pullRequestId: pullRequestRecord.id,
+          branchName: pullRequestRecord.branchName,
+          url: pullRequestRecord.url,
+          caseVersion,
+          supersedesPlanId: siblingPR.remediationPlanId,
+        },
+      });
+    } else {
+      const prResult = await provider.createDraftPullRequest({
+        repositoryName: repository.name,
+        fixtureDir,
+        branchName,
+        title,
+        body,
+        patches: patchInputs,
+      });
+      headSha = prResult.headSha;
+      gitDurationMs = Date.now() - gitStartTime;
+
+      // Idempotent database record creation: check if row was inserted during retry/race
+      const existingRow = await prisma.pullRequest.findFirst({
+        where: { remediationPlanId: plan.id },
+      });
+      pullRequestRecord =
+        existingRow ??
+        (await prisma.pullRequest.create({
+          data: {
+            organizationId,
+            remediationPlanId: plan.id,
+            provider: prResult.provider,
+            branchName: prResult.branchName,
+            url: prResult.url,
+            externalId: prResult.externalId ?? null,
+            status: PullRequestStatus.DRAFT,
+          },
+        }));
+      await writeAuditEvent({
+        organizationId,
+        actorType: ActorType.SYSTEM,
+        actorId: null,
+        action: AuditAction.PR_CREATED,
+        entityType: "remediationPlan",
+        entityId: plan.id,
+        correlationId,
+        after: {
+          pullRequestId: pullRequestRecord.id,
           branchName: prResult.branchName,
           url: prResult.url,
-          externalId: prResult.externalId ?? null,
-          status: PullRequestStatus.DRAFT,
         },
       });
     }
@@ -415,12 +608,16 @@ async function createDraftPR(
             organizationId,
             remediationCaseId: plan.remediationCaseId,
             status: "DRAFT_PR_CREATED",
-            reasonCode: plan.requiresHumanReview ? "approved" : "usage-evidence",
+            reasonCode: isUpdate
+              ? "case-version-advance"
+              : plan.requiresHumanReview
+                ? "approved"
+                : "usage-evidence",
             detailJson: {
               remediationPlanId: plan.id,
               pullRequestId: pullRequestRecord.id,
-              url: prResult.url,
-              branchName: prResult.branchName,
+              url: pullRequestRecord.url,
+              branchName: pullRequestRecord.branchName,
             },
             correlationId,
           },
@@ -428,26 +625,47 @@ async function createDraftPR(
       ]);
     }
 
-    await writeAuditEvent({
-      organizationId,
-      actorType: ActorType.SYSTEM,
-      actorId: null,
-      action: AuditAction.PR_CREATED,
-      entityType: "remediationPlan",
-      entityId: plan.id,
-      correlationId,
-      after: {
-        pullRequestId: pullRequestRecord.id,
-        branchName: prResult.branchName,
-        url: prResult.url,
-      },
+    await completeDeliveryAttempt(attemptId, {
+      status: "SUCCEEDED",
+      pullRequestId: pullRequestRecord.id,
+      externalId: pullRequestRecord.externalId,
+      url: pullRequestRecord.url,
     });
     await createNotification({
       organizationId,
       type: NotificationType.PR_CREATED,
-      title: `Draft PR created: ${repository.name}`,
-      body: `Branch ${prResult.branchName} — ${prResult.provider}`,
+      title: isUpdate
+        ? `Draft PR updated: ${repository.name}`
+        : `Draft PR created: ${repository.name}`,
+      body: `Branch ${pullRequestRecord.branchName} — case version ${caseVersion}`,
       correlationId,
+    });
+
+    // Best-effort validation reporting: the PR is delivered either way, so a
+    // check-run failure degrades to a status comment and never fails delivery.
+    await reportCheckRunBestEffort({
+      provider,
+      organizationId,
+      remediationPlanId: plan.id,
+      pullRequestId: pullRequestRecord.id,
+      headSha,
+      prNumber: parseExternalId(pullRequestRecord.externalId),
+      conclusion:
+        validationStatus === ValidationStatus.PASSED
+          ? "success"
+          : validationStatus === ValidationStatus.FAILED
+            ? "failure"
+            : "neutral",
+      summary:
+        `Patchbay validation ${validationStatus} — policy ${policyResult.decision}` +
+        (validationArtifact?.artifactHash
+          ? ` — artifact ${validationArtifact.artifactHash.slice(0, 12)}`
+          : ""),
+      text: buildEvidenceHumanSection(evidenceHuman),
+      commentFallbackBody:
+        `Patchbay delivery ${isUpdate ? "update" : "report"} (case version ${caseVersion}): ` +
+        `validation ${validationStatus}, policy ${policyResult.decision}. ` +
+        `Full evidence is in the PR body machine block.`,
     });
 
     const durationMs = Date.now() - startTime;
@@ -461,14 +679,18 @@ async function createDraftPR(
       jobName: "create-pr",
       durationMs,
       gitDurationMs,
-      outcome: "PR_CREATED",
+      outcome: isUpdate ? "PR_UPDATED" : "PR_CREATED",
     });
 
     return {
       pullRequestId: pullRequestRecord.id,
-      url: prResult.url,
-      branchName: prResult.branchName,
+      url: pullRequestRecord.url,
+      branchName: pullRequestRecord.branchName,
+      updated: isUpdate,
     };
+  } catch (error) {
+    await markAttemptFailed(error);
+    throw error;
   } finally {
     try {
       await rateLimitRedis.eval(RELEASE_LUA, 1, slotKey);
@@ -494,36 +716,122 @@ function installationIdOf(metadata: unknown): number | null {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 
+/**
+ * Full §7.4 body: machine evidence block + human summary, with the agent
+ * verdict section appended when one exists (unchanged format).
+ */
 function buildPrBody(
-  plan: {
-    repositoryName: string;
-    score: number;
-    confidence: number;
-    rationale: string;
-    policyDecision: string;
-    policyReasons: string[];
-    approvalDecision: string | null;
-    validationStatus: string | null;
-    riskTags: string[];
-    affectedUsageCount: number;
-    patchCount: number;
-  },
+  payload: DeliveryEvidencePayload,
+  human: EvidenceHumanInput,
   verdict: AgentVerdictSummary | null,
 ): string {
-  const lines = [
-    `Automated remediation plan for ${plan.repositoryName}.`,
-    ``,
-    `Impact score: ${plan.score}`,
-    `Confidence: ${plan.confidence}`,
-    `Rationale: ${plan.rationale}`,
-    `Policy decision: ${plan.policyDecision}${plan.policyReasons.length > 0 ? ` (${plan.policyReasons.join("; ")})` : ""}`,
-    `Approval: ${plan.approvalDecision ?? "none recorded"}`,
-    `Validation: ${plan.validationStatus ?? "no runs"}`,
-    `Risk tags: ${plan.riskTags.length > 0 ? plan.riskTags.join(", ") : "none"}`,
-    `Affected usages: ${plan.affectedUsageCount}, patches: ${plan.patchCount}`,
-  ];
-  const base = lines.join("\n");
-  return verdict ? `${base}\n${agentBodySection(verdict)}` : base;
+  const block = buildEvidenceBlock(payload, human);
+  return verdict ? `${block}\n${agentBodySection(verdict)}` : block;
+}
+
+/** Numeric GitHub PR numbers only; local/demo rows carry null externalIds. */
+function parseExternalId(externalId: string | null | undefined): number | null {
+  if (!externalId || !/^\d+$/.test(externalId)) return null;
+  const parsed = Number.parseInt(externalId, 10);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+/**
+ * Best-effort validation reporting (WP9). Skipped without a head SHA or a
+ * check-run-capable provider (local/demo, roadmap stubs). A check-run
+ * failure degrades to a status comment; a comment failure degrades to a
+ * ledger row + warning. Delivery itself NEVER fails here — the PR is real
+ * and the evidence block is already on it.
+ */
+async function reportCheckRunBestEffort(input: {
+  provider: GitProvider;
+  organizationId: string;
+  remediationPlanId: string;
+  pullRequestId: string;
+  headSha?: string;
+  prNumber: number | null;
+  conclusion: CheckRunConclusion;
+  summary: string;
+  text: string;
+  commentFallbackBody: string;
+}): Promise<void> {
+  const { provider } = input;
+  if (!input.headSha || typeof provider.createCheckRun !== "function") return;
+  const idempotencyKey = checkRunDeliveryKey(input.remediationPlanId, input.headSha);
+  let attemptId: string;
+  try {
+    const created = await prisma.deliveryAttempt.create({
+      data: {
+        organizationId: input.organizationId,
+        remediationPlanId: input.remediationPlanId,
+        pullRequestId: input.pullRequestId,
+        idempotencyKey,
+        action: "CHECK_RUN",
+        status: "IN_PROGRESS",
+        attemptCount: 1,
+      },
+    });
+    attemptId = created.id;
+  } catch (error) {
+    // An identical report already landed on retry — skip, don't re-post.
+    if ((error as { code?: unknown }).code === "P2002") return;
+    throw error;
+  }
+  try {
+    const run = await provider.createCheckRun({
+      headSha: input.headSha,
+      name: "patchbay-validation",
+      conclusion: input.conclusion,
+      summary: input.summary,
+      text: input.text,
+    });
+    await completeDeliveryAttempt(attemptId, {
+      status: "SUCCEEDED",
+      pullRequestId: input.pullRequestId,
+      externalId: String(run.id),
+      url: run.htmlUrl,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (input.prNumber !== null && typeof provider.createIssueComment === "function") {
+      try {
+        const comment = await provider.createIssueComment({
+          number: input.prNumber,
+          body: input.commentFallbackBody,
+        });
+        await recordBestEffortAttempt({
+          organizationId: input.organizationId,
+          remediationPlanId: input.remediationPlanId,
+          pullRequestId: input.pullRequestId,
+          idempotencyKey: commentDeliveryKey(input.remediationPlanId, "checkrun-fallback"),
+          action: "COMMENT",
+          status: "SUCCEEDED",
+          externalId: String(comment.id),
+          url: comment.htmlUrl,
+        });
+        await completeDeliveryAttempt(attemptId, {
+          status: "FAILED",
+          pullRequestId: input.pullRequestId,
+          errorCode: classifyDeliveryError(error),
+          errorMessage: `check run failed, fell back to status comment: ${message}`,
+        });
+        return;
+      } catch {
+        // Comment fallback failed too — record below and move on.
+      }
+    }
+    await completeDeliveryAttempt(attemptId, {
+      status: "FAILED",
+      pullRequestId: input.pullRequestId,
+      errorCode: classifyDeliveryError(error),
+      errorMessage: message,
+    });
+    logger.warn("validation check run reporting failed; delivery stands", {
+      remediationPlanId: input.remediationPlanId,
+      pullRequestId: input.pullRequestId,
+      error: message.slice(0, 500),
+    });
+  }
 }
 
 /**

@@ -83,6 +83,25 @@ export {
   VALIDATION_PROFILE_MAX_TIMEOUT_MS,
 } from "./validation-profile";
 export type { ValidationNetworkPolicy, ValidationProfileInput } from "./validation-profile";
+export {
+  buildEvidenceBlock,
+  buildEvidenceHumanSection,
+  buildEvidenceMachineComment,
+  deliveryEvidencePayloadSchema,
+  parseEvidenceBlock,
+  DELIVERY_EVIDENCE_MARKER,
+  DELIVERY_EVIDENCE_VERSION,
+} from "./delivery-evidence";
+export type { DeliveryEvidencePayload, EvidenceHumanInput } from "./delivery-evidence";
+export {
+  checkRunDeliveryKey,
+  commentDeliveryKey,
+  createDeliveryKey,
+  deliveryActionSchema,
+  deliveryStatusSchema,
+  updateDeliveryKey,
+} from "./delivery-attempt";
+export type { DeliveryAction, DeliveryStatus } from "./delivery-attempt";
 export { migrationRecipeSchema, recipeListEntrySchema, recipeRuleSchema } from "./recipe";
 export type { MigrationRecipe, RecipeListEntry, RecipeRule } from "./recipe";
 export { classifySemverBump, compareVersions, parseVersion, satisfiesRange } from "./semver";

@@ -46,6 +46,7 @@ export const ORG_SCOPED_MODELS = [
   "PolicyDecisionRecord",
   "ValidationProfile",
   "ValidationArtifact",
+  "DeliveryAttempt",
   "CapabilityGate",
   "Subscription",
   "Notification",

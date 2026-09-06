@@ -29,6 +29,7 @@ export const AuditAction = {
   POLICY_BLOCKED: "policy.blocked",
   APPROVAL_RECORDED: "approval.recorded",
   PR_CREATED: "pull_request.created",
+  PR_UPDATED: "pull_request.updated",
   PR_FAILED: "pull_request.failed",
   PR_STATUS_SYNCED: "pull_request.status_synced",
   GITHUB_INSTALLATION_SYNCED: "github.installation_synced",

@@ -2,11 +2,17 @@ import { createSign } from "node:crypto";
 import type { SecretStore } from "@patchbay/env";
 import { GitHubProvider, type GitHubConfig } from "./github-provider";
 import type {
+  CreateCheckRunInput,
   CreateDraftPRInput,
+  CreatedCheckRun,
+  CreatedIssueComment,
   GitProvider,
   PullRequestResult,
   CheckoutInput,
   CheckoutResult,
+  SyncBranchInput,
+  UpdatedPullRequest,
+  UpdatePullRequestInput,
 } from "./local-provider";
 
 /**
@@ -169,6 +175,40 @@ export class GitHubAppProvider implements GitProvider {
       }
       throw error;
     }
+  }
+
+  /**
+   * Delivery-plane delegation (WP9): same installation-token + fresh-token
+   * retry contract as createDraftPullRequest, shared through withDelegate so
+   * all four methods behave identically on mid-flight token expiry.
+   */
+  private async withDelegate<T>(fn: (delegate: GitHubProvider) => Promise<T>): Promise<T> {
+    const token = await this.createInstallationToken();
+    try {
+      return await fn(new GitHubProvider(this.delegateConfig(token)));
+    } catch (error) {
+      if (isUnauthorized(error) && this.tokenCache.delete(this.config.installationId)) {
+        const freshToken = await this.createInstallationToken();
+        return fn(new GitHubProvider(this.delegateConfig(freshToken)));
+      }
+      throw error;
+    }
+  }
+
+  async syncBranchWithPatches(input: SyncBranchInput): Promise<{ commitSha: string }> {
+    return this.withDelegate((delegate) => delegate.syncBranchWithPatches(input));
+  }
+
+  async updatePullRequest(input: UpdatePullRequestInput): Promise<UpdatedPullRequest> {
+    return this.withDelegate((delegate) => delegate.updatePullRequest(input));
+  }
+
+  async createCheckRun(input: CreateCheckRunInput): Promise<CreatedCheckRun> {
+    return this.withDelegate((delegate) => delegate.createCheckRun(input));
+  }
+
+  async createIssueComment(input: { number: number; body: string }): Promise<CreatedIssueComment> {
+    return this.withDelegate((delegate) => delegate.createIssueComment(input));
   }
 
   /**

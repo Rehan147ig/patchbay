@@ -357,6 +357,7 @@ model Organization {
   policyDecisionRecords  PolicyDecisionRecord[]
   validationProfiles     ValidationProfile[]
   validationArtifacts    ValidationArtifact[]
+  deliveryAttempts       DeliveryAttempt[]
   workspaces             Workspace[]
   workspaceMembers       WorkspaceMember[]
   subscription           Subscription?
@@ -1502,6 +1503,7 @@ model RemediationPlan {
   validations      ValidationRun[]
   pullRequests     PullRequest[]
   approvals        Approval[]
+  deliveryAttempts DeliveryAttempt[]
 
   @@index([organizationId])
   @@index([impactAssessmentId])
@@ -1641,6 +1643,7 @@ model PullRequest {
   organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   remediationPlan RemediationPlan @relation(fields: [remediationPlanId], references: [id], onDelete: Cascade)
   outcome         PrOutcome?
+  deliveryAttempts DeliveryAttempt[]
 
   @@unique([remediationPlanId])
   @@index([organizationId])
@@ -1663,6 +1666,42 @@ model Policy {
   decisions    PolicyDecisionRecord[]
 }
 
+/**
+ * Idempotent delivery ledger (WP9, spec §19/§12). One row per delivery
+ * action keyed by a stable idempotency key: the FIRST writer wins (unique
+ * key), retries adopt or observe the winner instead of delivering twice.
+ * This is what guarantees zero duplicate PRs across BullMQ retries and
+ * worker crashes — provider-side branch/PR dedup is only the second layer.
+ */
+model DeliveryAttempt {
+  id String @id @default(uuid())
+  organizationId    String
+  remediationPlanId String
+  pullRequestId     String?
+  /** Stable key: create:<remediationKey> | update:<planId> | checkrun:<planId>:<sha> | comment:<planId>:<purpose>. */
+  idempotencyKey    String @unique
+  /** CREATE | UPDATE | CHECK_RUN | COMMENT (validated by domain schema). */
+  action            String
+  /** IN_PROGRESS | SUCCEEDED | FAILED (validated by domain schema). */
+  status            String
+  attemptCount      Int     @default(1)
+  externalId        String?
+  url               String?
+  /** Classified provider failure (GITHUB_401, GITHUB_RATE_LIMITED, ...). */
+  errorCode         String?
+  /** Bounded, token-redacted failure detail. */
+  errorMessage      String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  remediationPlan RemediationPlan @relation(fields: [remediationPlanId], references: [id], onDelete: Cascade)
+  pullRequest     PullRequest?    @relation(fields: [pullRequestId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([remediationPlanId])
+  @@index([status])
+}
 /**
  * Immutable snapshot of one policy evaluation (WP5, spec §4.1/§8.1).
  * Append-only: evaluations are never updated, only superseded by newer rows.
