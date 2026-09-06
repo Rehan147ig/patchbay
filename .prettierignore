@@ -7,6 +7,10 @@ out
 dist
 coverage
 
+# Next.js regenerates this on every dev/build with its own formatting
+# (and its header says not to edit it); gating it only produces churn.
+apps/web/next-env.d.ts
+
 # Other-session scratch files (transient PowerShell helpers at repo root)
 *.ps1
 

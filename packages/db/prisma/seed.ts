@@ -79,6 +79,8 @@ async function main(): Promise<void> {
   await seedAuditHistory(org.id);
   await seedTaskParameters();
   await seedValidationProfiles();
+  await seedContractSources();
+  await seedCases();
 
   console.log("[seed] done");
 }
@@ -171,6 +173,91 @@ async function seedValidationProfiles(): Promise<void> {
     },
   });
   console.log("[seed] validation profile (default)");
+}
+
+/**
+ * Demo contract sources (WP13 staging): the org watches the OpenAI and
+ * Stripe SDK feeds, the NPM registry channel, and a generic MCP server
+ * feed. No credentials (configEncrypted stays null); sync runs through the
+ * normal poll pipeline. Idempotent via the (org, vendor, kind, name) key.
+ */
+async function seedContractSources(): Promise<void> {
+  const sources = [
+    { vendorSlug: "openai", kind: "SDK", name: "openai-node" },
+    { vendorSlug: "stripe", kind: "SDK", name: "stripe-node" },
+    { vendorSlug: "openai", kind: "REST", name: "npm-registry" },
+    { vendorSlug: "autonomous-generic", kind: "MCP", name: "mcp-generic" },
+  ];
+  for (const source of sources) {
+    await prisma.contractSource.upsert({
+      where: {
+        organizationId_vendorSlug_kind_name: {
+          organizationId: ORG_ID,
+          vendorSlug: source.vendorSlug,
+          kind: source.kind,
+          name: source.name,
+        },
+      },
+      update: {},
+      create: {
+        organizationId: ORG_ID,
+        vendorSlug: source.vendorSlug,
+        kind: source.kind,
+        name: source.name,
+        status: "ACTIVE",
+      },
+    });
+  }
+  console.log(`[seed] contract sources (${sources.length})`);
+}
+
+/**
+ * Representative cases across the lifecycle (WP13 staging): one per major
+ * funnel stage, tied to seeded repos. Evidence-light rows (no assessments
+ * attached) — the drills and demo scenarios produce full evidence live.
+ * Idempotent via fixed ids.
+ */
+async function seedCases(): Promise<void> {
+  const cases = [
+    { id: "case-seed-observed", repo: "r-ai", status: "OBSERVED", reason: "dependency-match" },
+    {
+      id: "case-seed-impact",
+      repo: "r-billing",
+      status: "IMPACT_CONFIRMED",
+      reason: "usage-evidence",
+    },
+    {
+      id: "case-seed-planning",
+      repo: "r-notification",
+      status: "PLANNING",
+      reason: "usage-evidence",
+    },
+    {
+      id: "case-seed-approval",
+      repo: "r-auth-gateway",
+      status: "APPROVAL_REQUIRED",
+      reason: "approved",
+    },
+    { id: "case-seed-delivered", repo: "r-claude", status: "DRAFT_PR_CREATED", reason: "approved" },
+    { id: "case-seed-merged", repo: "r-supabase", status: "MERGED", reason: "approved" },
+  ] as const;
+  for (const seedCase of cases) {
+    await prisma.remediationCase.upsert({
+      where: { id: seedCase.id },
+      update: {},
+      create: {
+        id: seedCase.id,
+        organizationId: ORG_ID,
+        scopeKey: `seed:${seedCase.id}`,
+        status: seedCase.status as never,
+        reasonCode: seedCase.reason,
+        capabilityLevel: "DRAFT_PR",
+        repositoryId: seedCase.repo,
+        correlationId: `seed-${seedCase.id}`,
+      },
+    });
+  }
+  console.log(`[seed] cases (${cases.length} across lifecycle)`);
 }
 
 async function seedVendors(): Promise<void> {

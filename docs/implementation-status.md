@@ -531,10 +531,30 @@ only; server-side metering/quota-exhaustion states missing.
   `pnpm build` green with all new routes. New: 8 tier + 35 maintenance/API +
   2 case-action + wizard/nav/pages covered by build + existing suites.
 
-## 17. Next steps
+## 17. WP13 — Staging and production launch (DONE 2026-09-07, branch `feat/production-spec`)
 
-Spec execution complete through WP12 — pilot execution per the acceptance
-checklist in `docs/pilot-readiness.md`.
+- Staging proof: empty-schema `migrate deploy` (58 tables, 40 RLS policies,
+  latest `20260906000005`, probe schema dropped); `pnpm db:seed` exit 0 with
+  1 org, 9 vendors, 8 repos, 4 contract sources, 6 lifecycle cases, 13
+  outcomes, 7 gates, 1 validation profile; seed secret scan zero hits.
+- Drills on live Postgres (`wp13-drills.test.ts` 3/3): full loop
+  (ingest→dedupe→attest→policy→ledger→evidence round-trip with a real
+  artifact hash), duplicate invariance (3× webhook → 1 row; ledger retry
+  converges), kill switch (suspend → closed, stripe runs, audit present);
+  rotation via envelope suite (16/16).
+- Gates: format/lint/typecheck/test/corpus/build all exit 0 — 171 files /
+  1603 tests, corpus 36/36; auto-merge grep zero hits; full report with the
+  14-gate evidence table in `docs/production-readiness-report.md`.
+- Verdict: **GO for staging/pilot**; GA pending residuals (dump-tool
+  restore, browser pass, corpus timeout headroom, prod hardware, KMS
+  custody). `main` untouched; WP0–WP13 complete.
+
+## 18. Transformation complete
+
+All 14 work packages (WP0 through WP13) are complete on
+`feat/production-spec` behind draft PR #1. Pilot execution follows the
+acceptance checklist in `docs/pilot-readiness.md` under the verdict in
+`docs/production-readiness-report.md`.
 Branch hygiene: one work package per commit/PR, gates re-run per package, this file
 updated per §19.9. `main` stays locked (branch protection + Railway tracking `main`
 only); merges via green PR only.
