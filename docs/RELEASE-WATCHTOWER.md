@@ -349,7 +349,7 @@ database dedupe (`ReleaseRecord` content-hash uniqueness) makes overlapping poll
 
 ## Launch Scope: the First Powerful Version
 
-Do not launch all 56 connectors as equal. Launch three deep products:
+Do not launch all connectors as equal — see `docs/capability-matrix.md` (generated, 64 total). Launch three deep products:
 
 1. OpenAI Node SDK.
 2. Stripe Node SDK.

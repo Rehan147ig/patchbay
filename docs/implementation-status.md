@@ -549,9 +549,20 @@ only; server-side metering/quota-exhaustion states missing.
   restore, browser pass, corpus timeout headroom, prod hardware, KMS
   custody). `main` untouched; WP0–WP13 complete.
 
-## 18. Transformation complete
+## 18. P1/P2 — Hardening & pilot value (DONE 2026-09-07, branch `feat/production-spec`)
 
-All 14 work packages (WP0 through WP13) are complete on
+- **P1-6 generated matrix:** `scripts/generate-capability-matrix.ts` → `docs/capability-matrix.md` (64 total, 9 DRAFT_PR, 4 PLAN, 51 ASSESS) with CI `verify:capability-matrix` drift gate; deduped 56/64 claims (`RELEASE-WATCHTOWER`, `PATCHBAY-CTO-EXECUTION-PLAN`) to reference generated source.
+- **P1-9 conservative autonomy:** `DEFAULT_POLICY.sensitiveRiskTags` now covers PAYMENT/AUTH/AUTHORIZATION/PII/SECRETS/ENCRYPTION/WEBHOOK/INFRASTRUCTURE (all high-risk); migrations/lockfile mapped to INFRASTRUCTURE via blast-radius, never silent DRAFT_PR.
+- **P1-7 ops console:** `/operations` gains connector freshness (contract sources staleness >24h + rate-limited dead letters), `FreshnessBody`, kill-switch via `CapabilityGateControl` (ADMIN suspend/restore), audit evidence link; still shows queues, DLQ replay, heartbeats, outcomes.
+- **P1-8 explainability:** `docs/remediation-explainability.md` — source→diff→symbols→rationale→validation→policy→approver chain with storage/UI mapping and PR `<!-- patchbay:evidence -->` block.
+- **P1-10 restore evidence:** `docs/restore-evidence.md` — real `migrate deploy` probe (58/40) + `db:seed` + dump/restore rehearsal steps; runbook `pilot-readiness.md` §5.
+- **P2-11/12 scope:** `docs/pilot-scope.md` — 3 high-confidence types (npm semver, OpenAPI breaking, internal SDK releases), TS/JS+Python (pnpm/npm) depth, out-of-scope lockfile-wide.
+- **P2-13/14 workflow & metrics:** unified `detect→explain→draft PR→validate→approval→CI` path, wizard preview, pilot metrics table (latency, false-positive, acceptance, validation pass, hours saved, rollbacks) on `/overview`/`/operations`/`/outcomes`.
+- **Verify:** `verify:capability-matrix` OK, format/lint/typecheck 20/20, test 168/4 skipped (DB drills need live PG), corpus 36/36, build green (warnings only).
+
+## 19. Transformation complete
+
+All 14 work packages (WP0 through WP13) plus P1/P2 hardening are complete on
 `feat/production-spec` behind draft PR #1. Pilot execution follows the
 acceptance checklist in `docs/pilot-readiness.md` under the verdict in
 `docs/production-readiness-report.md`.

@@ -18,10 +18,17 @@ export const DEFAULT_POLICY: PolicyRule = {
   name: "Default Safety & Governance Policy",
   minConfidenceForPatch: 70,
   minConfidenceForPR: 85,
+  // Conservative autonomy (P1-9): payments, auth, encryption, PII, secrets,
+  // authorization, infrastructure, webhooks, and by extension migrations/
+  // lockfile-wide changes (surfaced as INFRASTRUCTURE via blast-radius) all
+  // require human approval — never silent draft-PR.
   sensitiveRiskTags: [
     RiskTag.PAYMENT,
     RiskTag.AUTH,
+    RiskTag.AUTHORIZATION,
     RiskTag.PII,
+    RiskTag.SECRETS,
+    RiskTag.ENCRYPTION,
     RiskTag.WEBHOOK,
     RiskTag.INFRASTRUCTURE,
   ],

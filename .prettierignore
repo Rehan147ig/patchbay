@@ -21,5 +21,8 @@ payload.json
 q.sql
 q2.sql
 
+# Generated single source of truth — prettier would churn the timestamp/table, drift is checked by verify:capability-matrix
+docs/capability-matrix.md
+
 # pnpm owns the lockfile format; prettier only churns it
 pnpm-lock.yaml
