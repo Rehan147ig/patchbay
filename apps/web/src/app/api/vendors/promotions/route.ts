@@ -61,6 +61,9 @@ export async function GET(request: NextRequest) {
       }
     >();
     for (const c of cases) {
+      // Contract-driven cases (WP4) carry no release row and contribute no
+      // vendor promotion evidence; skip them instead of dereferencing null.
+      if (!c.release) continue;
       const vendorSlug = c.release.product.vendor.slug;
       const packageName = c.release.product.packageName;
       const key = `${vendorSlug}:${packageName}`;

@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@patchbay/domain": "workspace:*",
     "zod": "^4.0.0"
   },
   "devDependencies": {

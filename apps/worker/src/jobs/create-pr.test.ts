@@ -2,6 +2,12 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { processCreatePR, type CreatePRJobData } from "./create-pr";
 import { prisma, createNotification, agentVerdictFromRun } from "@patchbay/db";
 import { createGitProviderFromEnv } from "@patchbay/git-provider";
+import {
+  claimDeliveryAttempt,
+  completeDeliveryAttempt,
+  recordBestEffortAttempt,
+} from "../lib/delivery-attempts";
+import { parseEvidenceBlock } from "@patchbay/domain";
 import { resolveFixtureDir } from "@patchbay/repo-analysis";
 import type { Job } from "bullmq";
 
@@ -10,11 +16,25 @@ vi.mock("@patchbay/db", () => ({
     remediationPlan: {
       findUnique: vi.fn(),
       update: vi.fn(),
+      count: vi.fn(),
     },
     pullRequest: {
       create: vi.fn(),
       findFirst: vi.fn(),
+      findUnique: vi.fn(),
+      update: vi.fn(),
       count: vi.fn(),
+    },
+    subscription: {
+      findUnique: vi.fn(),
+    },
+    autonomyPolicy: {
+      findUnique: vi.fn(),
+    },
+    deliveryAttempt: {
+      create: vi.fn(),
+      findUnique: vi.fn(),
+      update: vi.fn(),
     },
 
     agentRun: {
@@ -25,6 +45,9 @@ vi.mock("@patchbay/db", () => ({
     },
     remediationCase: {
       update: vi.fn(),
+    },
+    capabilityGate: {
+      findUnique: vi.fn(),
     },
     remediationCaseEvent: {
       create: vi.fn(),
@@ -53,11 +76,27 @@ vi.mock("@patchbay/db", () => ({
 
 const providerMock = vi.hoisted(() => ({
   createDraftPullRequest: vi.fn(),
+  syncBranchWithPatches: vi.fn(),
+  updatePullRequest: vi.fn(),
+  createCheckRun: vi.fn(),
+  createIssueComment: vi.fn(),
 }));
 
 vi.mock("@patchbay/git-provider", () => ({
   createGitProviderFromEnv: vi.fn(() => providerMock),
 }));
+
+vi.mock("../lib/delivery-attempts", async () => {
+  const actual = await vi.importActual<typeof import("../lib/delivery-attempts")>(
+    "../lib/delivery-attempts",
+  );
+  return {
+    ...actual,
+    claimDeliveryAttempt: vi.fn(),
+    completeDeliveryAttempt: vi.fn(),
+    recordBestEffortAttempt: vi.fn(),
+  };
+});
 
 vi.mock("@patchbay/repo-analysis", () => ({
   resolveFixtureDir: vi.fn(),
@@ -84,6 +123,18 @@ describe("processCreatePR", () => {
     } as never);
     vi.mocked(prisma.pullRequest.count).mockResolvedValue(0);
     vi.mocked(prisma.pullRequest.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.capabilityGate.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.remediationPlan.count).mockResolvedValue(1);
+    vi.mocked(prisma.subscription.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.autonomyPolicy.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.pullRequest.count).mockResolvedValue(0);
+    vi.mocked(prisma.deliveryAttempt.create).mockResolvedValue({ id: "att-x" } as never);
+    vi.mocked(claimDeliveryAttempt).mockResolvedValue({
+      duplicate: false,
+      attemptId: "att-1",
+    });
+    vi.mocked(completeDeliveryAttempt).mockResolvedValue(undefined);
+    vi.mocked(recordBestEffortAttempt).mockResolvedValue({ recorded: true, attemptId: "att-0" });
   });
 
   const validJobData: CreatePRJobData = {
@@ -102,6 +153,7 @@ describe("processCreatePR", () => {
   it("returns existing PR idempotently if pull request already created", async () => {
     vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValueOnce({
       id: "plan-1",
+      patches: [],
       pullRequests: [
         { id: "pr-existing", url: "file:///tmp/existing", branchName: "patchbay/existing" },
       ],
@@ -115,7 +167,7 @@ describe("processCreatePR", () => {
           metadata: { fixture: "openai" },
           organizationId: "org-1",
         },
-        changeEvent: { title: "Test Change", organizationId: "org-1" },
+        changeEvent: { title: "Test Change", organizationId: "org-1", vendor: { slug: "openai" } },
       },
     } as never);
 
@@ -144,7 +196,7 @@ describe("processCreatePR", () => {
           metadata: { fixture: "openai" },
           organizationId: "org-1",
         },
-        changeEvent: { title: "Test Change", organizationId: "org-1" },
+        changeEvent: { title: "Test Change", organizationId: "org-1", vendor: { slug: "openai" } },
       },
     } as never);
 
@@ -171,7 +223,7 @@ describe("processCreatePR", () => {
           metadata: { fixture: "openai" },
           organizationId: "org-1",
         },
-        changeEvent: { title: "Test Change", organizationId: "org-1" },
+        changeEvent: { title: "Test Change", organizationId: "org-1", vendor: { slug: "openai" } },
       },
     } as never);
     vi.mocked(resolveFixtureDir).mockReturnValue(process.cwd());
@@ -222,7 +274,7 @@ describe("processCreatePR", () => {
           metadata: { installationId: 42 },
           organizationId: "org-1",
         },
-        changeEvent: { title: "Test Change", organizationId: "org-1" },
+        changeEvent: { title: "Test Change", organizationId: "org-1", vendor: { slug: "openai" } },
       },
     } as never);
     providerMock.createDraftPullRequest.mockResolvedValueOnce({
@@ -270,7 +322,7 @@ describe("processCreatePR", () => {
           metadata: { fixture: "openai-node-legacy" },
           organizationId: "org-1",
         },
-        changeEvent: { title: "Test Change", organizationId: "org-1" },
+        changeEvent: { title: "Test Change", organizationId: "org-1", vendor: { slug: "openai" } },
       },
     } as never);
     providerMock.createDraftPullRequest.mockResolvedValueOnce({
@@ -320,7 +372,7 @@ describe("processCreatePR", () => {
           metadata: { fixture: "openai" },
           organizationId: "org-1",
         },
-        changeEvent: { title: "Test Change", organizationId: "org-1" },
+        changeEvent: { title: "Test Change", organizationId: "org-1", vendor: { slug: "openai" } },
       },
     } as never);
     vi.mocked(prisma.agentRun.findFirst).mockResolvedValueOnce({
@@ -379,7 +431,7 @@ describe("processCreatePR", () => {
           metadata: { fixture: "openai" },
           organizationId: "org-1",
         },
-        changeEvent: { title: "Test Change", organizationId: "org-1" },
+        changeEvent: { title: "Test Change", organizationId: "org-1", vendor: { slug: "openai" } },
       },
     } as never);
     vi.mocked(prisma.agentRun.findFirst).mockResolvedValueOnce(null as never);
@@ -426,7 +478,7 @@ describe("processCreatePR", () => {
           metadata: { installationId: 42 },
           organizationId: "org-1",
         },
-        changeEvent: { title: "Test Change", organizationId: "org-1" },
+        changeEvent: { title: "Test Change", organizationId: "org-1", vendor: { slug: "openai" } },
       },
     } as never);
     providerMock.createDraftPullRequest.mockRejectedValueOnce(
@@ -466,7 +518,12 @@ describe("processCreatePR", () => {
           metadata: { installationId: 42 },
           organizationId: "org-1",
         },
-        changeEvent: { id: "change-1", title: "Test Change", organizationId: "org-1" },
+        changeEvent: {
+          id: "change-1",
+          title: "Test Change",
+          organizationId: "org-1",
+          vendor: { slug: "openai" },
+        },
       },
     } as never);
 
@@ -512,7 +569,7 @@ describe("processCreatePR", () => {
           name: "app",
           organizationId: "org-1",
         },
-        changeEvent: { title: "Test Change", organizationId: "org-1" },
+        changeEvent: { title: "Test Change", organizationId: "org-1", vendor: { slug: "openai" } },
       },
     } as never);
 
@@ -525,6 +582,329 @@ describe("processCreatePR", () => {
     await expect(processCreatePR(mockJob)).rejects.toThrow(
       /PR creation throttled by circuit breaker/,
     );
+    expect(providerMock.createDraftPullRequest).not.toHaveBeenCalled();
+  });
+
+  it("refuses an uncertified vendor with the same refusal as the web vector (gate parity)", async () => {
+    vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValueOnce({
+      id: "plan-1",
+      pullRequests: [],
+      impactAssessment: {
+        repository: { id: "repo-1", organizationId: "org-1" },
+        changeEvent: { id: "change-1", organizationId: "org-1", vendor: { slug: "auth0" } },
+      },
+    } as never);
+    await expect(processCreatePR(mockJob)).rejects.toThrow(/not certified for DRAFT_PR/);
+    expect(providerMock.createDraftPullRequest).not.toHaveBeenCalled();
+  });
+
+  it("refuses a suspended capability with the same refusal as the web vector (gate parity)", async () => {
+    vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValueOnce({
+      id: "plan-1",
+      pullRequests: [],
+      impactAssessment: {
+        repository: { id: "repo-1", organizationId: "org-1" },
+        changeEvent: {
+          id: "change-1",
+          organizationId: "org-1",
+          vendor: { slug: "openai" },
+        },
+      },
+    } as never);
+    vi.mocked(prisma.capabilityGate.findUnique).mockResolvedValueOnce({
+      status: "SUSPENDED",
+      reason: "merge rate below threshold",
+    } as never);
+    await expect(processCreatePR(mockJob)).rejects.toThrow(
+      /is suspended: merge rate below threshold/,
+    );
+    expect(providerMock.createDraftPullRequest).not.toHaveBeenCalled();
+  });
+});
+
+describe("processCreatePR (WP9 delivery reliability)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(prisma.gitHubInstallation.findUnique).mockResolvedValue({
+      organizationId: "org-1",
+    } as never);
+    vi.mocked(prisma.pullRequest.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.capabilityGate.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.remediationPlan.count).mockResolvedValue(2);
+    vi.mocked(prisma.subscription.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.autonomyPolicy.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.pullRequest.count).mockResolvedValue(0);
+    vi.mocked(prisma.deliveryAttempt.create).mockResolvedValue({ id: "att-x" } as never);
+    vi.mocked(claimDeliveryAttempt).mockResolvedValue({ duplicate: false, attemptId: "att-1" });
+    vi.mocked(completeDeliveryAttempt).mockResolvedValue(undefined);
+    vi.mocked(recordBestEffortAttempt).mockResolvedValue({ recorded: true, attemptId: "att-0" });
+    vi.mocked(resolveFixtureDir).mockReturnValue(process.cwd());
+  });
+
+  const mockJob = {
+    data: {
+      remediationPlanId: "plan-2",
+      organizationId: "org-1",
+      correlationId: "corr-1",
+    },
+  } as Job;
+
+  function advancedPlan() {
+    return {
+      id: "plan-2",
+      remediationCaseId: "case-1",
+      createdAt: new Date("2026-09-06T00:00:00Z"),
+      confidence: 90,
+      requiresHumanReview: false,
+      patches: [{ filePath: "src/app.ts", patchedContent: "code v2" }],
+      validations: [{ id: "val-2", status: "PASSED" }],
+      approvals: [],
+      pullRequests: [],
+      impactAssessment: {
+        score: 50,
+        rationale: "test",
+        affectedUsages: [],
+        repository: {
+          id: "repo-1",
+          name: "app",
+          fullName: "acme/app",
+          defaultBranch: "main",
+          provider: "GITHUB",
+          metadata: { installationId: 42 },
+          organizationId: "org-1",
+        },
+        changeEvent: {
+          id: "change-1",
+          title: "Test Change",
+          organizationId: "org-1",
+          vendor: { slug: "openai" },
+        },
+      },
+    } as never;
+  }
+
+  function siblingRow() {
+    return {
+      id: "pr-old",
+      remediationPlanId: "plan-1",
+      branchName: "patchbay/remediation-old",
+      url: "https://github.com/acme/app/pull/42",
+      externalId: "42",
+    };
+  }
+
+  it("updates the existing case PR on advance instead of orphaning a second PR", async () => {
+    vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValueOnce(advancedPlan());
+    vi.mocked(prisma.pullRequest.findFirst).mockResolvedValueOnce(siblingRow() as never);
+    providerMock.syncBranchWithPatches.mockResolvedValueOnce({ commitSha: "b".repeat(40) });
+    providerMock.updatePullRequest.mockResolvedValueOnce({
+      number: 42,
+      htmlUrl: "https://github.com/acme/app/pull/42",
+    });
+    providerMock.createCheckRun.mockResolvedValueOnce({
+      id: 777,
+      htmlUrl: "https://github.com/acme/app/runs/777",
+    });
+    vi.mocked(prisma.pullRequest.update).mockResolvedValueOnce({
+      id: "pr-old",
+      url: "https://github.com/acme/app/pull/42",
+      branchName: "patchbay/remediation-old",
+      externalId: "42",
+    } as never);
+
+    const result = await processCreatePR(mockJob);
+
+    expect(result).toEqual({
+      pullRequestId: "pr-old",
+      url: "https://github.com/acme/app/pull/42",
+      branchName: "patchbay/remediation-old",
+      updated: true,
+    });
+    // Same branch, new patches — no second PR is ever opened.
+    expect(providerMock.createDraftPullRequest).not.toHaveBeenCalled();
+    expect(providerMock.syncBranchWithPatches).toHaveBeenCalledWith(
+      expect.objectContaining({
+        branchName: "patchbay/remediation-old",
+        base: "main",
+        patches: [{ filePath: "src/app.ts", patchedContent: "code v2" }],
+      }),
+    );
+    const updateBody = providerMock.updatePullRequest.mock.calls[0]?.[0].body as string;
+    expect(providerMock.updatePullRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ number: 42, title: "[Patch] Test Change" }),
+    );
+    // §7.4 evidence block on the refreshed body, parseable by automation.
+    const evidence = parseEvidenceBlock(updateBody);
+    expect(evidence).toMatchObject({
+      version: 1,
+      remediationPlanId: "plan-2",
+      caseVersion: 2,
+      policyDecision: expect.any(String),
+      validationStatus: "PASSED",
+    });
+    expect(updateBody).toContain("### Rollback");
+    expect(updateBody).toContain("git push origin --delete patchbay/remediation-old");
+    // Row repointed to the new plan (unique key moves, no duplicate row).
+    expect(prisma.pullRequest.update).toHaveBeenCalledWith({
+      where: { id: "pr-old" },
+      data: expect.objectContaining({ remediationPlanId: "plan-2" }),
+    });
+    expect(prisma.pullRequest.create).not.toHaveBeenCalled();
+    // Update audited distinctly from creation.
+    const updatedAudit = vi
+      .mocked(prisma.auditEvent.create)
+      .mock.calls.map((call) => (call[0] as { data: { action: string } }).data.action);
+    expect(updatedAudit).toContain("pull_request.updated");
+    expect(updatedAudit).not.toContain("pull_request.created");
+    // Case event records the advance.
+    expect(prisma.remediationCaseEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ reasonCode: "case-version-advance" }),
+      }),
+    );
+    // Ledger: UPDATE claimed, completed SUCCEEDED, check run reported on the tip.
+    expect(claimDeliveryAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "UPDATE", idempotencyKey: "update:plan-2" }),
+    );
+    expect(completeDeliveryAttempt).toHaveBeenCalledWith(
+      "att-1",
+      expect.objectContaining({ status: "SUCCEEDED", pullRequestId: "pr-old" }),
+    );
+    expect(providerMock.createCheckRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        headSha: "b".repeat(40),
+        name: "patchbay-validation",
+        conclusion: "success",
+      }),
+    );
+  });
+
+  it("returns the winner without delivering twice on a duplicate claim", async () => {
+    vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValueOnce(advancedPlan());
+    vi.mocked(prisma.pullRequest.findFirst).mockResolvedValueOnce(siblingRow() as never);
+    vi.mocked(claimDeliveryAttempt).mockResolvedValueOnce({
+      duplicate: true,
+      attempt: {
+        id: "att-0",
+        status: "SUCCEEDED",
+        pullRequestId: "pr-old",
+        externalId: "42",
+        url: "https://github.com/acme/app/pull/42",
+      },
+    });
+    vi.mocked(prisma.pullRequest.findUnique).mockResolvedValueOnce(siblingRow() as never);
+
+    const result = await processCreatePR(mockJob);
+
+    expect(result.pullRequestId).toBe("pr-old");
+    expect(providerMock.syncBranchWithPatches).not.toHaveBeenCalled();
+    expect(providerMock.updatePullRequest).not.toHaveBeenCalled();
+    expect(providerMock.createDraftPullRequest).not.toHaveBeenCalled();
+    expect(completeDeliveryAttempt).not.toHaveBeenCalled();
+  });
+
+  it("marks the attempt FAILED with the classified provider code", async () => {
+    vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValueOnce(advancedPlan());
+    vi.mocked(prisma.pullRequest.findFirst).mockResolvedValueOnce(null as never);
+    providerMock.createDraftPullRequest.mockRejectedValueOnce({
+      name: "GitHubApiError",
+      code: "GITHUB_RATE_LIMITED",
+      message: "GitHub API POST /repos/acme/app/pulls failed: 429 slow down",
+    });
+
+    await expect(processCreatePR(mockJob)).rejects.toThrow(/429/);
+    expect(completeDeliveryAttempt).toHaveBeenCalledWith(
+      "att-1",
+      expect.objectContaining({ status: "FAILED", errorCode: "GITHUB_RATE_LIMITED" }),
+    );
+  });
+
+  it("fails closed when the provider cannot update a numbered PR", async () => {
+    vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValueOnce(advancedPlan());
+    vi.mocked(prisma.pullRequest.findFirst).mockResolvedValueOnce(siblingRow() as never);
+    // A provider without the update capability (local/demo, roadmap stubs):
+    // repointing the row without refreshing the remote would lie.
+    vi.mocked(createGitProviderFromEnv).mockReturnValueOnce({
+      syncBranchWithPatches: vi.fn().mockResolvedValue({ commitSha: "c".repeat(40) }),
+    } as never);
+
+    await expect(processCreatePR(mockJob)).rejects.toThrow(/cannot update PR #42/);
+    expect(prisma.pullRequest.update).not.toHaveBeenCalled();
+    expect(completeDeliveryAttempt).toHaveBeenCalledWith(
+      "att-1",
+      expect.objectContaining({ status: "FAILED" }),
+    );
+  });
+
+  it("falls back to a status comment when check runs are unavailable", async () => {
+    vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValueOnce(advancedPlan());
+    vi.mocked(prisma.pullRequest.findFirst).mockResolvedValueOnce(siblingRow() as never);
+    providerMock.syncBranchWithPatches.mockResolvedValueOnce({ commitSha: "d".repeat(40) });
+    providerMock.updatePullRequest.mockResolvedValueOnce({
+      number: 42,
+      htmlUrl: "https://github.com/acme/app/pull/42",
+    });
+    providerMock.createCheckRun.mockRejectedValueOnce(new Error("checks:write missing"));
+    providerMock.createIssueComment.mockResolvedValueOnce({
+      id: 99,
+      htmlUrl: "https://github.com/acme/app/pull/42#issuecomment-99",
+    });
+    vi.mocked(prisma.pullRequest.update).mockResolvedValueOnce({
+      id: "pr-old",
+      url: "https://github.com/acme/app/pull/42",
+      branchName: "patchbay/remediation-old",
+      externalId: "42",
+    } as never);
+
+    const result = await processCreatePR(mockJob);
+
+    // Delivery stands despite the reporting failure.
+    expect(result.updated).toBe(true);
+    expect(providerMock.createIssueComment).toHaveBeenCalledWith(
+      expect.objectContaining({ number: 42 }),
+    );
+    expect(recordBestEffortAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "COMMENT", status: "SUCCEEDED" }),
+    );
+    expect(completeDeliveryAttempt).toHaveBeenCalledWith(
+      "att-1",
+      expect.objectContaining({ status: "SUCCEEDED", pullRequestId: "pr-old" }),
+    );
+  });
+
+  it("blocks delivery terminally when the monthly draft-PR quota is spent (WP11)", async () => {
+    vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValueOnce(advancedPlan());
+    // FREE tier (no subscription) with all 10 monthly draft PRs consumed.
+    vi.mocked(prisma.pullRequest.count).mockResolvedValueOnce(10);
+
+    await expect(processCreatePR(mockJob)).rejects.toThrow(/Monthly draft PRs quota exceeded/);
+    // Nothing executed, nothing claimed: no provider call, no ledger row.
+    expect(providerMock.createDraftPullRequest).not.toHaveBeenCalled();
+    expect(claimDeliveryAttempt).not.toHaveBeenCalled();
+    expect(completeDeliveryAttempt).not.toHaveBeenCalled();
+    // Loud, not silent: the block is audited.
+    expect(prisma.auditEvent.create).toHaveBeenCalled();
+  });
+
+  it("refuses all delivery under the PLAN_ONLY tier (WP12)", async () => {
+    vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValueOnce(advancedPlan());
+    vi.mocked(prisma.autonomyPolicy.findUnique).mockResolvedValueOnce({
+      defaultDecision: "PLAN_ONLY",
+    } as never);
+
+    await expect(processCreatePR(mockJob)).rejects.toThrow(/tier is PLAN_ONLY/);
+    expect(providerMock.createDraftPullRequest).not.toHaveBeenCalled();
+    expect(claimDeliveryAttempt).not.toHaveBeenCalled();
+  });
+
+  it("requires a covering approval under REQUIRE_APPROVAL (WP12)", async () => {
+    vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValueOnce(advancedPlan());
+    vi.mocked(prisma.autonomyPolicy.findUnique).mockResolvedValueOnce({
+      defaultDecision: "REQUIRE_APPROVAL",
+    } as never);
+
+    // advancedPlan carries no approvals, so coverage is empty.
+    await expect(processCreatePR(mockJob)).rejects.toThrow(/REQUIRE_APPROVAL.*covering approval/);
     expect(providerMock.createDraftPullRequest).not.toHaveBeenCalled();
   });
 });

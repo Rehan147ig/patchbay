@@ -1,0 +1,12 @@
+{
+  "name": "@acme/billing-app",
+  "private": true,
+  "type": "module",
+  "version": "1.4.0",
+  "dependencies": {
+    "stripe": "^16.12.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  }
+}

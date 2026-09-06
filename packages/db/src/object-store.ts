@@ -41,11 +41,42 @@ export function contentHashOf(payload: string): string {
  * (first two characters form a shard directory to avoid single-directory
  * growth).
  */
+/**
+ * Deterministic object key for a payload hash, e.g. sha256/ab12.../ab12...json
+ * (first two characters form a shard directory to avoid single-directory
+ * growth).
+ */
 export function objectKeyForHash(hash: string): string {
   if (!/^[0-9a-f]{64}$/.test(hash)) {
     throw new Error(`invalid content hash: ${hash}`);
   }
   return `sha256/${hash.slice(0, 2)}/${hash}.json`;
+}
+
+/**
+ * Delete one evidence object by key. The key must be a well-formed
+ * content-addressed key (never a raw path): traversal attempts fail closed.
+ * Missing files count as deleted (idempotent — retention re-runs safely).
+ */
+export async function deleteEvidenceObject(key: string): Promise<boolean> {
+  if (!/^sha256\/[0-9a-f]{2}\/[0-9a-f]{64}\.json$/.test(key)) {
+    throw new Error(`refusing to delete non-evidence key: ${key}`);
+  }
+  const dir = evidenceStoreDir();
+  const target = resolve(dir, key);
+  if (target !== join(dir, key) || !target.startsWith(dir)) {
+    throw new Error(`refusing to delete path outside the evidence store: ${key}`);
+  }
+  try {
+    const { unlink } = await import("node:fs/promises");
+    await unlink(target);
+    return true;
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
 }
 
 export interface EvidenceObjectWrite {

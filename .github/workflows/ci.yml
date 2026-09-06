@@ -45,6 +45,8 @@ jobs:
       - name: Generate Prisma client
         run: pnpm db:generate
       - run: pnpm format:check
+      - name: Verify capability matrix is generated and in sync
+        run: pnpm verify:capability-matrix
       - run: pnpm lint
       - run: pnpm typecheck
       - name: Python quality gate (pyright)

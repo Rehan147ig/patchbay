@@ -63,6 +63,7 @@ import { vercelAiConnector } from "./connectors/vercel-ai-sdk";
 import { vercelConnector } from "./connectors/vercel";
 import { vueConnector } from "./connectors/vue";
 import type { VendorConnector } from "./types";
+import type { RulePack } from "@patchbay/domain";
 
 /** Registered connectors, keyed by vendor slug. */
 export const connectors: readonly VendorConnector[] = [
@@ -152,4 +153,21 @@ export function getConnector(slug: string): VendorConnector | null {
 /** All registered connector slugs (for catalog surfaces / vendor seeding). */
 export function listConnectorSlugs(): string[] {
   return connectors.map((connector) => connector.slug);
+}
+
+/**
+ * WP6: returns the connector's declared rule pack, failing loudly when a
+ * certified connector has none. Uncertified connectors legitimately omit
+ * packs (their work is assess/plan-only); callers gate on certification
+ * first (requireCertified) and call this only for DRAFT_PR work.
+ */
+export function requireRulePack(slug: string): RulePack {
+  const connector = getConnector(slug);
+  if (!connector) throw new Error(`no connector registered for vendor "${slug}"`);
+  if (!connector.rulePack) {
+    throw new Error(
+      `connector "${slug}" declares no rule pack; cannot run pack-budgeted remediation`,
+    );
+  }
+  return connector.rulePack;
 }

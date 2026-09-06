@@ -1,4 +1,4 @@
-import type { ChangeType } from "@patchbay/domain";
+import type { ChangeType, RulePack } from "@patchbay/domain";
 import type {
   NormalizedChangeDraft,
   NormalizeChangeInput,
@@ -58,6 +58,8 @@ export interface ConnectorSpec {
       insert?: { searchText: string; insertText: string };
     }
   >;
+  /** WP6 rule-pack declaration for certified connectors (passed through verbatim). */
+  rulePack?: RulePack;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -151,5 +153,11 @@ export function defineConnector(spec: ConnectorSpec): VendorConnector {
     return suggestions;
   }
 
-  return { slug: spec.slug, supports, normalizeChange, buildPatchSuggestions };
+  return {
+    slug: spec.slug,
+    supports,
+    normalizeChange,
+    buildPatchSuggestions,
+    ...(spec.rulePack ? { rulePack: spec.rulePack } : {}),
+  };
 }

@@ -4,6 +4,8 @@ import { ActorType, logger } from "@patchbay/domain";
 import { alertDlq, dlqQueue } from "@patchbay/queue";
 import { writeAuditEvent } from "./audit";
 import { systemOrgId } from "./system-org";
+import { classifyDeliveryError } from "./delivery-attempts";
+import { recordDeadLetterJob, type DeadLetterRecordInput } from "./dead-letters";
 
 /**
  * Permanent job-failure handling. BullMQ fires `failed` on EVERY attempt, so
@@ -14,7 +16,8 @@ import { systemOrgId } from "./system-org";
  * On a permanent failure this:
  * 1. fires alertDlq (Slack/PagerDuty when ALERT_WEBHOOK_URL is set, log line otherwise),
  * 2. copies the job payload to the DLQ queue for inspection/manual replay,
- * 3. records a JOB_PERMANENTLY_FAILED audit event (job org, else system org).
+ * 3. records a DeadLetterJob row (redacted payload, classified error code),
+ * 4. records a JOB_PERMANENTLY_FAILED audit event (job org, else system org).
  *
  * Every step is best-effort: the handler itself must never throw, or a dying
  * job takes the failure reporter down with it.
@@ -27,6 +30,8 @@ export interface FailedJobInfo {
   correlationId?: string;
   attemptsMade: number;
   attemptsAllowed: number;
+  /** Raw job payload for the dead-letter record (redacted at write). */
+  payload?: Record<string, unknown>;
 }
 
 export function failedJobInfoFrom(job: Job | undefined): FailedJobInfo {
@@ -43,12 +48,14 @@ export function failedJobInfoFrom(job: Job | undefined): FailedJobInfo {
     correlationId,
     attemptsMade: job?.attemptsMade ?? 1,
     attemptsAllowed: job?.opts?.attempts ?? 1,
+    payload: data,
   };
 }
 
 export interface JobFailureDeps {
   alert: (jobType: string, error: string) => Promise<void>;
   enqueueDlq: (jobType: string, data: Record<string, unknown>) => Promise<unknown>;
+  recordDeadLetter: (record: DeadLetterRecordInput) => Promise<unknown>;
   audit: typeof writeAuditEvent;
   systemOrg: () => Promise<string>;
 }
@@ -56,6 +63,7 @@ export interface JobFailureDeps {
 const defaultDeps: JobFailureDeps = {
   alert: (jobType, error) => alertDlq(jobType, error),
   enqueueDlq: (jobType, data) => dlqQueue.add(jobType, data),
+  recordDeadLetter: (record) => recordDeadLetterJob(record),
   audit: (input) => writeAuditEvent(input),
   systemOrg: () => systemOrgId(),
 };
@@ -122,6 +130,21 @@ export async function handlePermanentlyFailedJob(
     });
     return;
   }
+  // Persistent dead-letter row: redacted payload + classified code, first
+  // writer wins. Best-effort like every other step — recording must never
+  // break the audit below it.
+  await bestEffort("dead-letter", info, () =>
+    deps.recordDeadLetter({
+      organizationId,
+      jobType: info.jobType,
+      jobId: info.jobId,
+      payload: info.payload ?? {},
+      errorCode: classifyDeliveryError(error),
+      errorMessage: message,
+      attemptsMade: info.attemptsMade,
+      correlationId: info.correlationId,
+    }),
+  );
   await bestEffort("audit", info, () =>
     deps.audit({
       organizationId,

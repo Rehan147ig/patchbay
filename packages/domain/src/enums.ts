@@ -109,7 +109,10 @@ export type UsageType = (typeof UsageType)[keyof typeof UsageType];
 export const RiskTag = {
   PAYMENT: "PAYMENT",
   AUTH: "AUTH",
+  AUTHORIZATION: "AUTHORIZATION",
   PII: "PII",
+  SECRETS: "SECRETS",
+  ENCRYPTION: "ENCRYPTION",
   WEBHOOK: "WEBHOOK",
   INFRASTRUCTURE: "INFRASTRUCTURE",
   TEST_ONLY: "TEST_ONLY",
@@ -220,11 +223,18 @@ export const ActorType = {
 export type ActorType = (typeof ActorType)[keyof typeof ActorType];
 
 export const PolicyDecision = {
-  ALLOW_PLAN_ONLY: "ALLOW_PLAN_ONLY",
+  /**
+   * Spec §8.1 decision vocabulary. ALLOW_VALIDATE is a deliberate extension:
+   * the staged engine needs a transient "validated, PR not yet permitted"
+   * state the spec list does not name; everything else matches §8.1 exactly.
+   */
+  ASSESS: "ASSESS",
+  PLAN_ONLY: "PLAN_ONLY",
   ALLOW_VALIDATE: "ALLOW_VALIDATE",
   ALLOW_DRAFT_PR: "ALLOW_DRAFT_PR",
   REQUIRE_APPROVAL: "REQUIRE_APPROVAL",
   DENY: "DENY",
+  SUPPRESSED: "SUPPRESSED",
 } as const;
 export type PolicyDecision = (typeof PolicyDecision)[keyof typeof PolicyDecision];
 
@@ -265,6 +275,10 @@ export const GraphNodeKind = {
   SERVICE: "SERVICE",
   QUEUE_TOPIC: "QUEUE_TOPIC",
   DATABASE: "DATABASE",
+  /** An MCP server wired in an agent client config (WP3). */
+  MCP_SERVER: "MCP_SERVER",
+  /** An HTTP route registration (Express-style app/router METHOD(path), WP3). */
+  EVENT_HANDLER: "EVENT_HANDLER",
 } as const;
 export type GraphNodeKind = (typeof GraphNodeKind)[keyof typeof GraphNodeKind];
 
@@ -438,6 +452,8 @@ export const CASE_TERMINAL_STATUSES: ReadonlySet<CaseStatus> = new Set([
 export const CaseReasonCode = {
   DEPENDENCY_MATCH: "dependency-match",
   USAGE_EVIDENCE: "usage-evidence",
+  /** Contract-driven case from the WP4 orchestration (change → consumers → case). */
+  CONTRACT_CHANGE: "contract-change",
   /** Autonomous semver patch/minor bump, sandbox-proven. */
   AUTONOMOUS_BUMP: "autonomous-bump",
   CAPABILITY_UNSUPPORTED: "capability-unsupported",

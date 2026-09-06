@@ -184,20 +184,7 @@ export const aiPlanDraftSchema = z.object({
   confidence: z.number().int().min(0).max(100),
   requiresHumanReview: z.boolean(),
   riskLevel: z.enum([RiskLevel.LOW, RiskLevel.MEDIUM, RiskLevel.HIGH, RiskLevel.CRITICAL]),
-  riskTags: z
-    .array(
-      z.enum([
-        RiskTag.PAYMENT,
-        RiskTag.AUTH,
-        RiskTag.PII,
-        RiskTag.WEBHOOK,
-        RiskTag.INFRASTRUCTURE,
-        RiskTag.TEST_ONLY,
-        RiskTag.OTHER,
-      ]),
-    )
-    .max(10)
-    .default([]),
+  riskTags: z.array(z.nativeEnum(RiskTag)).max(10).default([]),
   /** Optional suggested file edits. Advisory only - never applied without deterministic validation. */
   suggestedEdits: z
     .array(
@@ -264,20 +251,7 @@ export const patchPlanSchema = z.object({
   confidence: z.number().int().min(0).max(100),
   requiresHumanReview: z.boolean(),
   riskLevel: z.enum([RiskLevel.LOW, RiskLevel.MEDIUM, RiskLevel.HIGH, RiskLevel.CRITICAL]),
-  riskTags: z
-    .array(
-      z.enum([
-        RiskTag.PAYMENT,
-        RiskTag.AUTH,
-        RiskTag.PII,
-        RiskTag.WEBHOOK,
-        RiskTag.INFRASTRUCTURE,
-        RiskTag.TEST_ONLY,
-        RiskTag.OTHER,
-      ]),
-    )
-    .max(10)
-    .default([]),
+  riskTags: z.array(z.nativeEnum(RiskTag)).max(10).default([]),
   edits: z.array(patchPlanEditSchema).min(0).max(50),
   validationProfile: z
     .array(z.enum(["typecheck", "test", "lint"]))
@@ -350,11 +324,13 @@ export type ReviewVerdict = z.infer<typeof reviewVerdictSchema>;
 
 export const policyDecisionResultSchema = z.object({
   decision: z.enum([
-    PolicyDecision.ALLOW_PLAN_ONLY,
+    PolicyDecision.ASSESS,
+    PolicyDecision.PLAN_ONLY,
     PolicyDecision.ALLOW_VALIDATE,
     PolicyDecision.ALLOW_DRAFT_PR,
     PolicyDecision.REQUIRE_APPROVAL,
     PolicyDecision.DENY,
+    PolicyDecision.SUPPRESSED,
   ]),
   matchedPolicyIds: z.array(z.string()),
   reasons: z.array(z.string()),

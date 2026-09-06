@@ -94,6 +94,22 @@ export default async function SettingsPage({
     (tier) => stripePriceIdForTier(tier, env) !== null,
   );
 
+  // Enterprise controls snapshot (WP12 §B8): secret-envelope status (names
+  // only, never values), retention windows, and live RLS policy coverage.
+  const kekPrimaryKid = process.env.PATCHBAY_KEK_KID?.trim() || null;
+  const envelopeEnabled = Boolean(process.env.PATCHBAY_KEK?.trim());
+  const artifactRetentionDays = Number(process.env.VALIDATION_ARTIFACT_RETENTION_DAYS ?? 90);
+  const agentRetentionDays = Number(process.env.AGENT_RUN_RETENTION_DAYS ?? 90);
+  let rlsPolicyCount: number | null = null;
+  try {
+    const rows = await prisma.$queryRaw<Array<{ count: bigint }>>`
+      SELECT COUNT(*) AS count FROM pg_policies WHERE schemaname = 'public'
+    `;
+    rlsPolicyCount = Number(rows[0]?.count ?? 0);
+  } catch {
+    rlsPolicyCount = null;
+  }
+
   return (
     <div className="space-y-6 bg-[#fbfbfd] font-sans antialiased">
       <PageHeader
@@ -122,6 +138,55 @@ export default async function SettingsPage({
           Checkout cancelled — your plan is unchanged. You can upgrade anytime below.
         </div>
       ) : null}
+
+      <Card className="rounded-[20px] border-zinc-200 bg-white">
+        <CardHeader>
+          <CardTitle>Enterprise controls</CardTitle>
+          <CardDescription>
+            Secret encryption, data retention, and tenant isolation posture for this deployment.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border border-zinc-200 px-4 py-3">
+              <dt className="text-[11px] font-medium uppercase tracking-widest text-zinc-400">
+                Secret envelopes
+              </dt>
+              <dd className="mt-1 text-[13px] font-medium text-[#1d1d1f]">
+                {envelopeEnabled
+                  ? `AES-256-GCM sealed (kid: ${kekPrimaryKid ?? "kek-primary"})`
+                  : "Plaintext — set PATCHBAY_KEK to seal secrets"}
+              </dd>
+            </div>
+            <div className="rounded-xl border border-zinc-200 px-4 py-3">
+              <dt className="text-[11px] font-medium uppercase tracking-widest text-zinc-400">
+                Tenant isolation
+              </dt>
+              <dd className="mt-1 text-[13px] font-medium text-[#1d1d1f]">
+                {rlsPolicyCount === null
+                  ? "RLS status unknown (database unreachable)"
+                  : `Postgres RLS enforced — ${rlsPolicyCount} tenant policies`}
+              </dd>
+            </div>
+            <div className="rounded-xl border border-zinc-200 px-4 py-3">
+              <dt className="text-[11px] font-medium uppercase tracking-widest text-zinc-400">
+                Validation artifact retention
+              </dt>
+              <dd className="mt-1 text-[13px] font-medium text-[#1d1d1f]">
+                {artifactRetentionDays} days (shared log objects survive while referenced)
+              </dd>
+            </div>
+            <div className="rounded-xl border border-zinc-200 px-4 py-3">
+              <dt className="text-[11px] font-medium uppercase tracking-widest text-zinc-400">
+                Agent payload retention
+              </dt>
+              <dd className="mt-1 text-[13px] font-medium text-[#1d1d1f]">
+                {agentRetentionDays} days (digests and telemetry kept)
+              </dd>
+            </div>
+          </dl>
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card className="rounded-[20px] border-zinc-200 bg-white">

@@ -407,12 +407,18 @@ export default async function RepositoryDetailPage({
                 {repository.impactAssessments.map((assessment) => (
                   <TableRow key={assessment.id}>
                     <TableCell>
-                      <Link
-                        href={`/changes/${assessment.changeEventId}`}
-                        className="text-[13px] font-medium text-[#0071e3] hover:underline"
-                      >
-                        {assessment.changeEvent.title}
-                      </Link>
+                      {assessment.changeEventId ? (
+                        <Link
+                          href={`/changes/${assessment.changeEventId}`}
+                          className="text-[13px] font-medium text-[#0071e3] hover:underline"
+                        >
+                          {assessment.changeEvent?.title ?? "Change"}
+                        </Link>
+                      ) : (
+                        <span className="text-[13px] font-medium text-[#1d1d1f]">
+                          Contract assessment
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell className="tabular-nums text-sm text-[#1d1d1f]">
                       {assessment.score}

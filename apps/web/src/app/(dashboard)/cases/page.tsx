@@ -95,6 +95,9 @@ export default async function CasesPage({
             product: { select: { packageName: true, vendor: { select: { slug: true } } } },
           },
         },
+        contractChange: {
+          select: { identity: true, source: { select: { vendorSlug: true } } },
+        },
         repository: { select: { fullName: true } },
       },
     }),
@@ -197,11 +200,14 @@ export default async function CasesPage({
                       href={`/cases/${remediationCase.id}`}
                       className="group/link flex items-center gap-2 text-[13px] font-semibold tracking-tight text-[#0071e3] hover:underline"
                     >
-                      {remediationCase.release.product.packageName}
+                      {remediationCase.release?.product.packageName ??
+                        remediationCase.contractChange?.source.vendorSlug ??
+                        "Contract case"}
                     </Link>
                     <div className="mt-0.5 text-[11px] font-medium tracking-wide text-zinc-500">
-                      {remediationCase.release.product.vendor.slug} v
-                      {remediationCase.release.version}
+                      {remediationCase.release
+                        ? `${remediationCase.release.product.vendor.slug} v${remediationCase.release.version}`
+                        : (remediationCase.contractChange?.identity ?? "")}
                     </div>
                   </TableCell>
                   <TableCell className="text-[13px] font-medium tracking-tight text-[#1d1d1f]">

@@ -56,7 +56,7 @@ Add a `ConnectorCapability` registry (database or source-controlled configuratio
 - validation profile and required policy class;
 - evaluation corpus ID, owner, status, and expiry/review date.
 
-All 64 connectors can be marketed under the appropriate `DETECT`/`ASSESS` level. Promotion to
+All connectors (see `docs/capability-matrix.md`, generated) can be marketed under the appropriate `DETECT`/`ASSESS` level. Promotion to
 `PLAN`, `VALIDATE`, or `DRAFT_PR` requires a trusted adapter, deterministic normalization, usage
 analysis, migration rules, positive and negative fixtures, sandbox profile, and passing metrics.
 

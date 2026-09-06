@@ -6,7 +6,16 @@ import { Button } from "@patchbay/ui";
 import { apiFetch } from "@/lib/client-fetch";
 
 export type CaseAction =
-  "approve" | "draft-pr" | "approve-and-draft-pr" | "cancel" | "reject" | "replay";
+  | "approve"
+  | "draft-pr"
+  | "approve-and-draft-pr"
+  | "cancel"
+  | "reject"
+  | "replay"
+  | "assess"
+  | "plan"
+  | "validate"
+  | "suppress";
 
 const ACTION_LABEL: Record<CaseAction, string> = {
   approve: "Approve",
@@ -15,6 +24,10 @@ const ACTION_LABEL: Record<CaseAction, string> = {
   cancel: "Cancel case",
   reject: "Reject case",
   replay: "Replay case",
+  assess: "Assess",
+  plan: "Plan",
+  validate: "Validate",
+  suppress: "Suppress case",
 };
 
 const ACTION_TONE: Record<CaseAction, "primary" | "secondary" | "danger"> = {
@@ -24,7 +37,28 @@ const ACTION_TONE: Record<CaseAction, "primary" | "secondary" | "danger"> = {
   cancel: "secondary",
   reject: "danger",
   replay: "secondary",
+  assess: "secondary",
+  plan: "primary",
+  validate: "primary",
+  suppress: "secondary",
 };
+
+/**
+ * Canonical endpoint per action (WP12 §11.2): the maintenance namespace is
+ * the case funnel contract; legacy /api/cases/* vectors stay for the
+ * combined approve flow and backward compatibility.
+ */
+export function actionEndpoint(caseId: string, action: CaseAction): string {
+  switch (action) {
+    case "assess":
+    case "plan":
+    case "validate":
+    case "suppress":
+      return `/api/maintenance/cases/${caseId}/${action}`;
+    default:
+      return `/api/cases/${caseId}/${action}`;
+  }
+}
 
 export type CaseActionFetcher = (
   url: string,
@@ -81,7 +115,7 @@ export function CaseActions({ caseId, actions }: { caseId: string; actions: Case
       return;
     }
     startTransition(async () => {
-      const response = await apiFetch(`/api/cases/${caseId}/${action}`, {
+      const response = await apiFetch(actionEndpoint(caseId, action), {
         method: "POST",
         headers: { "content-type": "application/json" },
       });

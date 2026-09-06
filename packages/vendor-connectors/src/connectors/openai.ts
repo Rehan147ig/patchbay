@@ -1,4 +1,5 @@
 import type { NormalizedChangeDraft, PatchSuggestion, VendorConnector } from "../types";
+import type { RulePack } from "@patchbay/domain";
 
 /**
  * OpenAI Node SDK connector.
@@ -90,6 +91,32 @@ function isOpenAiPayload(payload: unknown): payload is OpenAiMigrationPayload {
 
 export const openaiConnector: VendorConnector = {
   slug: "openai",
+
+  /**
+   * WP6 rule-pack declaration: the contract this kit makes. Budgets are
+   * enforced by the engine (min with global breaker caps); evidence and
+   * rollback are declarative until WP7 orchestration supplies bound inputs.
+   */
+  rulePack: {
+    packVersion: "1.0.0",
+    vendorSlug: "openai",
+    contractKind: "SDK",
+    supportedChanges: [
+      "SDK_VERSION_UPGRADE",
+      "METHOD_RENAMED",
+      "RESPONSE_FIELD_REMOVED",
+      "NEW_CAPABILITY",
+      "METHOD_REMOVED",
+    ],
+    editBudget: { maxFiles: 10, maxEditsPerFile: 10, maxTotalBytes: 50_000 },
+    expectedEvidence: { requiresSourceHash: true, requiresLockfileVersion: true, minUsages: 1 },
+    validationProfile: "node-ts-reparse + container-sandbox",
+    riskTags: [],
+    rollback: {
+      strategy: "revert-commit",
+      instructions: "Revert the Patchbay draft PR branch before merge.",
+    },
+  } satisfies RulePack,
 
   supports(rawPayload: unknown): boolean {
     return isOpenAiPayload(rawPayload);

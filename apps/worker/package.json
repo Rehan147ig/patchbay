@@ -24,6 +24,7 @@
     "@patchbay/remediation-engine": "workspace:*",
     "@patchbay/repo-analysis": "workspace:*",
     "@patchbay/sandbox-runner": "workspace:*",
+    "@patchbay/telemetry": "workspace:*",
     "@patchbay/vendor-connectors": "workspace:*",
     "bullmq": "^5.50.0",
     "ioredis": "^5.6.0",

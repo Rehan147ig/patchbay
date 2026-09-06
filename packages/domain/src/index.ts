@@ -65,6 +65,47 @@ export {
 export type { ErrorCode, PatchbayErrorOptions } from "./errors";
 export { logger, getCorrelationId, runWithCorrelationId } from "./logger";
 export type { LogLevel, LogFields } from "./logger";
+export {
+  editBudgetSchema,
+  expectedEvidenceSchema,
+  rollbackSchema,
+  rulePackSchema,
+  parseRulePack,
+} from "./rule-pack";
+export type { EditBudget, ExpectedEvidence, RollbackPlan, RulePack } from "./rule-pack";
+export {
+  assertMemoryLimitWithinCeiling,
+  memoryLimitSchema,
+  parseMemoryLimitToBytes,
+  validationNetworkPolicySchema,
+  validationProfileSchema,
+  VALIDATION_PROFILE_MAX_MEMORY_BYTES,
+  VALIDATION_PROFILE_MAX_TIMEOUT_MS,
+} from "./validation-profile";
+export type { ValidationNetworkPolicy, ValidationProfileInput } from "./validation-profile";
+export {
+  buildEvidenceBlock,
+  buildEvidenceHumanSection,
+  buildEvidenceMachineComment,
+  deliveryEvidencePayloadSchema,
+  parseEvidenceBlock,
+  DELIVERY_EVIDENCE_MARKER,
+  DELIVERY_EVIDENCE_VERSION,
+} from "./delivery-evidence";
+export type { DeliveryEvidencePayload, EvidenceHumanInput } from "./delivery-evidence";
+export {
+  checkRunDeliveryKey,
+  commentDeliveryKey,
+  createDeliveryKey,
+  deliveryActionSchema,
+  deliveryStatusSchema,
+  updateDeliveryKey,
+} from "./delivery-attempt";
+export type { DeliveryAction, DeliveryStatus } from "./delivery-attempt";
+export { deadLetterStatusSchema, replayableJobTypeSchema } from "./dead-letter";
+export type { DeadLetterStatus, ReplayableJobType } from "./dead-letter";
+export { autonomyTierSchema, DEFAULT_AUTONOMY_TIER } from "./autonomy-tier";
+export type { AutonomyTier } from "./autonomy-tier";
 export { migrationRecipeSchema, recipeListEntrySchema, recipeRuleSchema } from "./recipe";
 export type { MigrationRecipe, RecipeListEntry, RecipeRule } from "./recipe";
 export { classifySemverBump, compareVersions, parseVersion, satisfiesRange } from "./semver";
@@ -131,3 +172,20 @@ export type {
   GenerationMethodValue,
   SubmissionRequest,
 } from "./schemas";
+export {
+  ContractKind,
+  DetectionMode,
+  NormalizationMode,
+  AnalysisMode,
+  RemediationMode,
+  ValidationMode,
+  DeliveryMode,
+  CertificationState,
+  certificationAtLeast,
+  capabilityMatrixSchema,
+  parseCapabilityMatrix,
+  serializeCapabilityMatrix,
+  CAPABILITY_VOCABULARY,
+  CAPABILITY_MATRIX_VERSION,
+} from "./capability-matrix";
+export type { CapabilityMatrix } from "./capability-matrix";

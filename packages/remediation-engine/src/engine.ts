@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { GenerationMethod, SCORING } from "@patchbay/domain";
-import { evaluatePlanCircuitBreaker } from "@patchbay/policy-engine";
+import { evaluatePlanCircuitBreaker, resolvePlanLimits } from "@patchbay/policy-engine";
 import { javaSyntaxCheck, pythonSyntaxCheck } from "@patchbay/repo-analysis";
 import * as ts from "typescript";
 import { sha256Hex, unifiedDiff } from "./diff";
@@ -374,11 +374,17 @@ export async function generatePlan(input: PlanInput): Promise<PlanDraft> {
     0,
     ...patches.map((p) => Buffer.byteLength(p.patched, "utf8")),
   );
-  const planCircuit = evaluatePlanCircuitBreaker({
-    fileCount: patches.length,
-    maxEditsInAnyFile,
-    maxPatchBytesInAnyFile,
-  });
+  const planCircuit = evaluatePlanCircuitBreaker(
+    {
+      fileCount: patches.length,
+      maxEditsInAnyFile,
+      maxPatchBytesInAnyFile,
+    },
+    // WP6: when the caller supplies the certified rule pack, its edit budget
+    // tightens the global breaker caps (min per field — packs only tighten).
+    // Absent pack = global defaults, identical to pre-WP6 behavior.
+    resolvePlanLimits(input.rulePack),
+  );
 
   const requiresHumanReview = planConfidence < SCORING.CONFIDENCE_MIN_PATCH || !planCircuit.ok;
 

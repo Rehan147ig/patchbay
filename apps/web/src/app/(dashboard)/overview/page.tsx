@@ -1,6 +1,18 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { GitBranch, Package, AlertTriangle, ShieldAlert, Clock, CheckCircle2 } from "lucide-react";
+import {
+  GitBranch,
+  Package,
+  AlertTriangle,
+  ShieldAlert,
+  Clock,
+  CheckCircle2,
+  Inbox,
+  GitPullRequest,
+  GitMerge,
+  Radio,
+  Hourglass,
+} from "lucide-react";
 import { prisma } from "@patchbay/db";
 import {
   Badge,
@@ -32,6 +44,12 @@ export default async function OverviewPage() {
     plansPendingApproval,
     validationRuns,
     recentAuditEvents,
+    openCases,
+    prsCreated,
+    prsMerged,
+    prsClosed,
+    sourceHealth,
+    activeQueue,
   ] = await Promise.all([
     prisma.repository.count({ where: { organizationId: orgId, status: "ACTIVE" } }),
     prisma.vendor.count({ where: { enabled: true } }),
@@ -68,12 +86,62 @@ export default async function OverviewPage() {
       orderBy: { createdAt: "desc" },
       take: 8,
     }),
+    // Maintenance control-plane rollup (WP12 §11.3).
+    prisma.remediationCase.count({
+      where: {
+        organizationId: orgId,
+        status: { notIn: ["REJECTED", "CANCELLED", "MERGED", "CLOSED", "LEARNED"] },
+      },
+    }),
+    prisma.pullRequest.count({ where: { organizationId: orgId } }),
+    prisma.pullRequest.count({ where: { organizationId: orgId, status: "MERGED" } }),
+    prisma.pullRequest.count({ where: { organizationId: orgId, status: "CLOSED" } }),
+    prisma.contractSource.findMany({
+      where: { OR: [{ organizationId: null }, { organizationId: orgId }] },
+      select: { status: true, lastObservedAt: true },
+      take: 500,
+    }),
+    prisma.remediationCase.findMany({
+      where: {
+        organizationId: orgId,
+        status: { notIn: ["REJECTED", "CANCELLED", "MERGED", "CLOSED", "LEARNED"] },
+      },
+      orderBy: { updatedAt: "desc" },
+      take: 8,
+      include: {
+        repository: { select: { name: true } },
+        plans: { orderBy: { createdAt: "desc" }, take: 1, select: { status: true } },
+        impactAssessments: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          include: {
+            affectedUsages: {
+              take: 3,
+              include: { usage: { select: { riskTags: true } } },
+            },
+          },
+        },
+      },
+    }),
   ]);
 
   const totalValidations = validationRuns.length;
   const passedValidations = validationRuns.filter((v) => v.status === "PASSED").length;
   const validationRate =
     totalValidations > 0 ? Math.round((passedValidations / totalValidations) * 100) : null;
+
+  const staleSources = sourceHealth.filter(
+    (source) =>
+      source.status !== "ACTIVE" ||
+      source.lastObservedAt === null ||
+      Date.now() - new Date(source.lastObservedAt).getTime() >= 7 * 86_400_000,
+  ).length;
+  const terminalPrs = prsMerged + prsClosed;
+  const mergeRate = terminalPrs > 0 ? Math.round((prsMerged / terminalPrs) * 100) : null;
+  // Rough, labeled estimate: one merged remediation ≈ 4 engineering hours
+  // (triage + patch + validation + review) the team did not spend by hand.
+  const HOURS_SAVED_PER_MERGED_PR = 4;
+  const hoursSaved = prsMerged * HOURS_SAVED_PER_MERGED_PR;
 
   const stats = [
     {
@@ -119,6 +187,45 @@ export default async function OverviewPage() {
           ? "No validation runs yet"
           : `${passedValidations} of ${totalValidations} runs passed`,
       icon: <CheckCircle2 aria-hidden="true" />,
+    },
+  ];
+
+  const maintenanceStats = [
+    {
+      label: "Open cases",
+      value: openCases,
+      tone: openCases > 0 ? ("amber" as const) : ("neutral" as const),
+      hint: "Across the maintenance funnel",
+      icon: <Inbox aria-hidden="true" />,
+    },
+    {
+      label: "PRs created",
+      value: prsCreated,
+      hint: "Draft PRs delivered",
+      icon: <GitPullRequest aria-hidden="true" />,
+    },
+    {
+      label: "Merge rate",
+      value: mergeRate === null ? "—" : `${mergeRate}%`,
+      tone: mergeRate !== null && mergeRate >= 50 ? ("green" as const) : ("neutral" as const),
+      hint:
+        terminalPrs === 0
+          ? "No terminal PRs yet"
+          : `${prsMerged} of ${terminalPrs} terminal PRs merged`,
+      icon: <GitMerge aria-hidden="true" />,
+    },
+    {
+      label: "Stale sources",
+      value: staleSources,
+      tone: staleSources > 0 ? ("amber" as const) : ("neutral" as const),
+      hint: "Unobserved 7+ days — sync from Sources",
+      icon: <Radio aria-hidden="true" />,
+    },
+    {
+      label: "Hours saved (est.)",
+      value: `~${hoursSaved}h`,
+      hint: "≈4h per merged remediation",
+      icon: <Hourglass aria-hidden="true" />,
     },
   ];
 
@@ -209,6 +316,80 @@ export default async function OverviewPage() {
           </div>
         ))}
       </div>
+
+      <div>
+        <h2 className="mb-3 text-[15px] font-semibold tracking-tight text-[#1d1d1f]">
+          Continuous maintenance
+        </h2>
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {maintenanceStats.map((stat) => (
+            <div key={stat.label}>
+              <StatCard {...stat} />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <Card className="rounded-[20px] border-zinc-200 bg-white">
+        <CardHeader>
+          <CardTitle>Active maintenance queue</CardTitle>
+          <CardDescription>
+            <Link href="/cases" className="font-medium text-[#0071e3] hover:underline">
+              Open the case queue →
+            </Link>
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-0 p-0">
+          {activeQueue.length === 0 ? (
+            <div className="p-6">
+              <EmptyState
+                title="No open cases"
+                description="New SDK releases and contract changes will open maintenance cases here automatically."
+              />
+            </div>
+          ) : (
+            <div className="divide-y divide-zinc-100">
+              {activeQueue.map((item) => {
+                const riskTags = Array.from(
+                  new Set(
+                    (item.impactAssessments[0]?.affectedUsages ?? []).flatMap(
+                      (a) => (a.usage.riskTags as string[]) ?? [],
+                    ),
+                  ),
+                ).slice(0, 3);
+                return (
+                  <Link
+                    key={item.id}
+                    href={`/cases/${item.id}`}
+                    className="flex items-center gap-3 px-6 py-3.5 transition-colors hover:bg-zinc-50/70"
+                  >
+                    <Badge
+                      tone={item.status === "IMPACT_CONFIRMED" ? "amber" : "neutral"}
+                      variant="subtle"
+                    >
+                      {item.status}
+                    </Badge>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[13px] font-medium text-[#1d1d1f]">
+                        {item.repository.name}
+                        {item.plans[0] ? ` · plan ${item.plans[0].status}` : ""}
+                      </p>
+                      <p className="text-[11px] text-zinc-500">
+                        updated {formatDate(item.updatedAt)}
+                      </p>
+                    </div>
+                    {riskTags.map((tag) => (
+                      <Badge key={tag} tone="red" variant="subtle">
+                        {tag}
+                      </Badge>
+                    ))}
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card className="rounded-[20px] border-zinc-200 bg-white">

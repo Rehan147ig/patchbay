@@ -30,6 +30,7 @@ export interface PrismaLike {
   capabilityGate: {
     findUnique(args: unknown): Promise<Record<string, unknown> | null>;
     upsert(args: unknown): Promise<Record<string, unknown>>;
+    update(args: unknown): Promise<Record<string, unknown>>;
   };
   auditEvent: {
     create(args: unknown): Promise<Record<string, unknown>>;
@@ -48,6 +49,12 @@ export interface CapabilityHealthInput {
   maxFailureRatePct: number;
   /** Maximum p95 latency of successful agent runs, ms. */
   maxLatencyP95Ms: number;
+  /**
+   * Consecutive unhealthy evaluations required before suspension (WP10
+   * hardening, default 2). One bad window records a strike without flapping
+   * the gate; only sustained breaches suspend.
+   */
+  minConsecutiveBreaches?: number;
   correlationId: string;
   now?: Date;
 }
@@ -256,15 +263,80 @@ export async function setCapabilityGate(
 }
 
 /**
- * Evaluates a vendor capability and suspends it on threshold failure.
+ * Evaluates a vendor capability and suspends it on SUSTAINED threshold
+ * failure (WP10 hardening). Breach accounting:
+ * - healthy → breach counter resets to 0 (status itself still restores by
+ *   admin; a restored-then-healthy gate is fully clear, a restored-then-sick
+ *   one re-suspends on its next strike only after the counter rebuilds).
+ * - unhealthy → counter increments (row created quietly when missing);
+ *   suspension fires only at minConsecutiveBreaches (default 2).
  * Returns the verdict; callers (worker job, web admin API) surface it.
  */
 export async function enforceCapabilityHealth(
   prisma: PrismaLike,
   input: CapabilityHealthInput,
 ): Promise<CapabilityHealthVerdict> {
+  const threshold = input.minConsecutiveBreaches ?? 2;
   const verdict = await evaluateCapabilityHealth(prisma, input);
-  if (verdict.healthy) return verdict;
+  const key = {
+    organizationId: input.organizationId,
+    vendorSlug: input.vendorSlug,
+    level: input.level,
+  };
+  const gate = (await prisma.capabilityGate.findUnique({
+    where: { organizationId_vendorSlug_level: key },
+    select: { status: true, consecutiveBreaches: true },
+  })) as { status: string; consecutiveBreaches: number | null } | null;
+  const priorBreaches =
+    typeof gate?.consecutiveBreaches === "number" ? gate.consecutiveBreaches : 0;
+
+  if (verdict.healthy) {
+    if (priorBreaches > 0 && gate) {
+      await prisma.capabilityGate.update({
+        where: { organizationId_vendorSlug_level: key },
+        data: { consecutiveBreaches: 0 },
+      });
+      logger.info("capability breach counter reset", {
+        correlationId: input.correlationId,
+        organizationId: input.organizationId,
+        vendorSlug: input.vendorSlug,
+        level: input.level,
+      });
+    }
+    return verdict;
+  }
+
+  const breaches = priorBreaches + 1;
+  // Record the strike first (quiet upsert: creates the row ACTIVE when
+  // missing without an audit event — counters are not operator state).
+  // Suspension itself still goes through setCapabilityGate so the transition
+  // audit fires exactly once.
+  await prisma.capabilityGate.upsert({
+    where: { organizationId_vendorSlug_level: key },
+    create: {
+      organizationId: input.organizationId,
+      vendorSlug: input.vendorSlug,
+      level: input.level,
+      status: CapabilityGateStatus.ACTIVE,
+      reason: null,
+      suspendedAt: null,
+      consecutiveBreaches: breaches,
+    },
+    update: { consecutiveBreaches: breaches },
+  });
+  if (breaches < threshold) {
+    logger.warn("capability breach recorded below suspension threshold", {
+      correlationId: input.correlationId,
+      organizationId: input.organizationId,
+      vendorSlug: input.vendorSlug,
+      level: input.level,
+      breaches,
+      threshold,
+      reasons: verdict.reasons,
+      metrics: verdict.metrics,
+    });
+    return verdict;
+  }
 
   await setCapabilityGate(prisma, {
     organizationId: input.organizationId,
@@ -280,6 +352,7 @@ export async function enforceCapabilityHealth(
     organizationId: input.organizationId,
     vendorSlug: input.vendorSlug,
     level: input.level,
+    breaches,
     reasons: verdict.reasons,
     metrics: verdict.metrics,
   });

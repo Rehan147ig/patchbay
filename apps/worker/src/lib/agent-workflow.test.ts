@@ -1,8 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import type { RulePack } from "@patchbay/domain";
 import { MockAiProvider } from "@patchbay/ai-provider";
 import {
   agentTools,
   buildAgentWorkflowInput,
+  checkPackBudget,
   createAgentWorkflow,
   type AgentRunWithRelations,
   type FactsJson,
@@ -274,5 +279,121 @@ describe("agent workflow (Phase H4)", () => {
       ["plan-gate", true],
       ["review-gate", true],
     ]);
+  });
+});
+
+describe("pack budgets (WP6 packs, WP7 enforcement)", () => {
+  const PACK: RulePack = {
+    packVersion: "test/1.0.0",
+    vendorSlug: "openai",
+    contractKind: "SDK",
+    supportedChanges: ["METHOD_RENAMED"],
+    editBudget: { maxFiles: 1, maxEditsPerFile: 2, maxTotalBytes: 50_000 },
+    expectedEvidence: { requiresSourceHash: true, requiresLockfileVersion: true, minUsages: 1 },
+    validationProfile: "node-ts-reparse",
+    riskTags: [],
+    rollback: { strategy: "revert-commit", instructions: "Revert." },
+  };
+
+  it("checkPackBudget passes fitting plans and names every violated dimension", () => {
+    expect(checkPackBudget([{ filePath: "a.ts" }], PACK)).toEqual([]);
+    expect(checkPackBudget([], PACK)).toEqual([]);
+    const over = checkPackBudget(
+      [{ filePath: "a.ts" }, { filePath: "a.ts" }, { filePath: "a.ts" }, { filePath: "b.ts" }],
+      PACK,
+    );
+    expect(over.join(" ")).toContain("2 files > pack max 1");
+    expect(over.join(" ")).toContain("3 edits in one file > pack max 2");
+    expect(over).toHaveLength(2);
+  });
+
+  it("buildAgentWorkflowInput carries the pack (null by default)", () => {
+    expect(buildAgentWorkflowInput(RUN, FACTS).rulePack).toBeNull();
+    expect(buildAgentWorkflowInput(RUN, FACTS, { ...PACK }).rulePack?.packVersion).toBe(
+      "test/1.0.0",
+    );
+  });
+
+  it("fails the run BUDGET_EXCEEDED when the planner exceeds the pack (reviewer skipped)", async () => {
+    const { packageImpact } = await import("@patchbay/db");
+    vi.mocked(packageImpact).mockResolvedValue({
+      modules: [
+        { filePath: "src/a.ts", edgeKinds: ["INVOKES_API"], evidenceCount: 1 },
+        { filePath: "src/b.ts", edgeKinds: ["INVOKES_API"], evidenceCount: 1 },
+      ],
+      resolvedVersion: "4.0.0",
+      declaredRanges: "^4.0.0",
+      snapshotId: "snap-1",
+    } as never);
+
+    const editsIn = (file: string, n: number) =>
+      Array.from({ length: n }, (_, i) => ({
+        filePath: file,
+        expectedSourceHash: "0".repeat(64),
+        operation: "REPLACE",
+        description: `edit ${i}`,
+        confidence: 90,
+      }));
+    const provider = {
+      generatePatchPlan: async () => ({
+        output: {
+          releaseRecordId: "<bound>",
+          repositoryId: "<bound>",
+          rationale: "stubbed over-budget plan",
+          confidence: 85,
+          requiresHumanReview: false,
+          riskLevel: "LOW",
+          riskTags: [],
+          edits: [...editsIn("src/a.ts", 2), ...editsIn("src/b.ts", 1)],
+          validationProfile: ["typecheck"],
+          addressedSymbols: ["openai.createChatCompletion"],
+        },
+        usage: { inputTokens: 0, outputTokens: 0, model: "mock" },
+        requestId: null,
+        latencyMs: 0,
+        provider: "mock",
+      }),
+      reviewPatchPlan: async () => {
+        throw new Error("reviewer must never run after a pack-budget failure");
+      },
+    } as never;
+
+    const { recordings, recordStep } = recordingHarness();
+    // Real files so fixture-hash binding keeps the stubbed edits (unbound
+    // edits are invalidated before the pack gate ever sees them).
+    const fixtureDir = mkdtempSync(path.join(tmpdir(), "patchbay-pack-budget-"));
+    try {
+      mkdirSync(path.join(fixtureDir, "src"), { recursive: true });
+      writeFileSync(path.join(fixtureDir, "src", "a.ts"), "export const a = 1;\n");
+      writeFileSync(path.join(fixtureDir, "src", "b.ts"), "export const b = 2;\n");
+      const workflow = createAgentWorkflow({
+        run: RUN,
+        provider,
+        budgetCents: 0,
+        fixturesDir: fixtureDir,
+        recordStep,
+        isCancelled: async () => false,
+        rulePack: { ...PACK },
+      });
+      const input = buildAgentWorkflowInput(RUN, FACTS, { ...PACK });
+
+      const result = await workflow.run(input as never, {
+        tools: agentTools({ run: RUN, facts: FACTS }),
+      });
+
+      expect(result.status).toBe("FAILED");
+      expect(result.failure?.kind).toBe("BUDGET_EXCEEDED");
+      expect(result.failure?.stepId).toBe("planner");
+      expect(result.failure?.message).toContain("test/1.0.0");
+      expect(result.steps.map((step) => [step.stepId, step.status])).toEqual([
+        ["release-analyst", "COMPLETED"],
+        ["impact-analyst", "COMPLETED"],
+        ["planner", "FAILED"],
+        ["reviewer", "SKIPPED"],
+      ]);
+      expect(recordings.some((recording) => recording.role === "REVIEWER")).toBe(false);
+    } finally {
+      rmSync(fixtureDir, { recursive: true, force: true });
+    }
   });
 });

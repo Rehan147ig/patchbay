@@ -1,0 +1,37 @@
+lockfileVersion: "9.0"
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+  .:
+    dependencies:
+      express:
+        specifier: ^4.19.2
+        version: 4.22.2
+      "@modelcontextprotocol/sdk":
+        specifier: ^1.0.0
+        version: 1.0.0
+      pino:
+        specifier: ^9.2.0
+        version: 9.14.0
+    devDependencies:
+      tsx:
+        specifier: ^4.15.0
+        version: 4.15.0
+      typescript:
+        specifier: ^5.4.5
+        version: 5.9.3
+
+packages:
+  express@4.22.2:
+    resolution: {integrity: sha512-placeholder}
+  "@modelcontextprotocol/sdk@1.0.0":
+    resolution: {integrity: sha512-placeholder}
+  pino@9.14.0:
+    resolution: {integrity: sha512-placeholder}
+  tsx@4.15.0:
+    resolution: {integrity: sha512-placeholder}
+  typescript@5.9.3:
+    resolution: {integrity: sha512-placeholder}

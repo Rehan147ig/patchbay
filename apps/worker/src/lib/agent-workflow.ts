@@ -10,10 +10,12 @@ import {
   logger,
   type PatchPlan,
   type ReviewVerdict,
+  type RulePack,
 } from "@patchbay/domain";
 import type { AiProvider } from "@patchbay/ai-provider";
 import {
   PROMPT_TEMPLATE_VERSION,
+  PackBudgetExceededError,
   bindSourceHashes,
   defineWorkflow,
   digestJson,
@@ -62,6 +64,12 @@ export interface AgentWorkflowInput {
   releaseVersion: string;
   templateVersion: string;
   facts: FactsJson | null;
+  /**
+   * WP6 certified rule pack (WP7): persisted into the run input (replay
+   * identity covers it) and enforced on the planner's edits. Null for
+   * uncertified connectors — global breaker caps still apply downstream.
+   */
+  rulePack: RulePack | null;
 }
 
 export interface FactsOutput {
@@ -142,11 +150,14 @@ export interface AgentWorkflowDeps {
   fixturesDir: string | null;
   recordStep: (recording: StepRecording) => Promise<void>;
   isCancelled: () => Promise<boolean>;
+  /** WP6 pack enforced on planner edits (absent = globals only). */
+  rulePack?: RulePack | null;
 }
 
 export function buildAgentWorkflowInput(
   run: AgentRunWithRelations,
   facts: FactsJson | null,
+  rulePack: RulePack | null = null,
 ): AgentWorkflowInput {
   return {
     releaseRecordId: run.releaseRecordId,
@@ -156,7 +167,36 @@ export function buildAgentWorkflowInput(
     releaseVersion: run.releaseRecord.version,
     templateVersion: PROMPT_TEMPLATE_VERSION,
     facts,
+    rulePack,
   };
+}
+
+/**
+ * WP7 pack-budget gate (pure): counts the planner's proposed edits against
+ * the certified pack. Returns human-readable violations, empty when the plan
+ * fits. Bytes are the JSON encoding of the edit list — a conservative proxy
+ * for patch volume, documented as such.
+ */
+export function checkPackBudget(
+  edits: ReadonlyArray<{ filePath: string }>,
+  pack: RulePack,
+): string[] {
+  const violations: string[] = [];
+  const files = new Set(edits.map((edit) => edit.filePath));
+  const perFile = new Map<string, number>();
+  for (const edit of edits) perFile.set(edit.filePath, (perFile.get(edit.filePath) ?? 0) + 1);
+  const maxInFile = Math.max(0, ...perFile.values());
+  const bytes = Buffer.byteLength(JSON.stringify(edits), "utf8");
+  if (files.size > pack.editBudget.maxFiles) {
+    violations.push(`${files.size} files > pack max ${pack.editBudget.maxFiles}`);
+  }
+  if (maxInFile > pack.editBudget.maxEditsPerFile) {
+    violations.push(`${maxInFile} edits in one file > pack max ${pack.editBudget.maxEditsPerFile}`);
+  }
+  if (bytes > pack.editBudget.maxTotalBytes) {
+    violations.push(`${bytes} edit bytes > pack max ${pack.editBudget.maxTotalBytes}`);
+  }
+  return violations;
 }
 
 /** Mastra-contract agent workflow; separate allowlists per role. */
@@ -246,6 +286,16 @@ export function createAgentWorkflow(deps: AgentWorkflowDeps): WorkflowHandle {
             },
           );
           const bound = bindFixtureHashes(plan, deps.fixturesDir);
+          // WP7 pack gate: enforced on the BOUND plan, so edits already
+          // dropped as invalidated never count against the budget. A violation
+          // fails here (BUDGET_EXCEEDED → case stays PLANNING + timeline),
+          // never advances silently, and is never truncated behind the agent.
+          if (deps.rulePack) {
+            const violations = checkPackBudget(bound.plan.edits, deps.rulePack);
+            if (violations.length > 0) {
+              throw new PackBudgetExceededError(deps.rulePack.packVersion, violations);
+            }
+          }
           await deps.recordStep({
             role: AgentRole.PLANNER,
             kind: AgentStepKind.MODEL_CALL,

@@ -1,0 +1,15 @@
+{
+  "name": "@acme/mcp-agent-service",
+  "private": true,
+  "type": "module",
+  "version": "1.4.0",
+  "dependencies": {
+    "express": "^4.19.2",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "pino": "^9.2.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.15.0",
+    "typescript": "^5.4.5"
+  }
+}

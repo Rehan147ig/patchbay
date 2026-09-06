@@ -13,8 +13,16 @@ import {
   type RunProvenance,
   type SandboxRunner,
 } from "@patchbay/sandbox-runner";
-import type { Job } from "bullmq";
+import { UnrecoverableError, type Job } from "bullmq";
+import { checkDeliveryQuota, quotaBlockedMessage } from "@patchbay/operations";
 import { writeAuditEvent } from "../lib/audit";
+import { recordRemediationAttempt } from "../lib/case-orchestration";
+import {
+  recordValidationArtifact,
+  resolveValidationProfile,
+  type ResolvedValidationProfile,
+} from "../lib/validation-profiles";
+import { sha256Hex } from "@patchbay/vendor-connectors";
 import {
   assertInstallationBelongsToOrganization,
   resolveRepositorySource,
@@ -118,12 +126,17 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
     );
   }
 
-  // Tenant boundary: only the owning org may run validation on this plan.
-  const changeEvent = await prisma.vendorChangeEvent.findUnique({
-    where: { id: plan.impactAssessment.changeEventId },
-  });
+  // Tenant boundary: only the owning org may run validation on this plan. The
+  // change-event check applies to release-funnel assessments; contract-flow
+  // assessments (WP4) carry no change event, so they skip that leg while the
+  // repository-ownership check below still applies unconditionally.
+  const changeEvent = plan.impactAssessment.changeEventId
+    ? await prisma.vendorChangeEvent.findUnique({
+        where: { id: plan.impactAssessment.changeEventId },
+      })
+    : null;
   if (
-    changeEvent?.organizationId !== organizationId ||
+    (changeEvent !== null && changeEvent.organizationId !== organizationId) ||
     plan.impactAssessment.repository.organizationId !== organizationId
   ) {
     logger.warn("cross-tenant validation attempt blocked", {
@@ -161,6 +174,14 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
       ...entity,
       after: { validationRunId, reason: "customer CI is the validation sandbox" },
     });
+    await recordRemediationAttempt({
+      caseId: plan.remediationCaseId ?? null,
+      strategyId: strategyOf(plan),
+      inputHash: sha256Hex(JSON.stringify(validationRun.commands ?? [])),
+      status: "SKIPPED",
+      organizationId,
+      correlationId,
+    });
     logger.info("validation skipped (github-checks-only)", {
       validationRunId,
       remediationPlanId,
@@ -168,6 +189,47 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
     });
     return { validationRunId, status: "SKIPPED", commandsRun: 0, durationMs: 0 };
   }
+
+  // Server-side delivery quota (WP11, spec §16): enforced here — not just in
+  // the web route — so direct enqueues cannot overshoot the monthly budget.
+  // SKIPPED runs (above) consume nothing and skip this check. Terminal and
+  // loud: the run is marked FAILED with the quota message, audited, and never
+  // retried inside the same month.
+  const quota = await checkDeliveryQuota(prisma, { organizationId, kind: "VALIDATE" });
+  if (!quota.allowed) {
+    const message = quotaBlockedMessage(quota);
+    await prisma.validationRun.update({
+      where: { id: validationRunId },
+      data: { status: ValidationStatus.FAILED, stdout: message, completedAt: new Date() },
+    });
+    await writeAuditEvent({
+      organizationId,
+      actorType: ActorType.SYSTEM,
+      actorId: null,
+      action: AuditAction.PLAN_VALIDATION_FAILED,
+      correlationId,
+      ...entity,
+      after: {
+        validationRunId,
+        reason: "delivery quota exceeded",
+        tier: quota.tier,
+        quota: quota.quota,
+        used: quota.used,
+      },
+    });
+    throw new UnrecoverableError(message);
+  }
+
+  // Execution-plane profile (WP8): every execution parameter comes from the
+  // profile — command ids resolve against the server-side registry, the image
+  // against the deployment allowlist, and timeouts/memory against server
+  // ceilings. Declared here so the harness-error path can hash a defined
+  // (possibly empty — nothing ran) command set; ASSIGNED as the first step
+  // inside the try below so a resolution failure marks the run FAILED loudly
+  // instead of escaping unmarked. Runs without a profile keep the legacy
+  // static row commands (still allowlist-enforced at execution time).
+  let resolvedProfile: ResolvedValidationProfile | null = null;
+  let effectiveCommands: string[] = [];
 
   await prisma.$transaction([
     prisma.validationRun.update({
@@ -179,16 +241,6 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
       data: { status: PlanStatus.VALIDATING },
     }),
   ]);
-  await writeAuditEvent({
-    organizationId,
-    actorType: ActorType.SYSTEM,
-    actorId: null,
-    action: AuditAction.PLAN_VALIDATION_STARTED,
-    correlationId,
-    ...entity,
-    after: { validationRunId, commandCount: commandsOf(validationRun.commands).length },
-  });
-  logger.info("validation started", { validationRunId, remediationPlanId, correlationId });
 
   // Create git provider based on repository type
   const repository = plan.impactAssessment.repository;
@@ -213,7 +265,7 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
       })
     : createGitProviderFromEnv();
 
-  let workspace: string;
+  let workspace: string | undefined;
   if (fixtureDir) {
     // Fixture fast path: disposable copy of the local fixture directory.
     const checkoutResult = await provider.checkout({
@@ -249,6 +301,33 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
   }
 
   try {
+    // Profile assignment first: a resolution failure throws straight into
+    // this try's harness-error path (run marked FAILED, attempt recorded),
+    // never escaping with the run stuck in RUNNING.
+    if (validationRun.validationProfileId) {
+      resolvedProfile = await resolveValidationProfile(
+        validationRun.validationProfileId,
+        organizationId,
+      );
+      effectiveCommands = resolvedProfile.commands;
+    } else {
+      effectiveCommands = commandsOf(validationRun.commands);
+    }
+    await writeAuditEvent({
+      organizationId,
+      actorType: ActorType.SYSTEM,
+      actorId: null,
+      action: AuditAction.PLAN_VALIDATION_STARTED,
+      correlationId,
+      ...entity,
+      after: {
+        validationRunId,
+        commandCount: effectiveCommands.length,
+        validationProfileId: resolvedProfile?.profileId ?? null,
+      },
+    });
+    logger.info("validation started", { validationRunId, remediationPlanId, correlationId });
+
     // Symlink-hardened workspace boundary: resolve the real workspace path once
     // (checkout dirs are not symlinks themselves), then verify each patch's
     // parent directory through realpath so a repo-controlled symlink cannot
@@ -272,29 +351,42 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
       writeFileSync(target, patch.patchedContent, "utf8");
     }
 
-    const commands = commandsOf(validationRun.commands);
+    const commands = effectiveCommands;
     for (const command of commands) {
       if (!isAllowedCommand(command)) {
         throw new Error(`command not on the validation allowlist: ${command}`);
       }
     }
 
+    const runOptions = resolvedProfile
+      ? {
+          timeoutMs: resolvedProfile.timeoutMs,
+          networkPolicy: resolvedProfile.networkPolicy,
+          image: resolvedProfile.image,
+          expectedDigest: resolvedProfile.expectedDigest,
+          memory: resolvedProfile.memoryLimit,
+        }
+      : {};
     const results: Array<{
       command: string;
       ok: boolean;
       exitCode: number | null;
       durationMs: number;
       output: string;
+      fullStdout: string;
+      fullStderr: string;
       provenance: RunProvenance | null;
     }> = [];
     for (const command of commands) {
-      const result = await runner().run(command, workspace);
+      const result = await runner().run(command, workspace, runOptions);
       results.push({
         command,
         ok: result.ok,
         exitCode: result.exitCode,
         durationMs: result.durationMs,
         output: result.output,
+        fullStdout: result.fullStdout,
+        fullStderr: result.fullStderr,
         provenance: result.provenance ?? null,
       });
       if (!result.ok) break;
@@ -333,6 +425,22 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
       }),
     ]);
 
+    // Attest the terminal run (WP8): full logs to the evidence object store,
+    // tamper-evident descriptor hash on the row. A store failure throws into
+    // the harness-error path — an unattested PASS is a loud failure, never a
+    // silent one.
+    await recordValidationArtifact({
+      validationRunId,
+      organizationId,
+      validationProfileId: resolvedProfile?.profileId ?? null,
+      commandsExecuted: results.map((result) => result.command),
+      exitCodes: results.map((result) => result.exitCode),
+      image: resolvedProfile?.image ?? null,
+      imageDigest: provenance?.imageDigest ?? null,
+      fullStdout: results.map((result) => `$ ${result.command}\n${result.fullStdout}`).join("\n"),
+      fullStderr: results.map((result) => `$ ${result.command}\n${result.fullStderr}`).join("\n"),
+    });
+
     await writeAuditEvent({
       organizationId,
       actorType: ActorType.SYSTEM,
@@ -361,6 +469,15 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
       durationMs: totalDurationMs,
       outcome: passed ? "PASSED" : "FAILED",
       results: results.map((result) => ({ command: result.command, ok: result.ok })),
+    });
+    await recordRemediationAttempt({
+      caseId: plan.remediationCaseId ?? null,
+      strategyId: strategyOf(plan),
+      inputHash: sha256Hex(JSON.stringify(effectiveCommands)),
+      outputHash: sha256Hex(stdout),
+      status: passed ? "SUCCEEDED" : "FAILED",
+      organizationId,
+      correlationId,
     });
 
     return {
@@ -402,14 +519,29 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
       correlationId,
       error: message,
     });
+    await recordRemediationAttempt({
+      caseId: plan.remediationCaseId ?? null,
+      strategyId: strategyOf(plan),
+      inputHash: sha256Hex(JSON.stringify(effectiveCommands)),
+      status: "FAILED",
+      failureCode: message.slice(0, 200),
+      organizationId,
+      correlationId,
+    });
     throw error;
   } finally {
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      try {
-        rmSync(workspace, { recursive: true, force: true });
-        break;
-      } catch {
-        await new Promise((resolve) => setTimeout(resolve, 150));
+    // Workspace may never have been assigned (e.g. profile resolution or
+    // tenant checks threw before checkout) — removing undefined would mask
+    // the real error with a TypeError. (An if-block, never return: returning
+    // from finally would swallow the in-flight result or throw.)
+    if (workspace !== undefined) {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        try {
+          rmSync(workspace, { recursive: true, force: true });
+          break;
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 150));
+        }
       }
     }
   }
@@ -417,6 +549,11 @@ export async function processRunValidation(job: Job): Promise<RunValidationResul
 
 function commandsOf(commands: unknown): string[] {
   return CommandsSchema.parse(commands ?? []);
+}
+
+/** Plan strategy label for attempt records; defensive for partial (mock) rows. */
+function strategyOf(plan: { strategy?: unknown }): string {
+  return typeof plan.strategy === "string" && plan.strategy ? plan.strategy : "unknown";
 }
 
 function fixtureOf(metadata: unknown): string | null {

@@ -24,6 +24,7 @@
     "@patchbay/queue": "workspace:*",
     "@patchbay/remediation-engine": "workspace:*",
     "@patchbay/repo-analysis": "workspace:*",
+    "@patchbay/telemetry": "workspace:*",
     "@patchbay/ui": "workspace:*",
     "@patchbay/vendor-connectors": "workspace:*",
     "driver.js": "^1.8.0",

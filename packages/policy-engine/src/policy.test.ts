@@ -23,7 +23,7 @@ describe("evaluatePolicy", () => {
     expect(result.reasons).toContain("Plan approval was explicitly rejected by reviewer");
   });
 
-  it("returns ALLOW_PLAN_ONLY when confidence is below threshold or no patches", () => {
+  it("returns PLAN_ONLY when confidence is below threshold or no patches", () => {
     const lowConf = evaluatePolicy({
       confidence: 65,
       patchCount: 1,
@@ -31,7 +31,7 @@ describe("evaluatePolicy", () => {
       hasPassingValidation: false,
       riskTags: [],
     });
-    expect(lowConf.decision).toBe(PolicyDecision.ALLOW_PLAN_ONLY);
+    expect(lowConf.decision).toBe(PolicyDecision.PLAN_ONLY);
 
     const noPatches = evaluatePolicy({
       confidence: 90,
@@ -40,7 +40,7 @@ describe("evaluatePolicy", () => {
       hasPassingValidation: false,
       riskTags: [],
     });
-    expect(noPatches.decision).toBe(PolicyDecision.ALLOW_PLAN_ONLY);
+    expect(noPatches.decision).toBe(PolicyDecision.PLAN_ONLY);
   });
 
   it("requires approval when sensitive risk tags (PAYMENT, AUTH) are present", () => {

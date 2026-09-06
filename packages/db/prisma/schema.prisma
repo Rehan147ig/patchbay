@@ -105,7 +105,10 @@ enum UsageType {
 enum RiskTag {
   PAYMENT
   AUTH
+  AUTHORIZATION
   PII
+  SECRETS
+  ENCRYPTION
   WEBHOOK
   INFRASTRUCTURE
   TEST_ONLY
@@ -169,11 +172,13 @@ enum ActorType {
 }
 
 enum PolicyDecision {
-  ALLOW_PLAN_ONLY
+  ASSESS
+  PLAN_ONLY
   ALLOW_VALIDATE
   ALLOW_DRAFT_PR
   REQUIRE_APPROVAL
   DENY
+  SUPPRESSED
 }
 
 // ---------------------------------------------------------------------------
@@ -346,6 +351,14 @@ model Organization {
   notifications          Notification[]
   taskParameters         TaskParameter[]
   vendors                Vendor[]
+  contractSources        ContractSource[]
+  contractConsumers      ContractConsumer[]
+  remediationAttempts    RemediationAttempt[]
+  policyDecisionRecords  PolicyDecisionRecord[]
+  validationProfiles     ValidationProfile[]
+  validationArtifacts    ValidationArtifact[]
+  deliveryAttempts       DeliveryAttempt[]
+  deadLetterJobs         DeadLetterJob[]
   workspaces             Workspace[]
   workspaceMembers       WorkspaceMember[]
   subscription           Subscription?
@@ -370,6 +383,13 @@ model AutonomyPolicy {
   vulnBypassStability Boolean @default(true)
   /// Package names excluded from the autonomous track (exact match).
   excludedPackages String[] @default([])
+  /**
+   * Organization default delivery autonomy (WP12): PLAN_ONLY (safest, plans
+   * and blast radius only), REQUIRE_APPROVAL (recommended, approval before
+   * any PR), ALLOW_DRAFT_PR (automatic validated draft PRs). Null = legacy
+   * behavior (no tier enforcement); the onboarding wizard always sets one.
+   */
+  defaultDecision String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -553,6 +573,8 @@ model Repository {
   graphEvidence      GraphSourceEvidence[]
   graphIndexJobs     GraphIndexJob[]
   remediationCases   RemediationCase[]
+  contractConsumers  ContractConsumer[]
+  validationProfiles ValidationProfile[]
 
   @@unique([organizationId, externalId])
   @@index([organizationId])
@@ -775,32 +797,87 @@ model RemediationCase {
   ownerUserId      String?
   terminalOutcome  String?
   terminalAt       DateTime?
-  releaseId        String
+  /**
+   * Release-funnel linkage; NULL for contract-driven cases (WP4), which link
+   * via contractChangeId instead. Existing rows are all populated.
+   */
+  releaseId        String?
   repositoryId     String
-  dependencyId     String
+  dependencyId     String?
   releaseRepositoryMatchId String?
+  /** Contract-driven cases (WP4): null for release-funnel cases. */
+  contractChangeId String?
+  /** Stable business key, traceable without hashing. */
+  caseKey          String?
+  /** Which funnel created the case: RELEASE, CONTRACT_CHANGE, MANUAL. */
+  triggerType      String?
+  /**
+   * Exact uniqueness token (sha256 of org/source/identity/repo) for the
+   * contract funnel; the release funnel keeps scopeKey. NULL for legacy rows;
+   * Postgres NULLS DISTINCT leaves them unaffected (partial index below
+   * enforces non-null keys in the migration).
+   */
+  dedupeKey        String?
   correlationId    String
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
   organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   workspace      Workspace?            @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
-  release        ReleaseRecord         @relation(fields: [releaseId], references: [id], onDelete: Cascade)
+  release        ReleaseRecord?        @relation(fields: [releaseId], references: [id], onDelete: Cascade)
   repository     Repository            @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
-  dependency     RepositoryDependency  @relation(fields: [dependencyId], references: [id], onDelete: Cascade)
+  dependency     RepositoryDependency? @relation(fields: [dependencyId], references: [id], onDelete: Cascade)
   match          ReleaseRepositoryMatch? @relation(fields: [releaseRepositoryMatchId], references: [id], onDelete: SetNull)
   snapshot       GraphSnapshot?        @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
+  contractChange ContractChange?       @relation(fields: [contractChangeId], references: [id], onDelete: SetNull)
   events         RemediationCaseEvent[]
   agentRuns      AgentRun[]
   plans          RemediationPlan[]
   outcomes       PrOutcome[]
-
+  impactAssessments ImpactAssessment[]
+  attempts       RemediationAttempt[]
+  policyDecisions PolicyDecisionRecord[]
   @@unique([scopeKey])
+  @@unique([organizationId, dedupeKey])
   @@index([organizationId, status, updatedAt])
   @@index([workspaceId])
   @@index([organizationId, releaseId])
   @@index([organizationId, repositoryId, status])
   @@index([releaseId, repositoryId, dependencyId])
+  @@index([organizationId, contractChangeId])
+}
+
+/**
+ * One recorded remediation strategy attempt (WP4): which strategy ran against
+ * a case, on what inputs, with what outcome. Writers arrive with strategy
+ * execution (run-validation records validation attempts; agent planning
+ * follows in WP7). Status vocabulary: SUCCEEDED, FAILED, SKIPPED.
+ */
+model RemediationAttempt {
+  id String @id @default(uuid())
+  organizationId String
+  caseId         String
+  strategyId     String
+  rulePackVersion String?
+  agentRunId     String?
+  /** SHA-256 over the attempt inputs (plan + validation row correlation). */
+  inputHash      String
+  /** SHA-256 over bounded outputs; null when nothing was produced. */
+  outputHash     String?
+  status         String
+  patchArtifactId String?
+  /** Short machine failure code; null on success. */
+  failureCode    String?
+  correlationId  String?
+  createdAt      DateTime @default(now())
+
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  remediationCase RemediationCase  @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  agentRun        AgentRun?        @relation(fields: [agentRunId], references: [id], onDelete: SetNull)
+  patchArtifact   PatchArtifact?   @relation(fields: [patchArtifactId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, caseId, createdAt])
+  @@index([caseId, strategyId])
 }
 
 /** Immutable timeline of a remediation case; every transition appends one row. */
@@ -862,6 +939,7 @@ model AgentRun {
   match      ReleaseRepositoryMatch? @relation(fields: [releaseRepositoryMatchId], references: [id], onDelete: SetNull)
   remediationCase RemediationCase? @relation(fields: [remediationCaseId], references: [id], onDelete: SetNull)
   steps      AgentStep[]
+  attempts   RemediationAttempt[]
 
   @@index([organizationId, status])
   @@index([organizationId, releaseRecordId, repositoryId])
@@ -971,6 +1049,8 @@ enum GraphNodeKind {
   SERVICE
   QUEUE_TOPIC
   DATABASE
+  MCP_SERVER
+  EVENT_HANDLER
 }
 
 enum GraphEdgeKind {
@@ -1029,6 +1109,8 @@ model GraphSnapshot {
   nodes        GraphNode[]
   edges        GraphEdge[]
   evidence     GraphSourceEvidence[]
+  consumers    ContractConsumer[]
+  impactAssessments ImpactAssessment[]
   indexJobs    GraphIndexJob[]
   remediationCases RemediationCase[]
   outcomes     PrOutcome[]
@@ -1190,6 +1272,139 @@ model NormalizedChange {
   @@index([changeType])
 }
 
+// ---------------------------------------------------------------------------
+// Contract pipeline (WP2): versioned external contracts as first-class rows.
+// Vendor/Release* models carry today's npm/release traffic; these three models
+// generalize to every contract family (REST, GraphQL, SDK, MCP, webhook,
+// async, auth/config) behind the ContractProviderAdapter interface.
+// ---------------------------------------------------------------------------
+
+model ContractSource {
+  id String @id @default(uuid())
+  /**
+   * Owning organization; NULL = public vendor source shared by all tenants.
+   * MIXED visibility like Vendor: never blanket-scoped (see ORG_SCOPE_EXEMPT_MODELS);
+   * every read filters `organizationId IN {NULL, caller-org}` explicitly at its call site.
+   */
+  organizationId String?
+  /** Contract family vocabulary lives in domain ContractKind; stored as string
+      so new families do not require enum migrations (Zod-validated at write boundaries). */
+  vendorSlug String
+  kind       String
+  name       String
+  /** KMS envelope ciphertext for provider credentials; null when the source needs none. */
+  configEncrypted String?
+  status          String    @default("ACTIVE")
+  lastObservedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization?    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  snapshots    ContractSnapshot[]
+  changes      ContractChange[]
+  consumers    ContractConsumer[]
+
+  /// Ingest idempotency for org-bound sources. Public (NULL-org) rows are NOT
+  /// covered by this constraint (Postgres NULLS DISTINCT) — see the partial
+  /// unique index in the WP2 migration for the NULL-org side.
+  @@unique([organizationId, vendorSlug, kind, name])
+  @@index([vendorSlug, kind])
+  @@index([organizationId, status])
+}
+
+model ContractSnapshot {
+  id String @id @default(uuid())
+  sourceId String
+  /** SHA-256 of the raw contract bytes (canonical identity). */
+  contentHash String
+  /** SHA-256 of the canonicalized normalized form (change detection). */
+  normalizedHash String
+  /** Content-addressed object-store key for the raw bytes; null until stored. */
+  rawArtifactUri String?
+  normalizedJson Json
+  parserVersion  String
+  observedAt     DateTime @default(now())
+  provenanceJson Json?
+
+  source ContractSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  changesFrom ContractChange[] @relation("ChangeFrom")
+  changesTo   ContractChange[] @relation("ChangeTo")
+
+  /// Same bytes observed twice store once: the pipeline returns the existing row.
+  @@unique([sourceId, contentHash])
+  @@index([sourceId, observedAt])
+}
+
+model ContractChange {
+  id String @id @default(uuid())
+  sourceId String
+  /** Null for the genesis observation (first snapshot has no predecessor). */
+  fromSnapshotId String?
+  toSnapshotId   String
+  changeType     String
+  severity       String
+  /** Adapter-normalized change identity (stable across re-polls). */
+  identity       String
+  description    String
+  evidenceJson   Json?
+  migrationHintsJson Json?
+  status         String @default("OPEN")
+
+  createdAt DateTime @default(now())
+
+  source       ContractSource    @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  fromSnapshot ContractSnapshot? @relation("ChangeFrom", fields: [fromSnapshotId], references: [id], onDelete: SetNull)
+  toSnapshot   ContractSnapshot  @relation("ChangeTo", fields: [toSnapshotId], references: [id], onDelete: Cascade)
+  cases        RemediationCase[]
+
+  /// One row per (source, endpoint snapshot, normalized identity): re-polls and
+  /// races converge instead of duplicating. Genesis rows (null fromSnapshotId)
+  /// are keyed by (source, to, identity) exactly like transitions.
+  @@unique([sourceId, toSnapshotId, identity])
+  @@index([sourceId, status])
+  @@index([toSnapshotId])
+}
+
+/**
+ * A repository's consumption of one contract (WP3): which package, server, or
+ * route the repo depends on, at which version, with what confidence, and the
+ * graph evidence proving it. Written by WP4 orchestration from the pure
+ * contractConsumersFromExtraction mapper; the graph snapshot that observed it
+ * pins the commit SHA for replay.
+ */
+model ContractConsumer {
+  id String @id @default(uuid())
+  organizationId String
+  repositoryId   String
+  contractSourceId String
+  /** Contract family vocabulary lives in domain ContractKind (Zod-validated at write boundaries). */
+  contractKind String
+  /** Stable within the repo: package name, MCP server name, or "METHOD /path". */
+  identifier   String
+  /** Declared range or pinned version; null when statically unknown (MCP servers, routes). */
+  versionRange String?
+  /** 0-100; resolution-pinned evidence scores higher than syntactic evidence. */
+  confidence   Int      @default(0)
+  evidenceJson Json?
+  /** Graph snapshot that observed this consumer (pins commit SHA + extractor version). */
+  graphSnapshotId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  repository     Repository      @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  contractSource ContractSource  @relation(fields: [contractSourceId], references: [id], onDelete: Cascade)
+  graphSnapshot  GraphSnapshot?  @relation(fields: [graphSnapshotId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, repositoryId, contractSourceId, identifier, versionRange])
+  @@index([organizationId, repositoryId])
+  @@index([organizationId, contractSourceId])
+  @@index([contractSourceId])
+}
+
 model IntegrationUsage {
   id String @id @default(uuid())
   organizationId     String
@@ -1223,23 +1438,36 @@ model IntegrationUsage {
 model ImpactAssessment {
   id String @id @default(uuid())
   organizationId     String
-  changeEventId      String
+  /** Release-funnel linkage; NULL for contract-driven assessments (WP4). */
+  changeEventId      String?
+  /** Contract-funnel linkage; NULL for release-funnel assessments. */
+  caseId             String?
   repositoryId       String
+  /** Graph snapshot that observed the evidence (pins commit SHA); null when unresolved. */
+  graphSnapshotId    String?
   score              Int
   confidence         Int
   affectedUsageCount Int          @default(0)
+  /** True when at least one consumer carries evidence for this repository. */
+  affected           Boolean      @default(false)
   riskLevel          RiskLevel
   rationale          String
+  blastRadiusJson    Json?
+  evidenceJson       Json?
+  reasonCode         String?
   status             ImpactStatus
   createdAt          DateTime     @default(now())
 
   organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  changeEvent  VendorChangeEvent  @relation(fields: [changeEventId], references: [id], onDelete: Cascade)
+  changeEvent  VendorChangeEvent? @relation(fields: [changeEventId], references: [id], onDelete: Cascade)
+  remediationCase RemediationCase? @relation(fields: [caseId], references: [id], onDelete: Cascade)
   repository   Repository         @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  graphSnapshot GraphSnapshot?    @relation(fields: [graphSnapshotId], references: [id], onDelete: SetNull)
   affectedUsages ImpactAssessmentUsage[]
   plans        RemediationPlan[]
 
   @@unique([changeEventId, repositoryId])
+  @@unique([caseId, repositoryId])
   @@index([organizationId])
   @@index([repositoryId])
   @@index([status])
@@ -1283,6 +1511,7 @@ model RemediationPlan {
   validations      ValidationRun[]
   pullRequests     PullRequest[]
   approvals        Approval[]
+  deliveryAttempts DeliveryAttempt[]
 
   @@index([organizationId])
   @@index([impactAssessmentId])
@@ -1306,6 +1535,7 @@ model PatchArtifact {
 
   organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   remediationPlan RemediationPlan @relation(fields: [remediationPlanId], references: [id], onDelete: Cascade)
+  attempts        RemediationAttempt[]
 
   @@index([organizationId])
   @@index([remediationPlanId])
@@ -1329,10 +1559,81 @@ model ValidationRun {
   organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   remediationPlan RemediationPlan @relation(fields: [remediationPlanId], references: [id], onDelete: Cascade)
   outcomes        PrOutcome[]
+  /** Execution-plane profile that backed this run (null = legacy static command set). */
+  validationProfileId String?
+  validationProfile   ValidationProfile? @relation(fields: [validationProfileId], references: [id], onDelete: SetNull)
+  artifact            ValidationArtifact?
 
   @@index([organizationId])
   @@index([remediationPlanId])
   @@index([status])
+  @@index([createdAt])
+}
+
+/**
+ * Pinned validation execution profile (WP8, spec §19/§9). Commands are fixed
+ * allowlist identifiers resolved server-side against the sandbox-runner
+ * registry — never raw command strings from models or repositories. An
+ * optional repositoryId scopes the profile to one repo; null means the
+ * org-wide default. Image digests pin the exact OCI content; timeouts and
+ * memory are bounded server-side at resolution time.
+ */
+model ValidationProfile {
+  id String @id @default(uuid())
+  organizationId String
+  repositoryId   String?
+  name           String
+  commandIds     String[]
+  image          String
+  imageDigest    String?
+  timeoutMs      Int
+  memoryLimit    String @default("512m")
+  networkPolicy  String @default("none")
+  version        Int    @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  repository      Repository?     @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  validationRuns  ValidationRun[]
+  artifacts       ValidationArtifact[]
+
+  @@unique([organizationId, repositoryId, name])
+  @@index([organizationId])
+  @@index([repositoryId])
+}
+
+/**
+ * Attestation for one terminal validation run (WP8, spec §19/§9). One row per
+ * run: the exact commands executed, their exit codes, the resolved image
+ * digest, content-addressed full logs in the evidence object store, and a
+ * hash over the canonical descriptor. SKIPPED and harness-error runs record
+ * no artifact — there is nothing to attest.
+ */
+model ValidationArtifact {
+  id String @id @default(uuid())
+  organizationId    String
+  validationRunId   String @unique
+  validationProfileId String?
+  /** SHA-256 over the canonical resolved command set (set identity). */
+  commandSetHash    String
+  commandsExecuted  String[]
+  exitCodes         Int[]
+  image             String?
+  imageDigest       String?
+  stdoutUri         String?
+  stderrUri         String?
+  stdoutComplete    Boolean @default(true)
+  stderrComplete    Boolean @default(true)
+  /** SHA-256 over the canonical artifact descriptor (tamper-evident). */
+  artifactHash      String
+  createdAt         DateTime @default(now())
+
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  validationRun     ValidationRun      @relation(fields: [validationRunId], references: [id], onDelete: Cascade)
+  validationProfile ValidationProfile? @relation(fields: [validationProfileId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
   @@index([createdAt])
 }
 
@@ -1350,6 +1651,7 @@ model PullRequest {
   organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   remediationPlan RemediationPlan @relation(fields: [remediationPlanId], references: [id], onDelete: Cascade)
   outcome         PrOutcome?
+  deliveryAttempts DeliveryAttempt[]
 
   @@unique([remediationPlanId])
   @@index([organizationId])
@@ -1369,6 +1671,140 @@ model Policy {
 
   @@unique([organizationId, name])
   @@index([organizationId])
+  decisions    PolicyDecisionRecord[]
+}
+
+/**
+ * Idempotent delivery ledger (WP9, spec §19/§12). One row per delivery
+ * action keyed by a stable idempotency key: the FIRST writer wins (unique
+ * key), retries adopt or observe the winner instead of delivering twice.
+ * This is what guarantees zero duplicate PRs across BullMQ retries and
+ * worker crashes — provider-side branch/PR dedup is only the second layer.
+ */
+model DeliveryAttempt {
+  id String @id @default(uuid())
+  organizationId    String
+  remediationPlanId String
+  pullRequestId     String?
+  /** Stable key: create:<remediationKey> | update:<planId> | checkrun:<planId>:<sha> | comment:<planId>:<purpose>. */
+  idempotencyKey    String @unique
+  /** CREATE | UPDATE | CHECK_RUN | COMMENT (validated by domain schema). */
+  action            String
+  /** IN_PROGRESS | SUCCEEDED | FAILED (validated by domain schema). */
+  status            String
+  attemptCount      Int     @default(1)
+  externalId        String?
+  url               String?
+  /** Classified provider failure (GITHUB_401, GITHUB_RATE_LIMITED, ...). */
+  errorCode         String?
+  /** Bounded, token-redacted failure detail. */
+  errorMessage      String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  remediationPlan RemediationPlan @relation(fields: [remediationPlanId], references: [id], onDelete: Cascade)
+  pullRequest     PullRequest?    @relation(fields: [pullRequestId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([remediationPlanId])
+  @@index([status])
+}
+/**
+ * Persistent dead-letter record (WP10, spec §10). The BullMQ DLQ queue holds
+ * the payload for transport; this row is the queryable system of record:
+ * WHAT failed terminally, with a redacted payload, a classified error code,
+ * and replay state. One row per idempotency key — a repeated terminal
+ * failure refreshes the row instead of duplicating it.
+ */
+model DeadLetterJob {
+  id String @id @default(uuid())
+  organizationId String
+  /** BullMQ job name (scan-repository, create-pr, ...). */
+  jobType        String
+  /** BullMQ job id, when the job carried one. */
+  jobId          String?
+  /** Stable key: dlq:<jobType>:<jobId-or-payloadHash>. First writer wins. */
+  idempotencyKey String @unique
+  /** Redacted job payload (secret-looking values scrubbed at write). */
+  payload        Json
+  /** SHA-256 over the canonical redacted payload (dedup + integrity). */
+  payloadHash    String
+  /** Classified failure (GITHUB_RATE_LIMITED, POLICY_BLOCKED, Error name...). */
+  errorCode      String?
+  /** Bounded, redacted failure detail. */
+  errorMessage   String?
+  attemptsMade   Int
+  correlationId  String?
+  /** OPEN | REPLAYED (validated by domain schema). */
+  status         String @default("OPEN")
+  replayedAt     DateTime?
+  /** BullMQ id of the replay job, when replayed through the API. */
+  replayJobId    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([jobType])
+}
+/**
+ * Immutable snapshot of one policy evaluation (WP5, spec §4.1/§8.1).
+ * Append-only: evaluations are never updated, only superseded by newer rows.
+ * Wired at case creation (upsertRemediationCase); policy-version tracking on
+ * the Policy row itself follows in a later package (policyVersion stays null
+ * until Policy rows carry versions).
+ */
+model PolicyDecisionRecord {
+  id String @id @default(uuid())
+  organizationId String
+  caseId         String?
+  policyId       String?
+  /** Spec §8.1 decision vocabulary (ASSESS/PLAN_ONLY/.../SUPPRESSED). */
+  decision       String
+  reasonCodes    Json?
+  riskTags       Json?
+  confidence     Int?
+  policyVersion  String?
+  evaluatedAt    DateTime @default(now())
+  /** Harness/code version that evaluated (prompt template, engine, or rule id). */
+  evaluatorVersion String?
+
+  createdAt DateTime @default(now())
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  remediationCase RemediationCase? @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  policy       Policy?          @relation(fields: [policyId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, caseId, createdAt])
+  @@index([caseId])
+}
+
+/**
+ * Versioned connector certification record (WP5, spec §4.1): the database
+ * mirror of the static capability registry. Sync writes come from
+ * syncConnectorCertifications (worker lib); precision/success rates are
+ * measured by evaluations, not asserted statically, so they start null.
+ * Status: CERTIFIED, EXPIRED, or REVOKED.
+ */
+model ConnectorCertification {
+  id String @id @default(uuid())
+  connectorSlug String
+  capability    String
+  version       String
+  corpusVersion String?
+  precision     Float?
+  patchSuccessRate Float?
+  validationSuccessRate Float?
+  status        String   @default("CERTIFIED")
+  approvedBy    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([connectorSlug, version])
+  @@index([connectorSlug, status])
 }
 
 model Approval {
@@ -1497,6 +1933,12 @@ model CapabilityGate {
   status         CapabilityGateStatus @default(ACTIVE)
   reason         String?
   suspendedAt    DateTime?
+  /**
+   * Consecutive unhealthy evaluations (WP10 hardening). Suspension fires
+   * only at minConsecutiveBreaches so one bad window cannot flap a gate;
+   * resets to 0 on a healthy evaluation (status itself restores by admin).
+   */
+  consecutiveBreaches Int @default(0)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 

@@ -84,7 +84,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       recordedBy: user.id,
       planId: pullRequest.remediationPlan?.id ?? null,
       caseId: pullRequest.remediationPlan?.remediationCaseId ?? null,
-      vendorSlug: pullRequest.remediationPlan?.impactAssessment.changeEvent.vendor.slug ?? null,
+      vendorSlug: pullRequest.remediationPlan?.impactAssessment.changeEvent?.vendor.slug ?? null,
       policyDecision: pullRequest.remediationPlan?.policyDecision ?? null,
       correlationId,
     });

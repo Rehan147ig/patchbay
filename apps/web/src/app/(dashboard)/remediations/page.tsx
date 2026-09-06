@@ -123,7 +123,7 @@ export default async function RemediationsPage() {
                       href={`/remediations/${plan.id}`}
                       className="text-[13px] font-semibold tracking-tight text-[#0071e3] hover:underline"
                     >
-                      {plan.impactAssessment.changeEvent.title}
+                      {plan.impactAssessment.changeEvent?.title ?? "Contract assessment"}
                     </Link>
                   </TableCell>
                   <TableCell className="text-[12px] font-medium tracking-tight text-[#1d1d1f]">

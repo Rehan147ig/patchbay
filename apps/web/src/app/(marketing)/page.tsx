@@ -7,46 +7,46 @@ import { PipelineShowcase } from "@/components/marketing/pipeline-showcase";
 import { Reveal } from "@/components/marketing/reveal";
 
 export const metadata: Metadata = {
-  title: "Patch â€” Governed API-Change Remediation",
+  title: "Patch — Governed API-Change Remediation",
   description:
-    "Patch detects breaking API and SDK changes, proves TypeScript usages across your repositories, and opens draft pull requests when certified rule packs exist.",
+    "Patch detects breaking API and SDK changes, proves TypeScript usages across your repositories, and opens reviewable draft pull requests with a proven fix.",
 };
 
 const CERTIFIED_MATRIX = [
   {
     vendor: "OpenAI Node SDK",
     package: "openai",
-    level: "DRAFT_PR",
-    scope: "createChatCompletion â†’ chat.completions.create, completion.data unwrap",
+    readiness: "Auto-fix ready",
+    scope: "createChatCompletion → chat.completions.create, completion.data unwrap",
     policyGate: "Auto Draft PR (when validation passes)",
   },
   {
     vendor: "Stripe Node SDK",
     package: "stripe",
-    level: "DRAFT_PR",
+    readiness: "Auto-fix ready",
     scope: "customers.create metadata requirement (PAYMENT approval required)",
     policyGate: "Requires Human Approval (PAYMENT risk)",
   },
   {
     vendor: "Twilio Node SDK",
     package: "twilio",
-    level: "DRAFT_PR",
-    scope: "client.messages.create â†’ client.messages.createV2",
+    readiness: "Auto-fix ready",
+    scope: "client.messages.create → client.messages.createV2",
     policyGate: "Auto Draft PR (when validation passes)",
   },
   {
     vendor: "Auth0 SDK",
     package: "auth0",
-    level: "PLAN",
+    readiness: "Fix on review",
     scope: "Authentication middleware & JWT signature updates",
-    policyGate: "Mandatory Human Approval (AUTH risk) â€” plan visible, no code patch",
+    policyGate: "Mandatory Human Approval (AUTH risk) — fix reviewed before the PR opens",
   },
   {
     vendor: "Generic OpenAPI Diff",
     package: "openapi-spec",
-    level: "ASSESS",
+    readiness: "Impact analysis",
     scope: "Schema property & response changes from spec diffs",
-    policyGate: "Observe & assess impact only â€” no automated code patch",
+    policyGate: "Shows exact blast radius and affected files — you write the fix",
   },
 ];
 
@@ -146,10 +146,10 @@ const FEATURES = [
   },
 ];
 
-const LEVEL_BADGE: Record<string, string> = {
-  DRAFT_PR: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  PLAN: "border-indigo-200 bg-indigo-50 text-indigo-700",
-  ASSESS: "border-gray-200 bg-gray-100 text-gray-600",
+const READINESS_BADGE: Record<string, string> = {
+  "Auto-fix ready": "border-emerald-200 bg-emerald-50 text-emerald-700",
+  "Fix on review": "border-indigo-200 bg-indigo-50 text-indigo-700",
+  "Impact analysis": "border-gray-200 bg-gray-100 text-gray-600",
 };
 
 function FeatureIcon({ name }: { name: string }) {
@@ -322,8 +322,8 @@ export default function LandingPage() {
 
             <p className="mx-auto mt-6 max-w-2xl text-pretty text-lg leading-relaxed text-zinc-500">
               A neutral GitHub App that detects SDK and API changes, proves TypeScript usages across
-              your repositories, and opens a reviewable draft pull request when a certified rule
-              pack exists.
+              your repositories, and opens a reviewable draft pull request with the best available
+              fix.
             </p>
 
             <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
@@ -358,7 +358,7 @@ export default function LandingPage() {
               Automation with a hard stop before merge
             </h2>
             <p className="mt-5 text-pretty text-lg text-gray-600">
-              Patch moves fast where it is certified to, and refuses to guess everywhere else. Every
+              Patch moves fast where the fix is proven, and refuses to guess everywhere else. Every
               decision recorded, every patch validated, every PR reviewable.
             </p>
           </div>
@@ -415,10 +415,11 @@ export default function LandingPage() {
               What Patch can patch â€” and what it won&apos;t
             </h2>
             <p className="mt-5 text-pretty text-lg text-gray-600">
-              8 certified for Draft PR (openai, stripe, twilio, anthropic, supabase, vercel-ai-sdk,
-              openai-python, google-gemini) + the rest at ASSESS via graph + blast-radius. Private
-              SDKs via agent. Automated Draft PRs are strictly limited to certified rule packs +
-              validation + human approval.
+              9 vendors ship with proven auto-fixes (openai, stripe, twilio, anthropic, supabase,
+              vercel-ai-sdk, openai-python, google-gemini, autonomous-generic) — everything else
+              gets full impact analysis. Private SDKs via agent. Draft PRs open only for proven
+              fixes + validation + human approval, each carrying a machine-readable evidence block
+              your tooling can audit.
             </p>
           </div>
         </Reveal>
@@ -429,7 +430,7 @@ export default function LandingPage() {
               <thead className="border-b border-gray-200 bg-gray-50 text-xs uppercase tracking-wider text-gray-500">
                 <tr>
                   <th className="px-5 py-3.5 font-medium">Vendor / Integration</th>
-                  <th className="px-5 py-3.5 font-medium">Certified Level</th>
+                  <th className="px-5 py-3.5 font-medium">Fix readiness</th>
                   <th className="px-5 py-3.5 font-medium">Scope & Capabilities</th>
                   <th className="px-5 py-3.5 font-medium">Policy Gate</th>
                 </tr>
@@ -443,9 +444,9 @@ export default function LandingPage() {
                     </td>
                     <td className="px-5 py-4">
                       <span
-                        className={`inline-flex rounded-full border px-2.5 py-1 font-mono text-[11px] font-semibold ${LEVEL_BADGE[row.level] ?? LEVEL_BADGE.ASSESS}`}
+                        className={`inline-flex rounded-full border px-2.5 py-1 font-mono text-[11px] font-semibold ${READINESS_BADGE[row.readiness] ?? READINESS_BADGE["Impact analysis"]}`}
                       >
-                        {row.level}
+                        {row.readiness}
                       </span>
                     </td>
                     <td className="px-5 py-4 text-xs leading-relaxed text-gray-600">{row.scope}</td>
@@ -460,8 +461,8 @@ export default function LandingPage() {
         </Reveal>
 
         <p className="mt-5 text-center text-xs text-gray-400">
-          Catalog membership â‰  auto-PR. Automated code patches require a certified rule pack,
-          validation profile, and passing evaluation corpus metrics.
+          Catalog membership ≠ auto-fix. Automated code patches require a proven fix pack,
+          validation profile, and passing evaluation metrics.
         </p>
       </section>
 

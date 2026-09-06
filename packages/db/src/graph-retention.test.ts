@@ -107,4 +107,51 @@ describe("pruneGraphSnapshots (WP5)", () => {
     expect(prisma.graphSnapshot.deleteMany).not.toHaveBeenCalled();
     expect(result.keptReady).toBe(0);
   });
+
+  it("honors operator-tunable retention windows (WP11)", async () => {
+    const now = new Date("2026-08-18T00:00:00Z");
+    const ready = Array.from({ length: 4 }, (_, i) =>
+      snapshot(`r-${i}`, new Date(now.getTime() - i * 60_000)),
+    );
+    vi.mocked(prisma.graphSnapshot.findMany)
+      .mockResolvedValueOnce(ready as never)
+      .mockResolvedValueOnce([] as never);
+
+    // maxReady 2 keeps r-0/r-1 and prunes r-2/r-3.
+    const result = await pruneGraphSnapshots({
+      organizationId: "org-1",
+      repositoryId: "repo-1",
+      now,
+      maxReady: 2,
+    });
+
+    expect(prisma.graphSnapshot.deleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ["r-2", "r-3"] } },
+    });
+    expect(result).toMatchObject({ readyDeleted: 2, keptReady: 2 });
+  });
+
+  it("honors a custom stale age for incomplete snapshots (WP11)", async () => {
+    const now = new Date("2026-08-18T00:00:00Z");
+    vi.mocked(prisma.graphSnapshot.findMany)
+      .mockResolvedValueOnce([] as never)
+      .mockResolvedValueOnce([snapshot("s-9", new Date(now.getTime() - 2 * 3_600_000))] as never);
+
+    // staleAgeMs 1h: a 2h-old INDEXING snapshot is stale.
+    const result = await pruneGraphSnapshots({
+      organizationId: "org-1",
+      repositoryId: "repo-1",
+      now,
+      staleAgeMs: 3_600_000,
+    });
+
+    expect(prisma.graphSnapshot.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          createdAt: { lt: new Date(now.getTime() - 3_600_000) },
+        }),
+      }),
+    );
+    expect(result.staleDeleted).toBe(1);
+  });
 });

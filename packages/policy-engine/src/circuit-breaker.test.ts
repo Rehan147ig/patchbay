@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { PolicyDecision } from "@patchbay/domain";
+import { PolicyDecision, type RulePack } from "@patchbay/domain";
 import {
   DEFAULT_CIRCUIT_BREAKER_LIMITS,
   evaluatePlanCircuitBreaker,
   evaluateFanoutCircuitBreaker,
   loadCircuitBreakerLimits,
+  resolvePlanLimits,
 } from "./circuit-breaker";
 
 describe("circuit-breaker", () => {
@@ -145,6 +146,47 @@ describe("circuit-breaker", () => {
       expect(result.trippedLimits[0]?.limitName).toBe("maxConcurrentDraftPrsPerOrg");
       expect(result.trippedLimits[0]?.observed).toBe(5);
       expect(result.reasons[0]).toContain("5 active draft PRs reaches organization quota (5)");
+    });
+  });
+
+  describe("resolvePlanLimits (WP6 pack budgets)", () => {
+    const pack: RulePack = {
+      packVersion: "test/1.0.0",
+      vendorSlug: "test",
+      contractKind: "SDK",
+      supportedChanges: ["METHOD_RENAMED"],
+      editBudget: { maxFiles: 10, maxEditsPerFile: 5, maxTotalBytes: 20_000 },
+      expectedEvidence: { requiresSourceHash: true, requiresLockfileVersion: true, minUsages: 1 },
+      validationProfile: "node-ts-reparse",
+      riskTags: [],
+      rollback: { strategy: "revert-commit", instructions: "Revert." },
+    };
+
+    it("returns no overrides without a pack (globals unchanged)", () => {
+      expect(resolvePlanLimits(undefined)).toEqual({});
+    });
+
+    it("tightens each breaker cap to the pack budget via minimum", () => {
+      expect(resolvePlanLimits(pack)).toEqual({
+        maxFilesPerRemediationPlan: Math.min(
+          DEFAULT_CIRCUIT_BREAKER_LIMITS.maxFilesPerRemediationPlan,
+          10,
+        ),
+        maxEditsPerFile: Math.min(DEFAULT_CIRCUIT_BREAKER_LIMITS.maxEditsPerFile, 5),
+        maxPatchBytesPerFile: Math.min(DEFAULT_CIRCUIT_BREAKER_LIMITS.maxPatchBytesPerFile, 20_000),
+      });
+    });
+
+    it("never loosens a cap above the global ceiling", () => {
+      const loose = resolvePlanLimits({
+        ...pack,
+        editBudget: { maxFiles: 10_000, maxEditsPerFile: 10_000, maxTotalBytes: 10_000_000 },
+      });
+      expect(loose.maxFilesPerRemediationPlan).toBe(
+        DEFAULT_CIRCUIT_BREAKER_LIMITS.maxFilesPerRemediationPlan,
+      );
+      expect(loose.maxEditsPerFile).toBe(DEFAULT_CIRCUIT_BREAKER_LIMITS.maxEditsPerFile);
+      expect(loose.maxPatchBytesPerFile).toBe(DEFAULT_CIRCUIT_BREAKER_LIMITS.maxPatchBytesPerFile);
     });
   });
 });

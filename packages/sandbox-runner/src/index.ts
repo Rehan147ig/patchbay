@@ -57,10 +57,85 @@ export const ALLOWED_COMMANDS = [
 export const SANDBOX_TIMEOUT_MS = 120_000;
 export const SANDBOX_MAX_OUTPUT_CHARS = 4_000;
 const HARD_OUTPUT_CAP_CHARS = 100_000;
+/** Raw (redacted, untruncated) stream bound — full logs stay within this cap. */
+export const SANDBOX_MAX_RAW_OUTPUT_CHARS = HARD_OUTPUT_CAP_CHARS;
 
 export function isAllowedCommand(command: string): boolean {
   return (ALLOWED_COMMANDS as readonly string[]).includes(command);
 }
+
+/**
+ * Server-side command identifiers for validation profiles (WP8, spec §19).
+ * Profiles store THESE ids — never raw command strings — and resolution maps
+ * them to exact allowlist entries. Models, repositories, and API callers can
+ * only ever select from this registry; anything else fails closed at resolve
+ * time AND at execution time (isAllowedCommand re-checks the resolved string).
+ */
+export const VALIDATION_COMMAND_REGISTRY = {
+  "pnpm-install-frozen": "pnpm install --frozen-lockfile",
+  "pnpm-lint": "pnpm lint",
+  "pnpm-typecheck": "pnpm typecheck",
+  "pnpm-test": "pnpm test",
+  "npm-ci": "npm ci",
+  "npm-lint": "npm run lint",
+  "npm-typecheck": "npm run typecheck",
+  "npm-test": "npm test",
+} as const;
+export type ValidationCommandId = keyof typeof VALIDATION_COMMAND_REGISTRY;
+
+// Fail fast at import: the registry must be an exact view over the allowlist.
+// If a registry value ever drifts off-allowlist, nothing runs until fixed.
+for (const command of Object.values(VALIDATION_COMMAND_REGISTRY)) {
+  if (!isAllowedCommand(command)) {
+    throw new Error(`validation command registry drifted off the allowlist: ${command}`);
+  }
+}
+
+/** Resolve profile command ids to exact allowlisted commands; unknown ids fail closed. */
+export function resolveValidationCommandIds(ids: readonly string[]): string[] {
+  return ids.map((id) => {
+    const command = (VALIDATION_COMMAND_REGISTRY as Record<string, string>)[id];
+    if (!command) {
+      throw new SandboxPolicyError(
+        `unknown validation command id: ${id}; profiles may only reference the server-side registry`,
+      );
+    }
+    return command;
+  });
+}
+
+/**
+ * Images the container sandbox may execute. Operator-extensible via
+ * SANDBOX_ALLOWED_IMAGES (comma-separated); anything else is rejected before
+ * Docker is ever invoked, closing the arbitrary-image-pull hole that a bare
+ * SANDBOX_IMAGE override would otherwise open.
+ */
+export function resolveAllowedImages(): string[] {
+  const fromEnv = (process.env.SANDBOX_ALLOWED_IMAGES ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  return fromEnv.length > 0 ? fromEnv : [SANDBOX_IMAGE];
+}
+
+export function resolveSandboxImage(): string {
+  return process.env.SANDBOX_IMAGE?.trim() || SANDBOX_IMAGE;
+}
+
+/** Fail closed when the image is not on the deployment's allowlist. */
+export function assertAllowedImage(image: string): void {
+  if (!resolveAllowedImages().includes(image)) {
+    throw new SandboxPolicyError(
+      `container image is not on the sandbox allowlist: ${image} ` +
+        `(allowed: ${resolveAllowedImages().join(", ")})`,
+    );
+  }
+}
+
+/** Absolute ceiling for profile-pinned per-command timeouts (10 minutes). */
+export const SANDBOX_MAX_TIMEOUT_MS = 600_000;
+/** Absolute ceiling for profile-pinned container memory (4 GiB). */
+export const SANDBOX_MAX_MEMORY_BYTES = 4 * 1024 * 1024 * 1024;
 
 export class SandboxError extends Error {
   readonly code = "COMMAND_NOT_ALLOWLISTED" as const;
@@ -143,6 +218,13 @@ export interface RunResult {
   stdout: string;
   stderr: string;
   output: string;
+  /**
+   * Redacted but UNTRUNCATED streams (bounded by SANDBOX_MAX_RAW_OUTPUT_CHARS).
+   * The inline stdout/stderr/output above stay at the 4k display bound; these
+   * carry the full fidelity the validation artifact attests and stores.
+   */
+  fullStdout: string;
+  fullStderr: string;
   provenance: RunProvenance;
 }
 
@@ -163,6 +245,17 @@ export interface RunOptions {
   networkPolicy?: NetworkPolicy;
   /** Read-only host directory mounted as the immutable package cache. */
   cacheDir?: string;
+  /** Container image override; must be on the deployment image allowlist. */
+  image?: string;
+  /**
+   * Expected OCI digest (sha256:…). When set, the runner resolves the image
+   * digest BEFORE spawning and fails closed on mismatch or on unresolvable
+   * digests. Only the container runtime can enforce this; other runtimes
+   * reject pinned runs outright.
+   */
+  expectedDigest?: string | null;
+  /** Per-run container memory bound (e.g. "512m"); profiles pin this. */
+  memory?: string;
 }
 
 /** Production is container-only until an implemented microVM runner exists. */
@@ -249,6 +342,16 @@ function processProvenance(
   };
 }
 
+/** Digest pins bind an exact OCI image identity; only the container runtime has one. */
+function rejectDigestPinWithoutImageIdentity(runtime: SandboxRuntime): Promise<never> {
+  return Promise.reject(
+    new SandboxPolicyError(
+      `the ${runtime} runner cannot enforce an image digest pin; ` +
+        "route pinned validations to the container runtime",
+    ),
+  );
+}
+
 /** Process-pool backend: spawns the command on the local host. Dev/test only. */
 export class ProcessSandboxRunner implements SandboxRunner {
   readonly runtime: SandboxRuntime = "process";
@@ -265,6 +368,9 @@ export class ProcessSandboxRunner implements SandboxRunner {
     }
     if (!isAllowedCommand(command)) {
       return Promise.reject(new SandboxError(command));
+    }
+    if (options.expectedDigest) {
+      return rejectDigestPinWithoutImageIdentity(this.runtime);
     }
 
     const [program, ...args] = command.split(/\s+/).filter((part) => part.length > 0);
@@ -424,6 +530,8 @@ export class ProcessSandboxRunner implements SandboxRunner {
           stdout: boundAndRedact(rawStdout),
           stderr: boundAndRedact(rawStderr),
           output: boundAndRedact(`${rawStdout}${rawStderr}`),
+          fullStdout: sanitizeText(rawStdout),
+          fullStderr: sanitizeText(rawStderr),
           provenance: processProvenance(
             cwd,
             timeoutMs,
@@ -444,6 +552,8 @@ export class ProcessSandboxRunner implements SandboxRunner {
           stdout: message,
           stderr: message,
           output: message,
+          fullStdout: message,
+          fullStderr: message,
           provenance: processProvenance(cwd, timeoutMs, "spawn-error"),
         });
       });
@@ -497,7 +607,8 @@ export function buildDockerRunArgs(
   cwd: string,
   options: ContainerSandboxOptions & { networkPolicy?: NetworkPolicy; cacheDir?: string } = {},
 ): string[] {
-  const image = options.image ?? process.env.SANDBOX_IMAGE ?? SANDBOX_IMAGE;
+  const image = options.image ?? resolveSandboxImage();
+  assertAllowedImage(image);
   const cpus = options.cpus ?? SANDBOX_CONTAINER_CPUS;
   const memory = options.memory ?? SANDBOX_CONTAINER_MEMORY;
   const pidsLimit = options.pidsLimit ?? SANDBOX_CONTAINER_PIDS_LIMIT;
@@ -671,6 +782,8 @@ export class ContainerSandboxRunner implements SandboxRunner {
         stdout: "",
         stderr: reason,
         output: reason,
+        fullStdout: "",
+        fullStderr: reason,
         provenance: containerProvenance(cwd, this.options, 0, null, "runtime-unavailable"),
       };
     }
@@ -682,12 +795,34 @@ export class ContainerSandboxRunner implements SandboxRunner {
       ...this.options,
       networkPolicy: options.networkPolicy ?? this.options.networkPolicy ?? "none",
       cacheDir: options.cacheDir ?? this.options.cacheDir,
+      image: options.image ?? this.options.image ?? resolveSandboxImage(),
+      memory: options.memory ?? this.options.memory,
     };
-    const image = runOptions.image ?? process.env.SANDBOX_IMAGE ?? SANDBOX_IMAGE;
+    // Allowlist-enforced inside (arbitrary images rejected before Docker runs).
     const args = buildDockerRunArgs(command, cwd, runOptions);
     const timeoutMs = options.timeoutMs ?? SANDBOX_TIMEOUT_MS;
     const started = performance.now();
+    const image = runOptions.image ?? resolveSandboxImage();
     const imageDigest = await this.imageDigestOf(image);
+    // Digest pin enforced BEFORE spawning: a mismatch (or an unresolvable
+    // digest when a pin is required) refuses execution with no side effects.
+    if (options.expectedDigest && imageDigest !== options.expectedDigest) {
+      const reason =
+        `container image digest mismatch for ${image}: expected ${options.expectedDigest}, ` +
+        `resolved ${imageDigest ?? "unresolvable"}; refusing to execute`;
+      return {
+        ok: false,
+        timedOut: false,
+        exitCode: null,
+        durationMs: Math.round(performance.now() - started),
+        stdout: reason,
+        stderr: reason,
+        output: reason,
+        fullStdout: reason,
+        fullStderr: reason,
+        provenance: containerProvenance(cwd, runOptions, timeoutMs, imageDigest, "policy-rejected"),
+      };
+    }
 
     const child = spawn("docker", args, {
       windowsHide: true,
@@ -754,6 +889,8 @@ export class ContainerSandboxRunner implements SandboxRunner {
           stdout: boundAndRedact(rawStdout),
           stderr: boundAndRedact(rawStderr),
           output: boundAndRedact(`${rawStdout}${rawStderr}`),
+          fullStdout: sanitizeText(rawStdout),
+          fullStderr: sanitizeText(rawStderr),
           provenance: containerProvenance(
             cwd,
             runOptions,
@@ -777,6 +914,8 @@ export class ContainerSandboxRunner implements SandboxRunner {
           stdout: message,
           stderr: message,
           output: message,
+          fullStdout: message,
+          fullStderr: message,
           provenance: containerProvenance(cwd, runOptions, timeoutMs, imageDigest, "spawn-error"),
         });
       });
@@ -838,6 +977,9 @@ export class MicroVmSandboxRunner implements SandboxRunner {
     if (!isAllowedCommand(command)) {
       return Promise.reject(new SandboxError(command));
     }
+    if (_options.expectedDigest) {
+      return rejectDigestPinWithoutImageIdentity(this.runtime);
+    }
     const reason = (await this.isAvailable())
       ? "microVM sandbox runtime is not implemented yet; route validations to SANDBOX_RUNTIME=process (development/test) or SANDBOX_RUNTIME=container"
       : "microVM sandbox runtime is not available on this host";
@@ -849,6 +991,8 @@ export class MicroVmSandboxRunner implements SandboxRunner {
       stdout: "",
       stderr: reason,
       output: reason,
+      fullStdout: "",
+      fullStderr: reason,
       provenance: {
         runtime: "microvm",
         mode: resolveSandboxMode(),

@@ -62,3 +62,34 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return jsonError(error, correlationId);
   }
 }
+
+/**
+ * GET /api/repositories/[id]/scan
+ * Latest scan status for progress polling (WP12 onboarding shadow scan):
+ * the wizard polls this until the scan leaves QUEUED/RUNNING. VIEWER and
+ * above; 404 when no scan exists yet (the UI treats that as "not started").
+ */
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const correlationId = getCorrelationId(request);
+  try {
+    const user = await requireRole("VIEWER");
+    const { id } = await params;
+    const repository = await prisma.repository.findFirst({
+      where: { id, organizationId: user.organizationId },
+      select: { id: true },
+    });
+    if (!repository) {
+      throw validationFailed("Repository not found");
+    }
+    const scan = await prisma.repositoryScan.findFirst({
+      where: { repositoryId: repository.id, organizationId: user.organizationId },
+      orderBy: { createdAt: "desc" },
+    });
+    if (!scan) {
+      throw validationFailed("No scan exists for this repository yet");
+    }
+    return jsonOk({ scan }, correlationId);
+  } catch (error) {
+    return jsonError(error, correlationId);
+  }
+}

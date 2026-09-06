@@ -7,9 +7,15 @@ import {
   LocalGitProvider,
   type CheckoutInput,
   type CheckoutResult,
+  type CreateCheckRunInput,
   type CreateDraftPRInput,
+  type CreatedCheckRun,
+  type CreatedIssueComment,
   type GitProvider,
   type PullRequestResult,
+  type SyncBranchInput,
+  type UpdatedPullRequest,
+  type UpdatePullRequestInput,
 } from "./local-provider";
 import {
   createGitHubAppProviderFromEnv,
@@ -54,6 +60,46 @@ interface GitHubPullRequest {
 }
 
 const DEFAULT_API_URL = "https://api.github.com";
+
+/**
+ * Classified GitHub API failure (WP9, spec §12). The worker records
+ * errorCode on the delivery ledger and lets BullMQ retry exactly the
+ * retryable classes (rate limits, 5xx, network, update races) while
+ * permission loss and auth failures go terminal with a clear message.
+ */
+export type GitHubErrorCode =
+  | "GITHUB_NETWORK"
+  | "GITHUB_UNAUTHORIZED"
+  | "GITHUB_PERMISSION_LOSS"
+  | "GITHUB_RATE_LIMITED"
+  | "GITHUB_NOT_FOUND"
+  | "GITHUB_ALREADY_EXISTS"
+  | "GITHUB_CONFLICT"
+  | "GITHUB_HTTP_ERROR";
+
+export class GitHubApiError extends Error {
+  /** HTTP status; 0 when the request never reached GitHub (network). */
+  readonly status: number;
+  readonly code: GitHubErrorCode;
+  readonly retryable: boolean;
+  /** Milliseconds until retry (rate-limit headers); null when unknown. */
+  readonly retryAfterMs: number | null;
+
+  constructor(init: {
+    message: string;
+    status: number;
+    code: GitHubErrorCode;
+    retryable: boolean;
+    retryAfterMs?: number | null;
+  }) {
+    super(init.message);
+    this.name = "GitHubApiError";
+    this.status = init.status;
+    this.code = init.code;
+    this.retryable = init.retryable;
+    this.retryAfterMs = init.retryAfterMs ?? null;
+  }
+}
 
 /**
  * Real GitHub provider: creates a branch off the base branch, commits every
@@ -116,7 +162,13 @@ export class GitHubProvider implements GitProvider {
     }
 
     await this.createBranch(owner, repo, input.branchName, base);
-    await this.applyPatches(owner, repo, input.branchName, input.title, input.patches);
+    const { commitSha } = await this.applyPatches(
+      owner,
+      repo,
+      input.branchName,
+      input.title,
+      input.patches,
+    );
     const pullRequest = await this.openDraftPR(owner, repo, base, input);
 
     return {
@@ -127,7 +179,99 @@ export class GitHubProvider implements GitProvider {
       title: input.title,
       body: input.body,
       status: PullRequestStatus.DRAFT,
+      headSha: commitSha,
     };
+  }
+
+  /**
+   * Update-on-advance (WP9): push a new commit with the new plan's patches
+   * onto an EXISTING delivery branch and refresh the PR title/body — no
+   * orphan PRs when a case advances. The ref update is never forced: a moved
+   * tip fails as a retryable GITHUB_CONFLICT (the retry refetches the tip)
+   * instead of clobbering concurrent work.
+   */
+  async syncBranchWithPatches(input: SyncBranchInput): Promise<{ commitSha: string }> {
+    const owner = this.config.repository.split("/")[0]!;
+    const repo = this.config.repository.split("/")[1]!;
+    if (input.patches.length === 0) {
+      throw new Error(
+        "syncBranchWithPatches requires at least one patch; refusing an empty commit",
+      );
+    }
+    const base = input.base ?? (await this.defaultBranch(owner, repo));
+    // Idempotent: a retry after a partial failure reuses the branch as-is.
+    await this.createBranch(owner, repo, input.branchName, base);
+    return this.applyPatches(owner, repo, input.branchName, input.title, input.patches);
+  }
+
+  /** Refresh a PR's title/body (WP9 update-on-advance keeps evidence current). */
+  async updatePullRequest(input: UpdatePullRequestInput): Promise<UpdatedPullRequest> {
+    const owner = this.config.repository.split("/")[0]!;
+    const repo = this.config.repository.split("/")[1]!;
+    if (!Number.isInteger(input.number) || input.number <= 0) {
+      throw new Error(`updatePullRequest requires a positive PR number, got: ${input.number}`);
+    }
+    if (input.title === undefined && input.body === undefined) {
+      throw new Error("updatePullRequest requires a title or body; refusing a no-op update");
+    }
+    const updated = await this.request<GitHubPullRequest>(
+      `/repos/${owner}/${repo}/pulls/${input.number}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          ...(input.title !== undefined ? { title: input.title } : {}),
+          ...(input.body !== undefined ? { body: input.body } : {}),
+        }),
+      },
+    );
+    return { number: input.number, htmlUrl: updated.html_url };
+  }
+
+  /**
+   * Report validation + policy results as a check run on the delivery head
+   * SHA (WP9). Callers treat failures as best-effort: the PR is already
+   * delivered, so a check-run failure falls back to a status comment and
+   * never fails delivery itself.
+   */
+  async createCheckRun(input: CreateCheckRunInput): Promise<CreatedCheckRun> {
+    const owner = this.config.repository.split("/")[0]!;
+    const repo = this.config.repository.split("/")[1]!;
+    const headSha = assertSafeSha(input.headSha);
+    if (!input.name) throw new Error("createCheckRun requires a check name");
+    if (!input.summary) throw new Error("createCheckRun requires a summary");
+    const created = await this.request<{ id: number; html_url: string | null }>(
+      `/repos/${owner}/${repo}/check-runs`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          name: input.name,
+          head_sha: headSha,
+          status: "completed",
+          conclusion: input.conclusion,
+          output: {
+            title: input.name,
+            summary: input.summary,
+            ...(input.text ? { text: input.text } : {}),
+          },
+        }),
+      },
+    );
+    return { id: created.id, htmlUrl: created.html_url };
+  }
+
+  /** Status-comment fallback when check runs are unavailable (WP9). */
+  async createIssueComment(input: { number: number; body: string }): Promise<CreatedIssueComment> {
+    const owner = this.config.repository.split("/")[0]!;
+    const repo = this.config.repository.split("/")[1]!;
+    if (!Number.isInteger(input.number) || input.number <= 0) {
+      throw new Error(`createIssueComment requires a positive PR number, got: ${input.number}`);
+    }
+    if (!input.body) throw new Error("createIssueComment requires a body");
+    const created = await this.request<{ id: number; html_url: string }>(
+      `/repos/${owner}/${repo}/issues/${input.number}/comments`,
+      { method: "POST", body: JSON.stringify({ body: input.body }) },
+    );
+    return { id: created.id, htmlUrl: created.html_url };
   }
 
   /**
@@ -258,6 +402,7 @@ export class GitHubProvider implements GitProvider {
    * sent: with a GitHub App installation token GitHub signs the commit as the
    * App bot (Verified badge). The ref update is never forced — if the branch
    * tip moved unexpectedly the call fails loudly instead of clobbering work.
+   * Returns the new tip SHA for check-run reporting.
    */
   private async applyPatches(
     owner: string,
@@ -265,7 +410,7 @@ export class GitHubProvider implements GitProvider {
     branchName: string,
     message: string,
     patches: Array<{ filePath: string; patchedContent: string }>,
-  ): Promise<void> {
+  ): Promise<{ commitSha: string }> {
     const filePaths = patches.map((patch) => {
       const filePath = patch.filePath.replace(/^\/+/, "");
       if (filePath.split("/").includes("..") || path.isAbsolute(patch.filePath)) {
@@ -311,6 +456,7 @@ export class GitHubProvider implements GitProvider {
       method: "PATCH",
       body: JSON.stringify({ sha: commit.sha }),
     });
+    return { commitSha: commit.sha };
   }
 
   private async openDraftPR(
@@ -366,16 +512,29 @@ export class GitHubProvider implements GitProvider {
     path: string,
     init: { method: string; body?: string; allowNotFound?: boolean },
   ): Promise<T> {
-    const response = await this.fetchImpl(`${this.apiUrl}${path}`, {
-      method: init.method,
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${this.config.token}`,
-        "X-GitHub-Api-Version": "2022-11-28",
-        ...(init.body ? { "Content-Type": "application/json" } : {}),
-      },
-      ...(init.body ? { body: init.body } : {}),
-    });
+    let response: Response;
+    try {
+      response = await this.fetchImpl(`${this.apiUrl}${path}`, {
+        method: init.method,
+        headers: {
+          Accept: "application/vnd.github+json",
+          Authorization: `Bearer ${this.config.token}`,
+          "X-GitHub-Api-Version": "2022-11-28",
+          ...(init.body ? { "Content-Type": "application/json" } : {}),
+        },
+        ...(init.body ? { body: init.body } : {}),
+      });
+    } catch (error) {
+      throw redactTokenInError(
+        new GitHubApiError({
+          message: `GitHub API ${init.method} ${path} network failure: ${error instanceof Error ? error.message : String(error)}`,
+          status: 0,
+          code: "GITHUB_NETWORK",
+          retryable: true,
+        }),
+        this.config.token,
+      );
+    }
 
     if (response.status === 404 && init.allowNotFound) {
       return null as T;
@@ -391,12 +550,91 @@ export class GitHubProvider implements GitProvider {
       } catch {
         // Non-JSON error body; use the raw text.
       }
-      throw new Error(
-        `GitHub API ${init.method} ${path} failed: ${response.status} ${detail || response.statusText}`,
+      throw redactTokenInError(
+        classifyGitHubFailure(response, init.method, path, detail),
+        this.config.token,
       );
     }
     return (await response.json()) as T;
   }
+}
+
+/**
+ * Classify a non-2xx GitHub response into a retryable-or-terminal error.
+ * The message format is unchanged from the pre-WP9 plain Errors so existing
+ * idempotency matches ("Reference already exists", "A pull request already
+ * exists", the App provider's 401 retry) keep working.
+ */
+export function classifyGitHubFailure(
+  response: Response,
+  method: string,
+  path: string,
+  detail: string,
+): GitHubApiError {
+  const status = response.status;
+  const message = `GitHub API ${method} ${path} failed: ${status} ${detail || response.statusText}`;
+  const rateLimitedSignal =
+    status === 429 ||
+    /rate limit|secondary rate|abuse detection/i.test(detail) ||
+    response.headers.get("x-ratelimit-remaining") === "0";
+  const retryAfterMs = parseRetryAfterMs(response);
+  if (status === 401) {
+    return new GitHubApiError({ message, status, code: "GITHUB_UNAUTHORIZED", retryable: false });
+  }
+  if (status === 403) {
+    return rateLimitedSignal
+      ? new GitHubApiError({
+          message,
+          status,
+          code: "GITHUB_RATE_LIMITED",
+          retryable: true,
+          retryAfterMs,
+        })
+      : new GitHubApiError({ message, status, code: "GITHUB_PERMISSION_LOSS", retryable: false });
+  }
+  if (rateLimitedSignal) {
+    return new GitHubApiError({
+      message,
+      status,
+      code: "GITHUB_RATE_LIMITED",
+      retryable: true,
+      retryAfterMs,
+    });
+  }
+  if (status === 404) {
+    return new GitHubApiError({ message, status, code: "GITHUB_NOT_FOUND", retryable: false });
+  }
+  if (/already exists/i.test(detail)) {
+    // Idempotency signals the callers handle by re-querying (branch/PR
+    // already there from a retry) — terminal as errors, never retried blind.
+    return new GitHubApiError({ message, status, code: "GITHUB_ALREADY_EXISTS", retryable: false });
+  }
+  if (status === 409 || /not a fast forward|tip|merge conflict|conflict/i.test(detail)) {
+    // A moved branch tip under a concurrent writer: retryable, the retry
+    // refetches the tip instead of force-pushing over it.
+    return new GitHubApiError({ message, status, code: "GITHUB_CONFLICT", retryable: true });
+  }
+  if (status >= 500) {
+    return new GitHubApiError({ message, status, code: "GITHUB_HTTP_ERROR", retryable: true });
+  }
+  return new GitHubApiError({ message, status, code: "GITHUB_HTTP_ERROR", retryable: false });
+}
+
+/** Retry-After (seconds) preferred, x-ratelimit-reset (epoch seconds) fallback. */
+function parseRetryAfterMs(response: Response): number | null {
+  const retryAfter = response.headers.get("retry-after");
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000);
+  }
+  const reset = response.headers.get("x-ratelimit-reset");
+  if (reset) {
+    const epochSeconds = Number(reset);
+    if (Number.isFinite(epochSeconds)) {
+      return Math.max(0, Math.round(epochSeconds * 1000 - Date.now()));
+    }
+  }
+  return null;
 }
 
 /**

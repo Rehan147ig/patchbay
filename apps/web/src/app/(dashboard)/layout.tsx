@@ -111,7 +111,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         </main>
         <footer className="border-t border-zinc-200/60 bg-white/50 px-6 py-4 text-center text-[11px] font-medium tracking-wide text-zinc-400 lg:px-8">
           Patch � You take care of development, we take care of codebase management.{" "}
-          <span className="text-zinc-500">34/34 corpus � 9 DRAFT_PR � SOC2</span>
+          <span className="text-zinc-500">36/36 corpus � 9 DRAFT_PR � SOC2</span>
         </footer>
       </div>
     </div>

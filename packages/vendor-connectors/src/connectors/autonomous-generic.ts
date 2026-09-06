@@ -1,4 +1,4 @@
-import { classifySemverBump, type SemverBumpKind } from "@patchbay/domain";
+import { classifySemverBump, type RulePack, type SemverBumpKind } from "@patchbay/domain";
 import type { NormalizedChangeDraft, PatchSuggestion, VendorConnector } from "../types";
 
 /**
@@ -80,6 +80,22 @@ export function isAutonomousDraftEligible(payload: unknown): boolean {
 
 export const autonomousGenericConnector: VendorConnector = {
   slug: AUTONOMOUS_GENERIC_SLUG,
+
+  /** WP6 rule-pack declaration (see openai.ts for the contract semantics). */
+  rulePack: {
+    packVersion: "semver-bump/1.0.0",
+    vendorSlug: AUTONOMOUS_GENERIC_SLUG,
+    contractKind: "SDK",
+    supportedChanges: ["SDK_VERSION_UPGRADE"],
+    editBudget: { maxFiles: 5, maxEditsPerFile: 5, maxTotalBytes: 10_000 },
+    expectedEvidence: { requiresSourceHash: true, requiresLockfileVersion: true, minUsages: 0 },
+    validationProfile: "node-ts-reparse + container-sandbox",
+    riskTags: [],
+    rollback: {
+      strategy: "revert-commit",
+      instructions: "Revert the Patchbay draft PR branch before merge.",
+    },
+  } satisfies RulePack,
 
   supports(rawPayload: unknown): boolean {
     return isAutonomousBumpPayload(rawPayload);

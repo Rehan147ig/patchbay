@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "@patchbay/domain": "workspace:*",
-    "undici": "^8.10.1"
+    "undici": "^8.10.1",
+    "zod": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

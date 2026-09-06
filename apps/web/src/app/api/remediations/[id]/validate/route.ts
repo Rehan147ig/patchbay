@@ -8,6 +8,7 @@ import { getCorrelationId, jsonError, jsonOk, writeAuditEvent } from "@/lib/api"
 import { requireRole } from "@/lib/auth";
 import { assertCsrfToken } from "@/lib/csrf-server";
 import { assertCapabilityGateOpen } from "@/lib/capability-gates";
+import { assertDeliveryQuota } from "@/lib/billing";
 
 /** Deterministic validation command set (ADR-0004 allowlist). */
 const VALIDATION_COMMANDS = ["pnpm install --frozen-lockfile"];
@@ -50,23 +51,43 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       },
     });
     if (!plan) throw validationFailed("Remediation plan not found");
-    const certification = requireCertified(
-      plan.impactAssessment.changeEvent.vendor.slug,
-      "VALIDATE",
-    );
+    // Certification requires a release change event's vendor. Contract-flow
+    // plans (WP4) carry none and fail closed here until WP6 planning exists.
+    const changeEvent = plan.impactAssessment.changeEvent;
+    if (!changeEvent) {
+      throw validationFailed("Plans without a release change event cannot be validated here");
+    }
+    const certification = requireCertified(changeEvent.vendor.slug, "VALIDATE");
     if (!certification.ok) {
       throw validationFailed(
-        `Connector ${plan.impactAssessment.changeEvent.vendor.slug} is not certified for VALIDATE: ${certification.reasons.join("; ")}`,
+        `Connector ${changeEvent.vendor.slug} is not certified for VALIDATE: ${certification.reasons.join("; ")}`,
       );
     }
-    await assertCapabilityGateOpen(
-      user.organizationId,
-      plan.impactAssessment.changeEvent.vendor.slug,
-      "VALIDATE",
-    );
+    await assertCapabilityGateOpen(user.organizationId, changeEvent.vendor.slug, "VALIDATE");
+    // Monthly validation budget first: fast 402 here, terminal refusal in the
+    // worker — same math, two layers, never a silent execution past quota.
+    await assertDeliveryQuota(user.organizationId, "VALIDATE");
     if (plan.patches.length === 0) {
       throw validationFailed("This plan has no patches to validate");
     }
+
+    // Execution-plane profile (WP8): repo-specific wins, org default
+    // (repositoryId null) is the fallback, deterministic by name. Null =
+    // legacy static command set (still allowlist-enforced at execution).
+    const repositoryId = plan.impactAssessment.repository.id as string | undefined;
+    const repoProfile = repositoryId
+      ? await prisma.validationProfile.findFirst({
+          where: { organizationId: user.organizationId, repositoryId },
+          orderBy: { name: "asc" },
+        })
+      : null;
+    const validationProfile =
+      repoProfile ??
+      (await prisma.validationProfile.findFirst({
+        where: { organizationId: user.organizationId, repositoryId: null },
+        orderBy: { name: "asc" },
+      }));
+    const validationProfileId = validationProfile?.id ?? null;
 
     // github-checks-only: record the run as SKIPPED without enqueuing anything —
     // customer code never executes on this host. SKIPPED is not PASSED, so the
@@ -78,6 +99,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           remediationPlanId: plan.id,
           status: ValidationStatus.SKIPPED,
           commands: VALIDATION_COMMANDS as never,
+          validationProfileId,
           stdout: SKIPPED_MESSAGE,
           completedAt: new Date(),
         },
@@ -109,6 +131,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         remediationPlanId: plan.id,
         status: ValidationStatus.QUEUED,
         commands: VALIDATION_COMMANDS as never,
+        validationProfileId,
       },
     });
 
@@ -127,7 +150,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       entityType: "remediationPlan",
       entityId: plan.id,
       correlationId,
-      after: { validationRunId: validationRun.id, commands: VALIDATION_COMMANDS },
+      after: {
+        validationRunId: validationRun.id,
+        commands: VALIDATION_COMMANDS,
+        validationProfileId,
+      },
     });
 
     return jsonOk(

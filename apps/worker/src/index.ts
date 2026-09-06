@@ -10,10 +10,12 @@
  * Phase 1: queue connection; Phase 2 adds the scan-repository processor.
  * Remaining processors arrive with their engine phases (docs/implementation-plan.md).
  */
-import { Worker } from "bullmq";
+import { Worker, type Job } from "bullmq";
+import { hostname } from "node:os";
 import { prisma } from "@patchbay/db";
 import { parseEnv } from "@patchbay/env";
 import { logger } from "@patchbay/domain";
+import { instrumentProcessor } from "@patchbay/telemetry";
 import {
   JobType,
   QUEUE_NAME,
@@ -24,6 +26,7 @@ import {
   acquireGlobalConcurrency,
   releaseGlobalConcurrency,
   ensureConcurrencyRedisReady,
+  writeWorkerHeartbeat,
 } from "@patchbay/queue";
 import {
   createSandboxRunner,
@@ -51,16 +54,57 @@ import { failedJobInfoFrom, handlePermanentlyFailedJob } from "./lib/job-failure
 import { sweepWatchtowerStaleness } from "./lib/watchtower-staleness";
 import { registerWatchtowerSchedulers } from "./schedule/watchtower";
 import { purgeExpiredAgentRuns } from "@patchbay/operations";
+import { purgeValidationArtifacts } from "@patchbay/db";
 import { sweepCapabilityHealth } from "./lib/capability-sweep";
 
 const TASK_SWEEP_INTERVAL_MS = 60_000;
+const HEARTBEAT_INTERVAL_MS = 15_000;
 const RETENTION_SWEEP_INTERVAL_MS = 6 * 60 * 60 * 1_000;
 const CAPABILITY_SWEEP_INTERVAL_MS = 30 * 60 * 1_000;
 const WATCHTOWER_STALENESS_SWEEP_INTERVAL_MS = 30 * 60 * 1_000;
 const AGENT_RUN_RETENTION_DAYS = Number(process.env.AGENT_RUN_RETENTION_DAYS ?? 90);
+const VALIDATION_ARTIFACT_RETENTION_DAYS = Number(
+  process.env.VALIDATION_ARTIFACT_RETENTION_DAYS ?? 90,
+);
 
 // Fail fast at boot: refuse to start with a missing or invalid configuration.
 const env = parseEnv();
+
+/** Route a job to its processor (wrapped in an OTEL span by the caller). */
+async function dispatchJob(job: Job): Promise<unknown> {
+  switch (job.name) {
+    case JobType.SCAN_REPOSITORY:
+      return processScanRepository(job);
+    case JobType.ANALYZE_CHANGE:
+      return processAnalyzeChange(job);
+    case JobType.RUN_VALIDATION:
+      return processRunValidation(job);
+    case JobType.CREATE_PR:
+      return processCreatePR(job);
+    case JobType.POLL_NPM_REGISTRY:
+      return processPollNpmRegistry(job);
+    case JobType.UPDATE_TASK_PARAMETER:
+      return processUpdateTaskParameter(job);
+    case JobType.GRAPH_INDEX:
+      return processGraphIndex(job);
+    case JobType.CLASSIFY_RELEASE:
+      return processClassifyRelease(job);
+    case JobType.MATCH_RELEASE:
+      return processMatchRelease(job);
+    case JobType.AGENT_PLAN:
+      return processAgentPlan(job);
+    case JobType.AGENT_REPLAY:
+      return processAgentReplay(job);
+    case JobType.DETECT_RELEASES:
+      return processDetectReleases(job);
+    case JobType.EVALUATE_CAPABILITY_HEALTH:
+      return processEvaluateCapabilityHealth(job);
+    case JobType.SIEM_FORWARD:
+      return processSiemForward(job);
+    default:
+      throw new Error(`unknown job type: ${job.name}`);
+  }
+}
 
 async function main(): Promise<void> {
   logger.info("patchbay-worker starting", { queue: QUEUE_NAME, redis: connection.options.host });
@@ -114,38 +158,10 @@ async function main(): Promise<void> {
       }
 
       try {
-        switch (job.name) {
-          case JobType.SCAN_REPOSITORY:
-            return processScanRepository(job);
-          case JobType.ANALYZE_CHANGE:
-            return processAnalyzeChange(job);
-          case JobType.RUN_VALIDATION:
-            return processRunValidation(job);
-          case JobType.CREATE_PR:
-            return processCreatePR(job);
-          case JobType.POLL_NPM_REGISTRY:
-            return processPollNpmRegistry(job);
-          case JobType.UPDATE_TASK_PARAMETER:
-            return processUpdateTaskParameter(job);
-          case JobType.GRAPH_INDEX:
-            return processGraphIndex(job);
-          case JobType.CLASSIFY_RELEASE:
-            return processClassifyRelease(job);
-          case JobType.MATCH_RELEASE:
-            return processMatchRelease(job);
-          case JobType.AGENT_PLAN:
-            return processAgentPlan(job);
-          case JobType.AGENT_REPLAY:
-            return processAgentReplay(job);
-          case JobType.DETECT_RELEASES:
-            return processDetectReleases(job);
-          case JobType.EVALUATE_CAPABILITY_HEALTH:
-            return processEvaluateCapabilityHealth(job);
-          case JobType.SIEM_FORWARD:
-            return processSiemForward(job);
-          default:
-            throw new Error(`unknown job type: ${job.name}`);
-        }
+        // One OTEL span per job (job.<type>) with outcome + duration recorded
+        // on the way out — including unknown-type rejections, which still
+        // count as failed transitions in the mirror and the metrics pipeline.
+        return await instrumentProcessor(job.name, dispatchJob)(job);
       } finally {
         // Always release both slots, even if the job threw.
         await releaseGlobalConcurrency();
@@ -199,6 +215,14 @@ async function main(): Promise<void> {
     }).catch((error: unknown) => {
       logger.error("agent run retention sweep failed", { error: String(error) });
     });
+    // Validation attestation is ephemeral: rows past the window go, and
+    // unreferenced log objects go with them (shared objects survive while
+    // any live artifact references them).
+    purgeValidationArtifacts({ olderThanDays: VALIDATION_ARTIFACT_RETENTION_DAYS }).catch(
+      (error: unknown) => {
+        logger.error("validation artifact retention sweep failed", { error: String(error) });
+      },
+    );
   }, RETENTION_SWEEP_INTERVAL_MS);
 
   const capabilitySweepTimer = setInterval(() => {
@@ -213,12 +237,27 @@ async function main(): Promise<void> {
     });
   }, WATCHTOWER_STALENESS_SWEEP_INTERVAL_MS);
 
+  // Liveness heartbeat for /api/operations/queues: best-effort, never fatal.
+  // A missed beat marks the worker stale in the dashboard, not dead in logs.
+  const workerId = `${hostname()}-${process.pid}`;
+  const workerStartedAt = new Date().toISOString();
+  const beat = (): void => {
+    writeWorkerHeartbeat({ workerId, startedAt: workerStartedAt, queue: QUEUE_NAME }).catch(
+      (error: unknown) => {
+        logger.error("worker heartbeat failed", { error: String(error) });
+      },
+    );
+  };
+  beat();
+  const heartbeatTimer = setInterval(beat, HEARTBEAT_INTERVAL_MS);
+
   const shutdown = async (signal: string): Promise<void> => {
     logger.info("patchbay-worker shutting down", { signal });
     clearInterval(sweepTimer);
     clearInterval(retentionTimer);
     clearInterval(capabilitySweepTimer);
     clearInterval(stalenessSweepTimer);
+    clearInterval(heartbeatTimer);
     // Deadline-bounded shutdown: a hung worker.close() must never stall the
     // process forever (in-flight jobs retry via BullMQ on restart).
     const SHUTDOWN_DEADLINE_MS = 30_000;

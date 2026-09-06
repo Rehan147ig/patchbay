@@ -29,6 +29,7 @@ function makePrisma(overrides: Record<string, unknown> = {}) {
     capabilityGate: {
       findUnique: vi.fn().mockResolvedValue(null as never),
       upsert: vi.fn().mockResolvedValue({ id: "gate-1", status: "ACTIVE" } as never),
+      update: vi.fn().mockResolvedValue({ id: "gate-1" } as never),
     },
     auditEvent: {
       create: vi.fn().mockResolvedValue({} as never),
@@ -200,8 +201,8 @@ describe("setCapabilityGate", () => {
 });
 
 describe("enforceCapabilityHealth", () => {
-  it("suspends the gate when the verdict is unhealthy", async () => {
-    const prisma = makePrisma({
+  function unhealthyPrisma(consecutiveBreaches: number | null) {
+    return makePrisma({
       pullRequest: {
         findMany: vi
           .fn()
@@ -210,17 +211,87 @@ describe("enforceCapabilityHealth", () => {
             prFor("stripe", PullRequestStatus.CLOSED),
           ] as never),
       },
+      capabilityGate: {
+        findUnique: vi
+          .fn()
+          .mockResolvedValue(
+            consecutiveBreaches === null
+              ? null
+              : ({ status: "ACTIVE", consecutiveBreaches } as never),
+          ),
+        upsert: vi.fn().mockResolvedValue({ id: "gate-1", status: "ACTIVE" } as never),
+        update: vi.fn().mockResolvedValue({ id: "gate-1" } as never),
+      },
     });
+  }
+
+  it("records a first strike without suspending (no single-window flaps)", async () => {
+    const prisma = unhealthyPrisma(null);
+    const verdict = await enforceCapabilityHealth(prisma, INPUT);
+    expect(verdict.healthy).toBe(false);
+    // Strike recorded quietly...
+    expect(prisma.capabilityGate.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({ consecutiveBreaches: 1 }),
+      }),
+    );
+    // ...but no suspension, no suspension audit.
+    expect(prisma.auditEvent.create).not.toHaveBeenCalled();
+  });
+
+  it("suspends on the second consecutive breach (default threshold)", async () => {
+    const prisma = unhealthyPrisma(1);
     const verdict = await enforceCapabilityHealth(prisma, INPUT);
     expect(verdict.healthy).toBe(false);
     expect(prisma.capabilityGate.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        create: expect.objectContaining({ status: CapabilityGateStatus.SUSPENDED }),
+        update: expect.objectContaining({ consecutiveBreaches: 2 }),
       }),
     );
+    // Suspension transition audited exactly once.
+    expect(prisma.auditEvent.create).toHaveBeenCalledTimes(1);
   });
 
-  it("leaves the gate alone when healthy", async () => {
+  it("suspends immediately with an explicit single-strike threshold", async () => {
+    const prisma = unhealthyPrisma(null);
+    const verdict = await enforceCapabilityHealth(prisma, {
+      ...INPUT,
+      minConsecutiveBreaches: 1,
+    });
+    expect(verdict.healthy).toBe(false);
+    expect(prisma.auditEvent.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("resets the breach counter on a healthy evaluation without touching status", async () => {
+    const prisma = makePrisma({
+      pullRequest: {
+        findMany: vi
+          .fn()
+          .mockResolvedValue([
+            prFor("stripe", PullRequestStatus.MERGED),
+            prFor("stripe", PullRequestStatus.MERGED),
+          ] as never),
+      },
+      capabilityGate: {
+        findUnique: vi
+          .fn()
+          .mockResolvedValue({ status: "ACTIVE", consecutiveBreaches: 1 } as never),
+        upsert: vi.fn(),
+        update: vi.fn().mockResolvedValue({ id: "gate-1" } as never),
+      },
+    });
+    const verdict = await enforceCapabilityHealth(prisma, INPUT);
+    expect(verdict.healthy).toBe(true);
+    expect(prisma.capabilityGate.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ consecutiveBreaches: 0 }),
+      }),
+    );
+    expect(prisma.capabilityGate.upsert).not.toHaveBeenCalled();
+    expect(prisma.auditEvent.create).not.toHaveBeenCalled();
+  });
+
+  it("leaves the gate alone when healthy with no prior breaches", async () => {
     const prisma = makePrisma({
       pullRequest: {
         findMany: vi
@@ -234,6 +305,7 @@ describe("enforceCapabilityHealth", () => {
     const verdict = await enforceCapabilityHealth(prisma, INPUT);
     expect(verdict.healthy).toBe(true);
     expect(prisma.capabilityGate.upsert).not.toHaveBeenCalled();
+    expect(prisma.capabilityGate.update).not.toHaveBeenCalled();
   });
 });
 

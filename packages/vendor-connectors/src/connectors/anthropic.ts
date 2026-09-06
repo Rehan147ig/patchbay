@@ -1,4 +1,5 @@
 import { defineConnector } from "../sdk";
+import type { RulePack } from "@patchbay/domain";
 
 /**
  * Anthropic Messages API connector (certified DRAFT_PR).
@@ -10,6 +11,21 @@ import { defineConnector } from "../sdk";
 export const anthropicConnector = defineConnector({
   slug: "anthropic",
   identifiers: ["anthropic", "@anthropic-ai/sdk", "claude"],
+  /** WP6 rule-pack declaration (see openai.ts for the contract semantics). */
+  rulePack: {
+    packVersion: "1.0.0",
+    vendorSlug: "anthropic",
+    contractKind: "SDK",
+    supportedChanges: ["METHOD_RENAMED"],
+    editBudget: { maxFiles: 10, maxEditsPerFile: 10, maxTotalBytes: 50_000 },
+    expectedEvidence: { requiresSourceHash: true, requiresLockfileVersion: true, minUsages: 1 },
+    validationProfile: "node-ts-reparse + container-sandbox",
+    riskTags: [],
+    rollback: {
+      strategy: "revert-commit",
+      instructions: "Revert the Patchbay draft PR branch before merge.",
+    },
+  } satisfies RulePack,
   rules: [
     {
       changeType: "METHOD_RENAMED",

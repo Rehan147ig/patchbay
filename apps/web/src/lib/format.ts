@@ -147,7 +147,10 @@ export const CHANGE_TYPE_LABEL: Record<ChangeType, string> = {
 export const RISK_TAG_LABEL: Record<RiskTag, string> = {
   PAYMENT: "payment",
   AUTH: "auth",
+  AUTHORIZATION: "authorization",
   PII: "pii",
+  SECRETS: "secrets",
+  ENCRYPTION: "encryption",
   WEBHOOK: "webhook",
   INFRASTRUCTURE: "infrastructure",
   TEST_ONLY: "test-only",
@@ -157,7 +160,10 @@ export const RISK_TAG_LABEL: Record<RiskTag, string> = {
 export const RISK_TAG_TONE: Record<RiskTag, BadgeTone> = {
   PAYMENT: "red",
   AUTH: "red",
+  AUTHORIZATION: "red",
   PII: "purple",
+  SECRETS: "red",
+  ENCRYPTION: "blue",
   WEBHOOK: "amber",
   INFRASTRUCTURE: "blue",
   TEST_ONLY: "green",

@@ -1,6 +1,6 @@
 export { openaiConnector } from "./connectors/openai";
 export { OPENAI_PYTHON_CLIENT_VARIABLE, openaiPythonConnector } from "./connectors/openai-python";
-export { connectors, getConnector } from "./registry";
+export { connectors, getConnector, requireRulePack } from "./registry";
 export {
   getRegistryRecipe,
   getSigningKeys,
@@ -62,16 +62,37 @@ export {
   buildTlsConnectOptions,
   enterpriseDispatcherFor,
   fetchWithTrust,
+  fetchWithTrustRetry,
+  parseRetryAfterMs,
   resetCustomCaCache,
   TrustViolationError,
 } from "./safe-fetch";
 export type {
   CustomCaConfig,
+  FetchRetryPolicy,
   TlsConnectOptions,
   TrustedFetchOptions,
   TrustedFetchResult,
   TrustViolationReason,
 } from "./safe-fetch";
+export {
+  inboundEventSchema,
+  migrationHintSchema,
+  normalizedChangeSchema,
+  normalizedContractSnapshotSchema,
+  rawContractSnapshotSchema,
+} from "./contract-provider";
+export type {
+  ContractProviderAdapter,
+  ContractSourceRef,
+  InboundEvent,
+  MigrationHint,
+  NormalizedChange,
+  NormalizedContractSnapshot,
+  RawContractSnapshot,
+  VerifiedEvent,
+} from "./contract-provider";
+export { canonicalJson, sha256Hex } from "./contract-hash";
 export {
   authenticityForSource,
   privateNpmRegistryHost,

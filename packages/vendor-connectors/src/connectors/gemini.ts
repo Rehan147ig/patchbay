@@ -1,4 +1,5 @@
 import type { NormalizedChangeDraft, PatchSuggestion, VendorConnector } from "../types";
+import type { RulePack } from "@patchbay/domain";
 
 /**
  * Google Gemini connector (`@google/generative-ai`).
@@ -45,6 +46,22 @@ function isGeminiPayload(payload: unknown): payload is GeminiMigrationPayload {
 
 export const geminiConnector: VendorConnector = {
   slug: "google-gemini",
+
+  /** WP6 rule-pack declaration (see openai.ts for the contract semantics). */
+  rulePack: {
+    packVersion: "1.0.0",
+    vendorSlug: "google-gemini",
+    contractKind: "SDK",
+    supportedChanges: ["SDK_VERSION_UPGRADE", "METHOD_RENAMED"],
+    editBudget: { maxFiles: 10, maxEditsPerFile: 10, maxTotalBytes: 50_000 },
+    expectedEvidence: { requiresSourceHash: true, requiresLockfileVersion: true, minUsages: 1 },
+    validationProfile: "node-ts-reparse + container-sandbox",
+    riskTags: [],
+    rollback: {
+      strategy: "revert-commit",
+      instructions: "Revert the Patchbay draft PR branch before merge.",
+    },
+  } satisfies RulePack,
 
   supports(rawPayload: unknown): boolean {
     return isGeminiPayload(rawPayload);

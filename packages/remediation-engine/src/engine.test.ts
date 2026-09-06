@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import type { RulePack } from "@patchbay/domain";
 import { openaiConnector, openaiPythonConnector } from "@patchbay/vendor-connectors";
 import { applyPythonClientBootstrap, generatePlan, validatePatchSyntax } from "./engine";
 import { unifiedDiff } from "./diff";
@@ -606,5 +607,67 @@ describe("applyModelUpdate", () => {
     expect(applyModelUpdate(`const m = 1;`, 9, { from: "gpt-4o", to: "gpt-4o-mini" })).toBe(
       `const m = 1;`,
     );
+  });
+});
+
+describe("generatePlan rule-pack budgets (WP6)", () => {
+  const tightPack: RulePack = {
+    packVersion: "test/1.0.0",
+    vendorSlug: "openai",
+    contractKind: "SDK",
+    supportedChanges: ["METHOD_RENAMED"],
+    editBudget: { maxFiles: 10, maxEditsPerFile: 1, maxTotalBytes: 50_000 },
+    expectedEvidence: { requiresSourceHash: true, requiresLockfileVersion: true, minUsages: 1 },
+    validationProfile: "node-ts-reparse",
+    riskTags: [],
+    rollback: { strategy: "revert-commit", instructions: "Revert." },
+  };
+
+  it("throttles to human review when the plan exceeds the pack edit budget", async () => {
+    const plan = await generatePlan({ ...openAiInput(), rulePack: { ...tightPack } });
+    // chat-service.ts takes 2 edits (rename + unwrap); the pack allows 1.
+    expect(plan.requiresHumanReview).toBe(true);
+    expect(plan.strategy).toContain("Circuit breaker");
+  });
+
+  it("leaves conforming plans untouched under a generous pack", async () => {
+    const plan = await generatePlan({
+      ...openAiInput(),
+      rulePack: {
+        ...tightPack,
+        editBudget: { maxFiles: 10, maxEditsPerFile: 10, maxTotalBytes: 50_000 },
+      },
+    });
+    expect(plan.requiresHumanReview).toBe(false);
+    expect(plan.patches).toHaveLength(1);
+  });
+});
+
+describe("generatePlan source-hash drift (WP6 §6.3)", () => {
+  it("refuses files whose content drifted since the bound hash, patching nothing", async () => {
+    const input = openAiInput();
+    const plan = await generatePlan({
+      ...input,
+      expectedFileHashes: new Map([
+        ["src/chat/chat-service.ts", "0".repeat(64)],
+        ["src/chat/conversation-store.ts", "1".repeat(64)],
+      ]),
+    });
+    expect(plan.patches).toEqual([]);
+    expect(plan.skippedFiles).toEqual(["src/chat/chat-service.ts"]);
+  });
+
+  it("applies files whose bound hashes still match", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { createHash } = await import("node:crypto");
+    const input = openAiInput();
+    const content = readFileSync(`${OPENAI_FIXTURE}/src/chat/chat-service.ts`, "utf8");
+    const hash = createHash("sha256").update(content).digest("hex");
+    const plan = await generatePlan({
+      ...input,
+      expectedFileHashes: new Map([["src/chat/chat-service.ts", hash]]),
+    });
+    expect(plan.patches).toHaveLength(1);
+    expect(plan.skippedFiles).toEqual([]);
   });
 });

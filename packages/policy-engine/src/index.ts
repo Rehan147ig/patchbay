@@ -18,10 +18,17 @@ export const DEFAULT_POLICY: PolicyRule = {
   name: "Default Safety & Governance Policy",
   minConfidenceForPatch: 70,
   minConfidenceForPR: 85,
+  // Conservative autonomy (P1-9): payments, auth, encryption, PII, secrets,
+  // authorization, infrastructure, webhooks, and by extension migrations/
+  // lockfile-wide changes (surfaced as INFRASTRUCTURE via blast-radius) all
+  // require human approval — never silent draft-PR.
   sensitiveRiskTags: [
     RiskTag.PAYMENT,
     RiskTag.AUTH,
+    RiskTag.AUTHORIZATION,
     RiskTag.PII,
+    RiskTag.SECRETS,
+    RiskTag.ENCRYPTION,
     RiskTag.WEBHOOK,
     RiskTag.INFRASTRUCTURE,
   ],
@@ -150,7 +157,7 @@ export function evaluatePolicy(
     };
   }
 
-  // 2. Low confidence or no patches -> ALLOW_PLAN_ONLY
+  // 2. Low confidence or no patches -> PLAN_ONLY
   if (plan.patchCount === 0 || plan.confidence < policy.minConfidenceForPatch) {
     if (plan.patchCount === 0) {
       reasons.push("No automated patches generated; plan-only remediation");
@@ -161,7 +168,7 @@ export function evaluatePolicy(
       );
     }
     return {
-      decision: PolicyDecision.ALLOW_PLAN_ONLY,
+      decision: PolicyDecision.PLAN_ONLY,
       reasons,
       matchedPolicyIds,
       canCreatePR: false,

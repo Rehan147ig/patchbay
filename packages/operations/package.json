@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@patchbay/audit": "workspace:*",
+    "@patchbay/billing": "workspace:*",
     "@patchbay/domain": "workspace:*",
     "@patchbay/vendor-connectors": "workspace:*"
   },

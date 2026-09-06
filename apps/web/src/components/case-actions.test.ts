@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { approveAndDraftPR, type CaseActionFetcher } from "./case-actions";
+import { actionEndpoint, approveAndDraftPR, type CaseActionFetcher } from "./case-actions";
 
 function fetcherFor(
   approve: { ok: boolean; message: string | null },
@@ -51,5 +51,22 @@ describe("approveAndDraftPR", () => {
       message: "Policy blocks draft PR",
     });
     expect(calls).toEqual(["/api/cases/case-1/approve", "/api/cases/case-1/draft-pr"]);
+  });
+});
+
+describe("actionEndpoint (WP12 maintenance namespace)", () => {
+  it("routes funnel actions through the maintenance contract", () => {
+    expect(actionEndpoint("case-1", "assess")).toBe("/api/maintenance/cases/case-1/assess");
+    expect(actionEndpoint("case-1", "plan")).toBe("/api/maintenance/cases/case-1/plan");
+    expect(actionEndpoint("case-1", "validate")).toBe("/api/maintenance/cases/case-1/validate");
+    expect(actionEndpoint("case-1", "suppress")).toBe("/api/maintenance/cases/case-1/suppress");
+  });
+
+  it("keeps legacy vectors on their existing endpoints", () => {
+    expect(actionEndpoint("case-1", "approve")).toBe("/api/cases/case-1/approve");
+    expect(actionEndpoint("case-1", "draft-pr")).toBe("/api/cases/case-1/draft-pr");
+    expect(actionEndpoint("case-1", "cancel")).toBe("/api/cases/case-1/cancel");
+    expect(actionEndpoint("case-1", "reject")).toBe("/api/cases/case-1/reject");
+    expect(actionEndpoint("case-1", "replay")).toBe("/api/cases/case-1/replay");
   });
 });

@@ -14,17 +14,31 @@ export interface PlanDefinition {
   priceCents: number | null;
   /** Active-repository cap; null = unlimited. */
   repositoryCap: number | null;
+  /** Validations executed per calendar month (UTC); null = unlimited. */
+  monthlyValidations: number | null;
+  /** Draft PRs delivered per calendar month (UTC); null = unlimited. */
+  monthlyDraftPRs: number | null;
   /** Stripe price id for checkout, resolved from env; null = not purchasable. */
   stripePriceId: string | null;
 }
 
 export const PLAN_DEFINITIONS: Record<PlanTier, PlanDefinition> = {
-  FREE: { tier: "FREE", label: "Free", priceCents: 0, repositoryCap: 1, stripePriceId: null },
+  FREE: {
+    tier: "FREE",
+    label: "Free",
+    priceCents: 0,
+    repositoryCap: 1,
+    monthlyValidations: 50,
+    monthlyDraftPRs: 10,
+    stripePriceId: null,
+  },
   PRO: {
     tier: "PRO",
     label: "Pro",
     priceCents: 14900,
     repositoryCap: 10,
+    monthlyValidations: 1000,
+    monthlyDraftPRs: 200,
     stripePriceId: null,
   },
   TEAM: {
@@ -32,6 +46,8 @@ export const PLAN_DEFINITIONS: Record<PlanTier, PlanDefinition> = {
     label: "Team",
     priceCents: 49900,
     repositoryCap: 50,
+    monthlyValidations: 5000,
+    monthlyDraftPRs: 1000,
     stripePriceId: null,
   },
   ENTERPRISE: {
@@ -39,6 +55,8 @@ export const PLAN_DEFINITIONS: Record<PlanTier, PlanDefinition> = {
     label: "Enterprise",
     priceCents: null,
     repositoryCap: null,
+    monthlyValidations: null,
+    monthlyDraftPRs: null,
     stripePriceId: null,
   },
 };
@@ -101,6 +119,13 @@ export function planTierFromDodoProductId(
 
 export function repositoryCapForTier(tier: PlanTier): number | null {
   return PLAN_DEFINITIONS[tier]?.repositoryCap ?? null;
+}
+
+/** Monthly delivery quota for a tier + kind; null = unlimited. */
+export function deliveryQuotaForTier(tier: PlanTier, kind: "VALIDATE" | "DRAFT_PR"): number | null {
+  const definition = PLAN_DEFINITIONS[tier];
+  if (!definition) return null;
+  return kind === "VALIDATE" ? definition.monthlyValidations : definition.monthlyDraftPRs;
 }
 
 export function planLabel(tier: PlanTier): string {

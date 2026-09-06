@@ -40,11 +40,16 @@ describe("sweepCapabilityHealth", () => {
       prRow("org-b", "stripe"),
     ] as never);
     const result = await sweepCapabilityHealth(new Date("2026-08-01T00:00:00Z"));
-    expect(result.evaluated).toBe(3);
-    expect(enqueue).toHaveBeenCalledTimes(3);
+    // WP10 hardening: DRAFT_PR + VALIDATE per pair.
+    expect(result.evaluated).toBe(6);
+    expect(enqueue).toHaveBeenCalledTimes(6);
     expect(enqueue).toHaveBeenCalledWith(
       "EVALUATE_CAPABILITY_HEALTH",
-      expect.objectContaining({ organizationId: "org-a", vendorSlug: "stripe" }),
+      expect.objectContaining({ organizationId: "org-a", vendorSlug: "stripe", level: "DRAFT_PR" }),
+    );
+    expect(enqueue).toHaveBeenCalledWith(
+      "EVALUATE_CAPABILITY_HEALTH",
+      expect.objectContaining({ organizationId: "org-a", vendorSlug: "stripe", level: "VALIDATE" }),
     );
     expect(enqueue).toHaveBeenCalledWith(
       "EVALUATE_CAPABILITY_HEALTH",

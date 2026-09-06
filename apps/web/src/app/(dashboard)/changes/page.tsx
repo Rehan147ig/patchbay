@@ -22,11 +22,36 @@ export const metadata: Metadata = {
   title: "Change events",
 };
 
-export default async function ChangesPage() {
+export default async function ChangesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ vendor?: string; severity?: string; source?: string }>;
+}) {
   const user = await requireRole("VIEWER");
+  const filters = await searchParams;
+
+  const vendors = await prisma.vendor.findMany({
+    where: { OR: [{ organizationId: null }, { organizationId: user.organizationId }] },
+    orderBy: { name: "asc" },
+    select: { slug: true, name: true },
+  });
+  const severities = ["INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
+  const sources = ["SDK_RELEASE", "OPENAPI_DIFF", "CHANGELOG", "WEBHOOK", "MANUAL"] as const;
+  const vendorFilter = vendors.some((v) => v.slug === filters.vendor) ? filters.vendor : undefined;
+  const severityFilter = (severities as readonly string[]).includes(filters.severity ?? "")
+    ? (filters.severity as (typeof severities)[number])
+    : undefined;
+  const sourceFilter = (sources as readonly string[]).includes(filters.source ?? "")
+    ? (filters.source as (typeof sources)[number])
+    : undefined;
 
   const events = await prisma.vendorChangeEvent.findMany({
-    where: { organizationId: user.organizationId },
+    where: {
+      organizationId: user.organizationId,
+      ...(vendorFilter ? { vendor: { slug: vendorFilter } } : {}),
+      ...(severityFilter ? { severity: severityFilter } : {}),
+      ...(sourceFilter ? { sourceType: sourceFilter } : {}),
+    },
     orderBy: [{ status: "asc" }, { detectedAt: "desc" }],
     include: { vendor: true, normalizations: true },
     take: 100,
@@ -47,6 +72,65 @@ export default async function ChangesPage() {
           </Badge>
         }
       />
+
+      <form method="get" className="flex flex-wrap items-end gap-3">
+        <label className="text-[11px] font-medium uppercase tracking-widest text-zinc-500">
+          Vendor
+          <select
+            name="vendor"
+            defaultValue={vendorFilter ?? ""}
+            className="ml-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-[12px] font-normal normal-case tracking-normal text-zinc-700"
+          >
+            <option value="">All vendors</option>
+            {vendors.map((vendor) => (
+              <option key={vendor.slug} value={vendor.slug}>
+                {vendor.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-[11px] font-medium uppercase tracking-widest text-zinc-500">
+          Severity
+          <select
+            name="severity"
+            defaultValue={severityFilter ?? ""}
+            className="ml-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-[12px] font-normal normal-case tracking-normal text-zinc-700"
+          >
+            <option value="">All severities</option>
+            {severities.map((severity) => (
+              <option key={severity} value={severity}>
+                {severity}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-[11px] font-medium uppercase tracking-widest text-zinc-500">
+          Contract family
+          <select
+            name="source"
+            defaultValue={sourceFilter ?? ""}
+            className="ml-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-[12px] font-normal normal-case tracking-normal text-zinc-700"
+          >
+            <option value="">All families</option>
+            {sources.map((source) => (
+              <option key={source} value={source}>
+                {SOURCE_TYPE_LABEL[source] ?? source}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="submit"
+          className="rounded-full bg-zinc-900 px-4 py-1.5 text-[12px] font-medium text-white hover:bg-zinc-700"
+        >
+          Filter
+        </button>
+        {vendorFilter || severityFilter || sourceFilter ? (
+          <Link href="/changes" className="text-[12px] font-medium text-[#0071e3] hover:underline">
+            Clear
+          </Link>
+        ) : null}
+      </form>
 
       {events.length > 0 ? (
         <div className="grid grid-cols-2 gap-4">

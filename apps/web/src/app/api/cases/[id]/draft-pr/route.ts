@@ -71,8 +71,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!remediationCase) {
       throw notFound("Remediation case not found");
     }
+    // Contract-driven cases (WP4) carry no release row; the release PR vector
+    // cannot serve them yet. Fail closed instead of dereferencing null.
+    const release = remediationCase.release;
+    if (!release) {
+      throw validationFailed("Contract-driven cases cannot draft PRs through the release vector");
+    }
 
-    const vendorSlug = remediationCase.release.product.vendor.slug;
+    const vendorSlug = release.product.vendor.slug;
     const certification = requireCertified(vendorSlug, "DRAFT_PR");
     if (!certification.ok) {
       throw validationFailed(
@@ -86,15 +92,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     // unclassifiable is refused rather than guessed. Enforced identically at
     // the remediations create-pr vector.
     if (vendorSlug === AUTONOMOUS_GENERIC_SLUG) {
-      const bump = remediationCase.release.previousVersion
-        ? classifySemverBump(
-            remediationCase.release.previousVersion,
-            remediationCase.release.version,
-          )
+      const bump = release.previousVersion
+        ? classifySemverBump(release.previousVersion, release.version)
         : "unknown";
       if (bump !== "patch" && bump !== "minor") {
         throw validationFailed(
-          `Autonomous draft PRs cover npm patch/minor bumps only (release ${remediationCase.release.previousVersion ?? "?"} -> ${remediationCase.release.version} classifies as ${bump})`,
+          `Autonomous draft PRs cover npm patch/minor bumps only (release ${release.previousVersion ?? "?"} -> ${release.version} classifies as ${bump})`,
         );
       }
       // Renovate-style guardrails: exclusions, concurrency cap, minimum
@@ -111,8 +114,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       });
       const autonomy = evaluateAutonomyBump({
         updateType: bump,
-        packageName: remediationCase.release.product.packageName,
-        publishedAt: remediationCase.release.publishedAt,
+        packageName: release.product.packageName,
+        publishedAt: release.publishedAt,
         isVulnFix: false,
         openAutonomousCases: openAutonomous,
         policy: autonomyPolicy ?? AUTONOMY_POLICY_DEFAULTS,

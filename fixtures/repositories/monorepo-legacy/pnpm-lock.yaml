@@ -1,0 +1,24 @@
+lockfileVersion: "9.0"
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+  .:
+    devDependencies:
+      typescript:
+        specifier: ^5.4.5
+        version: 5.9.3
+
+  packages/app:
+    dependencies:
+      stripe:
+        specifier: ^16.12.0
+        version: 16.12.0
+
+packages:
+  stripe@16.12.0:
+    resolution: {integrity: sha512-placeholder}
+  typescript@5.9.3:
+    resolution: {integrity: sha512-placeholder}

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   contentHashOf,
+  deleteEvidenceObject,
   evidenceObjectExists,
   objectKeyForHash,
   objectKeyForPayload,
@@ -69,5 +70,23 @@ describe("content-addressed evidence object store", () => {
 
   it("rejects malformed hashes", () => {
     expect(() => objectKeyForHash("not-a-hash")).toThrow(/invalid content hash/);
+  });
+
+  it("deletes only well-formed keys inside the store and tolerates absence", async () => {
+    const hash = "e".repeat(64);
+    const key = `sha256/${hash.slice(0, 2)}/${hash}.json`;
+    const { written } = await storeRawEvidence("ephemeral logs");
+    expect(written).toBe(true);
+    const storedKey = objectKeyForPayload("ephemeral logs");
+    await expect(deleteEvidenceObject(storedKey)).resolves.toBe(true);
+    expect(evidenceObjectExists(storedKey)).toBe(false);
+    // Idempotent: second delete reports absence, not failure.
+    await expect(deleteEvidenceObject(storedKey)).resolves.toBe(false);
+    await expect(deleteEvidenceObject(key)).resolves.toBe(false);
+    // Traversal and shape violations fail closed, never touch disk.
+    await expect(deleteEvidenceObject("../../escape.json")).rejects.toThrow(/non-evidence key/);
+    await expect(deleteEvidenceObject("sha256/ee/not-a-hash.json")).rejects.toThrow(
+      /non-evidence key/,
+    );
   });
 });

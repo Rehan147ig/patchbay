@@ -123,6 +123,70 @@ export async function enqueue(
 }
 
 /**
+ * Worker liveness heartbeats (WP10). Each worker refreshes its own hash
+ * field every few seconds; /api/operations/queues reads the hash and marks
+ * entries older than the TTL stale. Pruning is opportunistic on write (no
+ * KEYS scans), and reads degrade to [] when Redis is down.
+ */
+export const WORKER_HEARTBEATS_KEY = "worker:heartbeats";
+export const WORKER_HEARTBEAT_TTL_MS = 90_000;
+
+export interface WorkerHeartbeatInfo {
+  workerId: string;
+  startedAt: string;
+  queue?: string;
+  concurrency?: number;
+}
+
+export interface WorkerHeartbeat extends WorkerHeartbeatInfo {
+  lastBeatAt: string;
+}
+
+export async function writeWorkerHeartbeat(
+  info: WorkerHeartbeatInfo,
+  redisClient: Pick<Redis, "hset" | "hgetall" | "hdel"> = cacheRedis,
+): Promise<void> {
+  const record: WorkerHeartbeat = { ...info, lastBeatAt: new Date().toISOString() };
+  await redisClient.hset(WORKER_HEARTBEATS_KEY, { [info.workerId]: JSON.stringify(record) });
+  const all = await redisClient.hgetall(WORKER_HEARTBEATS_KEY);
+  const cutoff = Date.now() - WORKER_HEARTBEAT_TTL_MS;
+  for (const [id, raw] of Object.entries(all)) {
+    let beatAt = Number.NaN;
+    try {
+      beatAt = new Date((JSON.parse(raw) as WorkerHeartbeat).lastBeatAt).getTime();
+    } catch {
+      beatAt = Number.NaN;
+    }
+    if (Number.isNaN(beatAt) || beatAt < cutoff) {
+      await redisClient.hdel(WORKER_HEARTBEATS_KEY, id);
+    }
+  }
+}
+
+export async function readWorkerHeartbeats(
+  redisClient: Pick<Redis, "hgetall"> = cacheRedis,
+  maxAgeMs: number = WORKER_HEARTBEAT_TTL_MS,
+): Promise<Array<WorkerHeartbeat & { fresh: boolean }>> {
+  try {
+    const all = await redisClient.hgetall(WORKER_HEARTBEATS_KEY);
+    const now = Date.now();
+    const beats: Array<WorkerHeartbeat & { fresh: boolean }> = [];
+    for (const raw of Object.values(all)) {
+      try {
+        const beat = JSON.parse(raw) as WorkerHeartbeat;
+        if (!beat.workerId || !beat.lastBeatAt) continue;
+        beats.push({ ...beat, fresh: now - new Date(beat.lastBeatAt).getTime() <= maxAgeMs });
+      } catch {
+        continue;
+      }
+    }
+    return beats;
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Rate-limit result.
  */
 export interface RateLimitResult {

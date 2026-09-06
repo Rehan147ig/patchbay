@@ -65,7 +65,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     // Parity with cases/[id]/draft-pr: certification + kill-switch gate before
     // policy evaluation. Closes the fail-open path for suspended vendors.
-    const vendorSlug = plan.impactAssessment.changeEvent.vendor.slug;
+    // Contract-flow assessments (WP4) carry no change event; this release
+    // vector cannot serve them yet, so they fail closed here.
+    const changeEvent = plan.impactAssessment.changeEvent;
+    if (!changeEvent) {
+      throw validationFailed("Plans without a release change event cannot create PRs here");
+    }
+    const vendorSlug = changeEvent.vendor.slug;
     const certification = requireCertified(vendorSlug, "DRAFT_PR");
     if (!certification.ok) {
       throw validationFailed(
@@ -77,7 +83,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     // Parity with cases/[id]/draft-pr: the autonomous strategy kit only
     // covers npm patch/minor manifest bumps. Anything else stays PLAN-only.
     if (vendorSlug === AUTONOMOUS_GENERIC_SLUG) {
-      const rawPayload = plan.impactAssessment.changeEvent.rawPayload;
+      const rawPayload = changeEvent.rawPayload;
       if (!isAutonomousDraftEligible(rawPayload)) {
         throw validationFailed(
           "Autonomous draft PRs cover npm patch/minor bumps only; this change is PLAN-only",
@@ -101,7 +107,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       const autonomy = evaluateAutonomyBump({
         updateType: bumpPayload?.updateType ?? "unknown",
         packageName: bumpPayload?.packageName ?? "",
-        publishedAt: plan.impactAssessment.changeEvent.detectedAt,
+        publishedAt: changeEvent.detectedAt,
         isVulnFix: (bumpPayload as { vulnFix?: unknown } | null)?.vulnFix === true,
         openAutonomousCases: openAutonomous,
         policy: autonomyPolicy ?? AUTONOMY_POLICY_DEFAULTS,
