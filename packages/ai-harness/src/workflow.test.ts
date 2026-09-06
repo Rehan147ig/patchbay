@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { PackBudgetExceededError } from "./index";
 import {
   defineWorkflow,
   digestJson,
@@ -341,6 +342,20 @@ describe("workflow adapter: failure mapping", () => {
         "BudgetExceededError",
         async () => {
           throw namedError("BudgetExceededError", "over");
+        },
+        "BUDGET_EXCEEDED",
+      ],
+      [
+        "PackBudgetExceededError",
+        async () => {
+          throw namedError("PackBudgetExceededError", "12 files > max 10");
+        },
+        "BUDGET_EXCEEDED",
+      ],
+      [
+        "PackBudgetExceededError (real class, as thrown cross-package)",
+        async () => {
+          throw new PackBudgetExceededError("openai/4.x", ["2 files > max 1"]);
         },
         "BUDGET_EXCEEDED",
       ],

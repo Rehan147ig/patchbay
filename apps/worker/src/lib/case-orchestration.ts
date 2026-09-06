@@ -383,7 +383,7 @@ export type AttemptStatus = "SUCCEEDED" | "FAILED" | "SKIPPED";
 export interface RecordAttemptInput {
   caseId: string | null;
   strategyId: string;
-  rulePackVersion?: string;
+  rulePackVersion?: string | null;
   agentRunId?: string;
   inputHash: string;
   outputHash?: string;

@@ -2,7 +2,9 @@ import { z } from "zod";
 import { prisma, Prisma } from "@patchbay/db";
 import { logger } from "@patchbay/domain";
 import { createAiProvider } from "@patchbay/ai-provider";
+import { digestJson, type JsonValue } from "@patchbay/ai-harness";
 import { resolveFixtureDir } from "@patchbay/repo-analysis";
+import { getConnector } from "@patchbay/vendor-connectors";
 import type { Job } from "bullmq";
 import {
   agentTools,
@@ -15,6 +17,7 @@ import {
   type FactsJson,
   type StepRecording,
 } from "../lib/agent-workflow";
+import { recordRemediationAttempt } from "../lib/case-orchestration";
 
 /**
  * agent-plan processor (roadmap Phase H4): the Mastra-contract workflow
@@ -68,7 +71,11 @@ export async function processAgentPlan(job: Job): Promise<void> {
   }
 
   const facts = classificationFacts(run);
-  const input = buildAgentWorkflowInput(run, facts);
+  // WP6 pack, resolved from the static registry (uncertified vendors yield
+  // null → global caps only). Part of the persisted workflow input, so replay
+  // identity covers which budget the plan ran under.
+  const rulePack = getConnector(run.releaseRecord.product.vendor.slug)?.rulePack ?? null;
+  const input = buildAgentWorkflowInput(run, facts, rulePack);
   const provider = createAiProvider(process.env);
   await markAgentRunRunning({
     run,
@@ -88,6 +95,7 @@ export async function processAgentPlan(job: Job): Promise<void> {
     fixturesDir: fixturesOf(run),
     recordStep,
     isCancelled: () => isAgentRunCancelled(run.id),
+    rulePack,
   });
 
   const result = await workflow.run(input as never, { tools: agentTools({ run, facts }) });
@@ -98,11 +106,29 @@ export async function processAgentPlan(job: Job): Promise<void> {
     input,
     result,
   });
+  // WP7 attempt provenance: every executed run records its strategy attempt
+  // (best-effort inside — recording never breaks reconciliation). Cancelled
+  // and budget-exhausted runs record FAILED with the abort/budget message;
+  // runs without a linked case skip honestly.
+  await recordRemediationAttempt({
+    caseId: run.remediationCaseId ?? null,
+    strategyId: "agent-plan",
+    rulePackVersion: rulePack?.packVersion ?? null,
+    agentRunId: run.id,
+    inputHash: digestJson(input as unknown as JsonValue),
+    outputHash: result.output ? digestJson(result.output) : undefined,
+    status: outcome.status === "SUCCEEDED" ? "SUCCEEDED" : "FAILED",
+    failureCode: outcome.failureMessage ? outcome.failureMessage.slice(0, 200) : undefined,
+    organizationId: run.organizationId,
+    correlationId,
+  });
+  const planner = result.output?.["planner"] as { plan?: { edits?: unknown[] } } | undefined;
+  // Case timeline first: failures must append their timeline entry even though
+  // the job then throws (a FAILED run that skips its timeline lies by omission).
+  await recordCaseOutcome(run, outcome, correlationId, planner?.plan?.edits?.length ?? 0);
   if (outcome.status !== "SUCCEEDED" && outcome.failureMessage) {
     throw new Error(outcome.failureMessage);
   }
-  const planner = result.output?.["planner"] as { plan?: { edits?: unknown[] } } | undefined;
-  await recordCaseOutcome(run, outcome, correlationId, planner?.plan?.edits?.length ?? 0);
 }
 
 /**

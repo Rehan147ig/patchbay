@@ -58,6 +58,23 @@ export class BudgetExceededError extends Error {
   }
 }
 
+/**
+ * A proposed plan exceeded its certified rule-pack edit budget (WP6 packs,
+ * enforced in WP7 agent workflows). Distinct from BudgetExceededError (model
+ * spend): this is about edit volume, and the workflow adapter maps it to a
+ * BUDGET_EXCEEDED run failure so the case stays retryable instead of
+ * advancing on an over-budget plan.
+ */
+export class PackBudgetExceededError extends Error {
+  constructor(
+    public readonly packVersion: string,
+    public readonly violations: readonly string[],
+  ) {
+    super(`Rule-pack budget exceeded (${packVersion}): ${violations.join("; ")}`);
+    this.name = "PackBudgetExceededError";
+  }
+}
+
 /** sha256 of the canonical JSON of the bounded input: replay identity, never secrets. */
 export function hashInput(input: PatchGenerationInput): string {
   const parsed = patchGenerationInputSchema.parse(input);

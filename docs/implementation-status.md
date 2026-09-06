@@ -313,9 +313,33 @@ only; server-side metering/quota-exhaustion states missing.
 - Verification: prettier clean, eslint 0 warnings, typecheck 19/19, 26 files /
   197 tests green across connectors/engine/policy/domain/routes, corpus 36/36.
 
-## 11. Next steps
+## 11. WP7 — Constrained agent workflow (DONE 2026-09-06, branch `feat/production-spec`)
 
-WP7 (constrained agent workflow) per spec §17 order.
+- `PackBudgetExceededError` (ai-harness, beside `BudgetExceededError`) mapped to
+  `BUDGET_EXCEEDED` by the workflow classifier by name (works cross-package);
+  classifier rows added for the synthetic and real class.
+- Pack threaded end to end: `AgentWorkflowInput.rulePack` (persisted into run
+  input, so replay identity covers which budget applied) + `AgentWorkflowDeps`
+  → `checkPackBudget` pure gate (files/edits/bytes vs pack, conservative JSON
+  byte proxy documented) enforced on the hash-bound plan (invalidated edits
+  never count). Violations throw before the reviewer runs — never truncated,
+  never silent. Reviewer stays skipped, case stays PLANNING + timeline.
+- `processAgentPlan` records every executed run via `recordRemediationAttempt`
+  (strategy `agent-plan`, live pack version, agent run id, input/output digests,
+  SUCCEEDED/FAILED with sliced failure codes; no linked case → honest skip).
+  Fixed a real ordering bug found by the new tests: the job threw before
+  `recordCaseOutcome`, so FAILED runs never appended their timeline entry —
+  timeline now records first, throw second.
+- Reviewer-rejection behavior pinned by test, unchanged by design: a rejected
+  plan still advances the case (a proposal exists) but cannot produce a PR
+  without human approval + policy — documented, not altered.
+- Verification: prettier clean, eslint 0 warnings, typecheck 19/19, 48 tests
+  green across harness/workflow/agent-plan suites (3 new job tests incl. FAILED
+  isolation and legacy skip; 4 workflow tests incl. over-budget integration).
+
+## 12. Next steps
+
+WP8 (isolated execution plane) per spec §17 order.
 Branch hygiene: one work package per commit/PR, gates re-run per package, this file
 updated per §19.9. `main` stays locked (branch protection + Railway tracking `main`
 only); merges via green PR only.
