@@ -383,6 +383,13 @@ model AutonomyPolicy {
   vulnBypassStability Boolean @default(true)
   /// Package names excluded from the autonomous track (exact match).
   excludedPackages String[] @default([])
+  /**
+   * Organization default delivery autonomy (WP12): PLAN_ONLY (safest, plans
+   * and blast radius only), REQUIRE_APPROVAL (recommended, approval before
+   * any PR), ALLOW_DRAFT_PR (automatic validated draft PRs). Null = legacy
+   * behavior (no tier enforcement); the onboarding wizard always sets one.
+   */
+  defaultDecision String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

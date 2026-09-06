@@ -13,6 +13,8 @@ import {
 } from "@patchbay/ui";
 import { requireUser } from "@/lib/auth";
 import { PolicyToggle } from "@/components/policy-toggle";
+import { AutonomyTierControl } from "@/components/autonomy-tier-control";
+import { autonomyTierSchema, DEFAULT_AUTONOMY_TIER } from "@patchbay/domain";
 import { Shield, ChevronDown } from "lucide-react";
 
 export const metadata: Metadata = {
@@ -29,6 +31,13 @@ export default async function PoliciesPage() {
 
   const activeCount = policies.filter((p) => p.enabled).length;
 
+  const autonomyPolicy = await prisma.autonomyPolicy.upsert({
+    where: { organizationId: user.organizationId },
+    update: {},
+    create: { organizationId: user.organizationId, defaultDecision: DEFAULT_AUTONOMY_TIER },
+  });
+  const tier = autonomyTierSchema.safeParse(autonomyPolicy.defaultDecision);
+
   return (
     <div className="space-y-6 bg-[#fbfbfd] font-sans antialiased">
       <PageHeader
@@ -39,6 +48,12 @@ export default async function PoliciesPage() {
             {activeCount} of {policies.length} Active
           </Badge>
         }
+      />
+
+      <AutonomyTierControl
+        currentTier={tier.success ? tier.data : DEFAULT_AUTONOMY_TIER}
+        explicit={tier.success}
+        isAdmin={user.role === "ADMIN"}
       />
 
       {policies.length === 0 ? (

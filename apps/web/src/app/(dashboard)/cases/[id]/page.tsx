@@ -280,8 +280,18 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ id:
   ) {
     actions.push("draft-pr");
   }
+  // Maintenance funnel actions (WP12 §11.2): assess re-runs analysis on
+  // early states, validate runs the latest plan through the sandbox, and
+  // suppress terminates via the cancel vector (same terminal state,
+  // canonical name). Plan itself rides the dedicated PlanRunButton below.
+  if (["OBSERVED", "EVIDENCE_VERIFIED", "IMPACT_CONFIRMED"].includes(remediationCase.status)) {
+    actions.push("assess");
+  }
+  if (remediationCase.status === "PATCH_PROPOSED" || remediationCase.status === "VALIDATING") {
+    actions.push("validate");
+  }
   if (!["REJECTED", "CANCELLED", "MERGED", "CLOSED", "LEARNED"].includes(remediationCase.status)) {
-    actions.push("cancel", "reject");
+    actions.push("suppress", "reject");
   }
   if (["REJECTED", "CANCELLED"].includes(remediationCase.status)) actions.push("replay");
 

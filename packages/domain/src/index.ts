@@ -104,6 +104,8 @@ export {
 export type { DeliveryAction, DeliveryStatus } from "./delivery-attempt";
 export { deadLetterStatusSchema, replayableJobTypeSchema } from "./dead-letter";
 export type { DeadLetterStatus, ReplayableJobType } from "./dead-letter";
+export { autonomyTierSchema, DEFAULT_AUTONOMY_TIER } from "./autonomy-tier";
+export type { AutonomyTier } from "./autonomy-tier";
 export { migrationRecipeSchema, recipeListEntrySchema, recipeRuleSchema } from "./recipe";
 export type { MigrationRecipe, RecipeListEntry, RecipeRule } from "./recipe";
 export { classifySemverBump, compareVersions, parseVersion, satisfiesRange } from "./semver";

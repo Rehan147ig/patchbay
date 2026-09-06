@@ -14,27 +14,40 @@ import {
   PlayCircle,
   Settings,
   Zap,
+  Database,
+  Activity,
 } from "lucide-react";
 import { cn } from "@patchbay/ui";
 
-const MONITOR_LINKS = [
+/**
+ * Canonical maintenance navigation (WP12 §11.3): Maintain → Govern → System.
+ * The eight primary views come first; funnel pages (releases, remediations),
+ * outcomes, audit, and demo stay one click away under Explore so no existing
+ * route becomes an orphan and the guided tour keeps its anchors.
+ */
+const MAINTAIN_LINKS = [
   { href: "/overview", label: "Overview", icon: LayoutDashboard, id: "tour-overview-nav" },
   { href: "/repositories", label: "Repositories", icon: GitBranch, id: "tour-repositories-nav" },
-  { href: "/releases", label: "Releases", icon: Package, id: "tour-releases-nav" },
   { href: "/cases", label: "Cases", icon: AlertTriangle, id: "tour-cases-nav" },
   { href: "/changes", label: "Changes", icon: Zap, id: "tour-changes-nav" },
-  { href: "/remediations", label: "Remediations", icon: Wrench, id: "tour-remediations-nav" },
+  { href: "/sources", label: "Sources", icon: Database, id: "tour-sources-nav" },
 ] as const;
 
 const GOVERN_LINKS = [
   { href: "/policies", label: "Policies", icon: Shield, id: "tour-policies-nav" },
+  { href: "/operations", label: "Operations", icon: Activity, id: "tour-operations-nav" },
   { href: "/outcomes", label: "Outcomes", icon: BarChart3, id: "tour-outcomes-nav" },
-  { href: "/audit", label: "Audit Log", icon: FileText, id: "tour-audit-nav" },
+  { href: "/audit", label: "Audit Log", icon: FileText, id: undefined },
 ] as const;
 
 const SYSTEM_LINKS = [
-  { href: "/demo", label: "Interactive Demo", icon: PlayCircle, id: "tour-demo-nav" },
   { href: "/settings", label: "Settings", icon: Settings, id: "tour-settings-nav" },
+] as const;
+
+const EXPLORE_LINKS = [
+  { href: "/releases", label: "Releases", icon: Package, id: "tour-releases-nav" },
+  { href: "/remediations", label: "Remediations", icon: Wrench, id: "tour-remediations-nav" },
+  { href: "/demo", label: "Interactive Demo", icon: PlayCircle, id: "tour-demo-nav" },
 ] as const;
 
 interface NavItem {
@@ -99,21 +112,22 @@ export function SideNav() {
   const pathname = usePathname();
   return (
     <nav aria-label="Primary" className="space-y-6 py-2">
-      <NavSection label="Monitor" links={MONITOR_LINKS} pathname={pathname} />
+      <NavSection label="Maintain" links={MAINTAIN_LINKS} pathname={pathname} />
       <NavSection label="Govern" links={GOVERN_LINKS} pathname={pathname} />
       <NavSection label="System" links={SYSTEM_LINKS} pathname={pathname} />
+      <NavSection label="Explore" links={EXPLORE_LINKS} pathname={pathname} />
       <div className="mx-2 mt-4 rounded-2xl bg-zinc-900 px-4 py-3 text-white">
         <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400">
           Codebase management
         </p>
         <p className="mt-1 text-[12px] font-medium leading-snug tracking-tight">
-          You build. We maintain. 34/34 corpus.
+          You build. We maintain. 36/36 corpus.
         </p>
         <Link
           href="/cases"
           className="mt-2 inline-flex text-[11px] font-medium tracking-wide text-white underline decoration-white/30 underline-offset-4 hover:decoration-white"
         >
-          View cases ?
+          View cases →
         </Link>
       </div>
     </nav>
@@ -122,7 +136,7 @@ export function SideNav() {
 
 export function MobileNav() {
   const pathname = usePathname();
-  const allLinks = [...MONITOR_LINKS, ...GOVERN_LINKS, ...SYSTEM_LINKS];
+  const allLinks = [...MAINTAIN_LINKS, ...GOVERN_LINKS, ...SYSTEM_LINKS, ...EXPLORE_LINKS];
   return (
     <details className="group relative lg:hidden">
       <summary className="flex list-none items-center gap-2 rounded-full bg-white px-3.5 py-2 text-[13px] font-medium tracking-tight text-[#1d1d1f] shadow-sm border border-zinc-200">

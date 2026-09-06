@@ -11,6 +11,7 @@ import {
 import { AuditAction } from "@patchbay/audit";
 import {
   ActorType,
+  autonomyTierSchema,
   buildEvidenceBlock,
   buildEvidenceHumanSection,
   checkRunDeliveryKey,
@@ -191,6 +192,33 @@ async function createDraftPR(
     );
   }
   await assertWorkerCapabilityGateOpen(organizationId, vendorSlug, "DRAFT_PR");
+
+  // Organization autonomy tier (WP12): the delivery-level default the
+  // onboarding wizard sets. Unset (legacy rows) = no tier enforcement.
+  // PLAN_ONLY refuses all PR delivery here — the single choke point every
+  // vector flows through. REQUIRE_APPROVAL is enforced after coverage is
+  // computed below. Terminal (Unrecoverable): retrying under the same tier
+  // is futile; changing the tier unblocks.
+  const autonomyPolicy = await prisma.autonomyPolicy.findUnique({
+    where: { organizationId },
+  });
+  const autonomyTier = autonomyTierSchema.safeParse(autonomyPolicy?.defaultDecision);
+  if (autonomyTier.success && autonomyTier.data === "PLAN_ONLY") {
+    const error = new UnrecoverableError(
+      "PR creation blocked: organization autonomy tier is PLAN_ONLY (plans and blast radius only; no delivery)",
+    );
+    await writeAuditEvent({
+      organizationId,
+      actorType: ActorType.SYSTEM,
+      actorId: null,
+      action: AuditAction.POLICY_BLOCKED,
+      entityType: "remediationPlan",
+      entityId: plan.id,
+      correlationId,
+      after: { reason: "organization autonomy tier is PLAN_ONLY", tier: autonomyTier.data },
+    });
+    throw error;
+  }
 
   // Server-side delivery quota (WP11, spec §16): the monthly draft-PR budget
   // is enforced here — not just at registration — so direct enqueues and
@@ -438,6 +466,29 @@ async function createDraftPR(
       throw new Error(
         `PR creation blocked by policy decision '${policyResult.decision}': ${policyResult.reasons.join("; ")}`,
       );
+    }
+
+    // REQUIRE_APPROVAL tier: a covering approval must be on record even when
+    // the policy engine would otherwise allow delivery. Terminal like above.
+    if (autonomyTier.success && autonomyTier.data === "REQUIRE_APPROVAL" && !coverage.covered) {
+      const error = new UnrecoverableError(
+        "PR creation blocked: organization autonomy tier is REQUIRE_APPROVAL and no covering approval is on record",
+      );
+      await writeAuditEvent({
+        organizationId,
+        actorType: ActorType.SYSTEM,
+        actorId: null,
+        action: AuditAction.POLICY_BLOCKED,
+        entityType: "remediationPlan",
+        entityId: plan.id,
+        correlationId,
+        after: {
+          reason: "organization autonomy tier requires approval",
+          tier: autonomyTier.data,
+          coverage,
+        },
+      });
+      throw error;
     }
 
     const fixtureName = fixtureOf(repository.metadata);

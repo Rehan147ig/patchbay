@@ -28,6 +28,9 @@ vi.mock("@patchbay/db", () => ({
     subscription: {
       findUnique: vi.fn(),
     },
+    autonomyPolicy: {
+      findUnique: vi.fn(),
+    },
     deliveryAttempt: {
       create: vi.fn(),
       findUnique: vi.fn(),
@@ -123,6 +126,7 @@ describe("processCreatePR", () => {
     vi.mocked(prisma.capabilityGate.findUnique).mockResolvedValue(null);
     vi.mocked(prisma.remediationPlan.count).mockResolvedValue(1);
     vi.mocked(prisma.subscription.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.autonomyPolicy.findUnique).mockResolvedValue(null);
     vi.mocked(prisma.pullRequest.count).mockResolvedValue(0);
     vi.mocked(prisma.deliveryAttempt.create).mockResolvedValue({ id: "att-x" } as never);
     vi.mocked(claimDeliveryAttempt).mockResolvedValue({
@@ -628,6 +632,7 @@ describe("processCreatePR (WP9 delivery reliability)", () => {
     vi.mocked(prisma.capabilityGate.findUnique).mockResolvedValue(null);
     vi.mocked(prisma.remediationPlan.count).mockResolvedValue(2);
     vi.mocked(prisma.subscription.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.autonomyPolicy.findUnique).mockResolvedValue(null);
     vi.mocked(prisma.pullRequest.count).mockResolvedValue(0);
     vi.mocked(prisma.deliveryAttempt.create).mockResolvedValue({ id: "att-x" } as never);
     vi.mocked(claimDeliveryAttempt).mockResolvedValue({ duplicate: false, attemptId: "att-1" });
@@ -879,5 +884,27 @@ describe("processCreatePR (WP9 delivery reliability)", () => {
     expect(completeDeliveryAttempt).not.toHaveBeenCalled();
     // Loud, not silent: the block is audited.
     expect(prisma.auditEvent.create).toHaveBeenCalled();
+  });
+
+  it("refuses all delivery under the PLAN_ONLY tier (WP12)", async () => {
+    vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValueOnce(advancedPlan());
+    vi.mocked(prisma.autonomyPolicy.findUnique).mockResolvedValueOnce({
+      defaultDecision: "PLAN_ONLY",
+    } as never);
+
+    await expect(processCreatePR(mockJob)).rejects.toThrow(/tier is PLAN_ONLY/);
+    expect(providerMock.createDraftPullRequest).not.toHaveBeenCalled();
+    expect(claimDeliveryAttempt).not.toHaveBeenCalled();
+  });
+
+  it("requires a covering approval under REQUIRE_APPROVAL (WP12)", async () => {
+    vi.mocked(prisma.remediationPlan.findUnique).mockResolvedValueOnce(advancedPlan());
+    vi.mocked(prisma.autonomyPolicy.findUnique).mockResolvedValueOnce({
+      defaultDecision: "REQUIRE_APPROVAL",
+    } as never);
+
+    // advancedPlan carries no approvals, so coverage is empty.
+    await expect(processCreatePR(mockJob)).rejects.toThrow(/REQUIRE_APPROVAL.*covering approval/);
+    expect(providerMock.createDraftPullRequest).not.toHaveBeenCalled();
   });
 });

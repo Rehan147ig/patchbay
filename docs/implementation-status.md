@@ -491,9 +491,50 @@ only; server-side metering/quota-exhaustion states missing.
   30s timeout flake under parallel load (36/36 solo). New: 16 envelope + 4
   RLS + 9 retention/object-store + 5 quota + 3 worker + 1 route tests.
 
-## 16. Next steps
+## 16. WP12 — Product UX and onboarding (DONE 2026-09-06, branch `feat/production-spec`)
 
-WP12 (pilot execution) per spec §17 order.
+- Autonomy tier: `AutonomyPolicy.defaultDecision` (migration
+  `20260906000005_wp12_autonomy_tier`, null = legacy), domain
+  `autonomyTierSchema` + `REQUIRE_APPROVAL` default, worker-enforced at the
+  single create-pr choke point (PLAN_ONLY refuses all delivery,
+  REQUIRE_APPROVAL needs covering approval, unset = legacy), `GET/PUT
+/api/settings/autonomy-tier` (ADMIN writes, `AUTONOMY_TIER_CHANGED` audit),
+  tier control on Policies page + wizard step 6.
+- Maintenance API (§11.2): `GET` list (status/repo filters, pagination) +
+  detail (timeline, evidence, plans with artifacts, policy decisions,
+  attempts); actions assess (ANALYZE_CHANGE via latest assessment, 409
+  terminal / 422 contract-driven), plan (case-scoped AgentRun port with
+  eligibility guidance), validate/approve/draft-pr/suppress (delegated to the
+  single canonical implementations — zero logic duplication).
+- Capabilities + contracts: `GET /api/operations/capabilities` (org gates
+  with breach counts + global certifications); `GET/POST
+/api/contracts/sources` (MIXED visibility, idempotent registration,
+  KMS-gated sealed config); `POST sync` (SDK-only npm poll, hourly BullMQ
+  idempotency key, duplicate collapse, other kinds 422).
+- Fleet + scan: `PATCH /api/repositories/[id]` monitored toggle (distinct
+  archived/restored audits) + `GET scan` latest-status polling.
+- Frontend: 6-step wizard (install, fleet multi-toggle, source watch, shadow
+  scan with live polling, first-case preview or labeled example, persisted
+  tier) with per-step error/empty/denied states; nav re-cut to Maintain /
+  Govern / System / Explore (tour anchors preserved); Sources + Operations
+  pages (Suspense skeletons, empty/error/denied, stale badges, ADMIN-gated
+  actions with tooltips); case funnel actions extended (assess/validate/
+  suppress, suppress replacing cancel); Overview +5 KPIs (open cases, PRs,
+  merge rate, stale sources, ~hours saved) + active queue with risk tags;
+  Changes feed vendor/severity/family filters; Settings enterprise-controls
+  card (KEK status, retention, live RLS count); marketing 9-vendor fix +
+  evidence-block line; corpus counts synced (36/36).
+- Roles: ADMIN/MEMBER/VIEWER only — no OPERATOR role invented; ADMIN-gated
+  surfaces explain themselves via tooltips/notes.
+- Verification: prettier clean, eslint 0 warnings, typecheck 20/20, full
+  suite 170 files / 1600 tests green (zero failures), corpus 36/36,
+  `pnpm build` green with all new routes. New: 8 tier + 35 maintenance/API +
+  2 case-action + wizard/nav/pages covered by build + existing suites.
+
+## 17. Next steps
+
+Spec execution complete through WP12 — pilot execution per the acceptance
+checklist in `docs/pilot-readiness.md`.
 Branch hygiene: one work package per commit/PR, gates re-run per package, this file
 updated per §19.9. `main` stays locked (branch protection + Railway tracking `main`
 only); merges via green PR only.
