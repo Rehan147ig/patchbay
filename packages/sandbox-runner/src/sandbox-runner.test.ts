@@ -122,6 +122,7 @@ describe("runtime modes", () => {
   });
 
   it("defaults validation mode to hosted-docker and reads SANDBOX_VALIDATION_MODE", () => {
+    vi.stubEnv("SANDBOX_VALIDATION_MODE", "");
     expect(resolveSandboxValidationMode()).toBe("hosted-docker");
     vi.stubEnv("SANDBOX_VALIDATION_MODE", "github-checks-only");
     expect(resolveSandboxValidationMode()).toBe("github-checks-only");
