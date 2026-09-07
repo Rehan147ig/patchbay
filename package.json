@@ -27,6 +27,7 @@
     "verify:lockfile": "pnpm install --frozen-lockfile",
     "e2e": "playwright test",
     "test:redis-integration": "vitest run --config vitest.redis.config.ts",
+    "test:production": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm test:corpus && pnpm build && pnpm e2e",
     "pyright": "pyright",
     "verify:python": "pnpm pyright && tsx packages/repo-analysis/scripts/verify-python-gate.ts"
   },

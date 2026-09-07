@@ -1,0 +1,121 @@
+name: Production gates
+
+on:
+  pull_request:
+  push:
+    branches: [main, "feat/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-gates-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  production-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: patchbay
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d patchbay"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/patchbay?schema=public
+      REDIS_URL: redis://127.0.0.1:6379
+      DEV_AUTH_SECRET: ci-dev-auth-secret-012345678901234567890123
+      NEXTAUTH_SECRET: ci-nextauth-secret-012345678901234567890123
+      DEMO_USER_PASSWORD: ci-demo-password
+      AI_PROVIDER: mock
+      SANDBOX_VALIDATION_MODE: github-checks-only
+      WATCHTOWER_POLLING_ENABLED: "false"
+      EVIDENCE_STORE_DIR: ${{ github.workspace }}/.evidence
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Apply migrations
+        run: pnpm --filter @patchbay/db exec prisma migrate deploy
+
+      - name: Seed staging data
+        run: pnpm db:seed
+
+      - name: Static gates
+        run: |
+          pnpm verify:lockfile
+          pnpm verify:capability-matrix
+          pnpm format:check
+          pnpm lint
+          pnpm typecheck
+
+      - name: Unit and integration tests
+        run: pnpm test
+
+      - name: Production corpus
+        run: pnpm test:corpus
+
+      - name: Live database and Redis drills
+        run: |
+          pnpm exec vitest run apps/worker/src/lib/wp13-drills.test.ts
+          pnpm exec vitest run packages/db/src/rls-tenant-isolation.test.ts
+          pnpm exec vitest run packages/db/src/worm-db.test.ts
+          pnpm test:redis-integration
+
+      - name: Production build
+        run: pnpm build
+
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Browser end-to-end tests
+        run: pnpm e2e
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: patchbay-production-gates-${{ github.sha }}
+          if-no-files-found: ignore
+          path: |
+            test-results/
+            playwright-report/
+            test-artifacts/
+            .evidence/
