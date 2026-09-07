@@ -10,10 +10,13 @@ import { generateAgentKey, hashAgentKey, isLegacyAgentKeyHash } from "@/lib/agen
 /**
  * POST /api/vendors/:slug/agent-key
  *
- * Issues a provider-agent API key for a vendor. ADMIN only. The plaintext key is
- * returned exactly once; Patchbay stores only its argon2id hash. Re-issuing on a
- * keyed vendor is a rotation: the current hash moves to agentKeyHashPrevious so
- * agents holding the old key stay authenticated until the next rotation.
+ * Issues a provider-agent API key for a vendor, scoped to the caller's
+ * organization. ADMIN only. The plaintext key is returned exactly once;
+ * Patchbay stores only its argon2id hash on the caller's
+ * OrganizationVendorEnrollment row — never on the shared catalog Vendor row,
+ * so N organizations can enroll the same vendor with independent keys.
+ * Re-issuing is a rotation: the current hash moves to agentKeyHashPrevious
+ * so agents holding the old key stay authenticated until the next rotation.
  */
 export async function POST(
   request: NextRequest,
@@ -33,16 +36,30 @@ export async function POST(
 
     const agentKey = generateAgentKey();
     const agentKeyHash = await hashAgentKey(agentKey);
-    // Issuing a key CLAIMS the vendor for this organization. Shared catalog
-    // entries (organizationId null) become org-bound on first key issue.
-    // Known MVP limitation: one org per shared catalog vendor. A proper
-    // VendorAgentCredential join table is deferred to post-revenue.
-    await prisma.vendor.update({
-      where: { id: vendor.id },
-      data: {
+    // Credentials live on this org's enrollment row, keyed by
+    // (organizationId, vendorId). The shared catalog row is never mutated
+    // and never claimed: a second organization enrolling the same slug gets
+    // its own row and its own keys.
+    const existing = await prisma.organizationVendorEnrollment.findUnique({
+      where: {
+        organizationId_vendorId: { organizationId: user.organizationId, vendorId: vendor.id },
+      },
+    });
+    const rotated = existing?.status === "ACTIVE" && existing.agentKeyHash !== null;
+    await prisma.organizationVendorEnrollment.upsert({
+      where: {
+        organizationId_vendorId: { organizationId: user.organizationId, vendorId: vendor.id },
+      },
+      create: {
         organizationId: user.organizationId,
+        vendorId: vendor.id,
         agentKeyHash,
-        agentKeyHashPrevious: vendor.agentKeyHash,
+        status: "ACTIVE",
+      },
+      update: {
+        agentKeyHash,
+        agentKeyHashPrevious: existing?.agentKeyHash ?? null,
+        status: "ACTIVE",
       },
     });
 
@@ -56,7 +73,7 @@ export async function POST(
       correlationId,
       after: {
         vendorSlug: slug,
-        mode: vendor.agentKeyHash ? "rotated" : "issued",
+        mode: rotated ? "rotated" : "issued",
       },
     });
 
@@ -77,10 +94,12 @@ export async function POST(
 /**
  * DELETE /api/vendors/:slug/agent-key
  *
- * Revokes provider-agent mode for a vendor. ADMIN only. Both key hashes are
- * cleared so every outstanding key stops authenticating immediately; the
- * organization claim on the vendor is kept. Idempotent: revoking an
- * already-disabled vendor succeeds without a write or audit event.
+ * Revokes provider-agent mode for the caller's enrollment. ADMIN only. Both
+ * key hashes are cleared and the enrollment flips to REVOKED so every
+ * outstanding key stops authenticating immediately; the row is kept as
+ * history (re-issue reactivates it). Other organizations' enrollments on the
+ * same shared slug are untouched. Idempotent: revoking an already-disabled
+ * enrollment succeeds without a write or audit event.
  */
 export async function DELETE(
   request: NextRequest,
@@ -98,13 +117,22 @@ export async function DELETE(
       throw forbidden("Vendor is not owned by your organization");
     }
 
-    if (!vendor.agentKeyHash && !vendor.agentKeyHashPrevious) {
+    const enrollment = await prisma.organizationVendorEnrollment.findUnique({
+      where: {
+        organizationId_vendorId: { organizationId: user.organizationId, vendorId: vendor.id },
+      },
+    });
+    if (
+      !enrollment ||
+      enrollment.status !== "ACTIVE" ||
+      (!enrollment.agentKeyHash && !enrollment.agentKeyHashPrevious)
+    ) {
       return jsonOk({ vendorSlug: slug, status: "ALREADY_DISABLED" }, correlationId);
     }
 
-    await prisma.vendor.update({
-      where: { id: vendor.id },
-      data: { agentKeyHash: null, agentKeyHashPrevious: null },
+    await prisma.organizationVendorEnrollment.update({
+      where: { id: enrollment.id },
+      data: { agentKeyHash: null, agentKeyHashPrevious: null, status: "REVOKED" },
     });
 
     await writeAuditEvent({
@@ -117,7 +145,9 @@ export async function DELETE(
       correlationId,
       after: {
         vendorSlug: slug,
-        legacyHashBurned: vendor.agentKeyHash ? isLegacyAgentKeyHash(vendor.agentKeyHash) : false,
+        legacyHashBurned: enrollment.agentKeyHash
+          ? isLegacyAgentKeyHash(enrollment.agentKeyHash)
+          : false,
       },
     });
 

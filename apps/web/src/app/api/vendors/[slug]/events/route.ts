@@ -81,22 +81,47 @@ export async function POST(
       await burnDecoyVerification(providedKey);
       throw notFound(`Vendor "${slug}" is not in the catalog`);
     }
-    if (!vendor.organizationId || !vendor.agentKeyHash) {
+    // Credentials live on per-organization enrollment rows, never on the
+    // shared catalog row: the presented key selects its organization. Slug-
+    // scoped rate limiting still runs before any argon2id work; the
+    // per-organization limit is enforced after the key resolves its owner.
+    const floodRate = await checkRateLimit(`agent:${slug}`);
+    if (!floodRate.allowed) {
+      throw tooManyRequests("Agent rate limit exceeded");
+    }
+    const enrollments = await prisma.organizationVendorEnrollment.findMany({
+      where: { vendorId: vendor.id, status: "ACTIVE" },
+      select: { organizationId: true, agentKeyHash: true, agentKeyHashPrevious: true },
+    });
+    if (enrollments.length === 0) {
       await burnDecoyVerification(providedKey);
       throw unauthorized(`Agent mode is not enabled for vendor "${slug}"`);
     }
-    const rate = await checkRateLimit(`agent:${vendor.organizationId}:${slug}`);
+    let enrollmentOrganizationId: string | null = null;
+    for (const enrollment of enrollments) {
+      const currentValid =
+        enrollment.agentKeyHash !== null &&
+        (await verifyAgentKey(providedKey, enrollment.agentKeyHash));
+      const previousValid =
+        !currentValid &&
+        enrollment.agentKeyHashPrevious !== null &&
+        (await verifyAgentKey(providedKey, enrollment.agentKeyHashPrevious));
+      if (currentValid || previousValid) {
+        enrollmentOrganizationId = enrollment.organizationId;
+        break;
+      }
+    }
+    if (!enrollmentOrganizationId) {
+      throw unauthorized("Invalid agent API key");
+    }
+    const rate = await checkRateLimit(`agent:${enrollmentOrganizationId}:${slug}`);
     if (!rate.allowed) {
       throw tooManyRequests("Agent rate limit exceeded");
     }
-    const keyValid =
-      (await verifyAgentKey(providedKey, vendor.agentKeyHash)) ||
-      (vendor.agentKeyHashPrevious
-        ? await verifyAgentKey(providedKey, vendor.agentKeyHashPrevious)
-        : false);
-    if (!keyValid) {
-      throw unauthorized("Invalid agent API key");
-    }
+    // From here on the request is tenant-bound to the enrollment's
+    // organization — every write below is scoped to it, never to a
+    // caller-supplied org.
+    const organizationId = enrollmentOrganizationId;
 
     const input = await parseBodyBounded(request, agentIngestSchema, MAX_AGENT_BODY_BYTES);
 
@@ -134,10 +159,12 @@ export async function POST(
           affectedSymbols: d.affectedSymbols,
           evidence: d.evidence,
         }));
-    } else if (vendor.organizationId !== null) {
-      // Private vendor without a catalog connector: accept the payload as a
-      // generic change event at ASSESS level. The event is stored and visible
-      // in the dashboard but cannot produce certified patches (no rule pack).
+    } else {
+      // No catalog connector, but the key resolved an enrollment, so this is
+      // an org-bound vendor (private SDK or an enrolled org using a shared
+      // slug generically): accept the payload as a generic change event at
+      // ASSESS level. The event is stored and visible in the dashboard but
+      // cannot produce certified patches (no rule pack).
       drafts = [
         {
           changeType: ChangeType.SDK_VERSION_UPGRADE,
@@ -152,8 +179,6 @@ export async function POST(
           affectedSymbols: [],
         },
       ];
-    } else {
-      throw validationFailed(`No connector is registered for shared catalog vendor "${slug}"`);
     }
 
     if (drafts.length === 0) {
@@ -174,7 +199,7 @@ export async function POST(
       event = await prisma.vendorChangeEvent.create({
         data: {
           vendorId: vendor.id,
-          organizationId: vendor.organizationId ?? undefined,
+          organizationId,
           externalReference: input.externalReference,
           sourceType: input.sourceType,
           sourceUrl: input.sourceUrl,
@@ -193,7 +218,7 @@ export async function POST(
       }
       const existing = await prisma.vendorChangeEvent.findFirst({
         where: {
-          organizationId: vendor.organizationId,
+          organizationId,
           vendorId: vendor.id,
           externalReference: input.externalReference,
         },
@@ -226,12 +251,12 @@ export async function POST(
 
     await enqueue(JobType.ANALYZE_CHANGE, {
       changeEventId: event.id,
-      organizationId: vendor.organizationId,
+      organizationId,
       correlationId,
     });
 
     await writeAuditEvent({
-      organizationId: vendor.organizationId,
+      organizationId,
       actorType: ActorType.AGENT,
       actorId: `agent:${slug}`,
       action: AuditAction.AGENT_EVENT_RECEIVED,

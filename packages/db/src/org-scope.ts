@@ -51,6 +51,7 @@ export const ORG_SCOPED_MODELS = [
   "CapabilityGate",
   "Subscription",
   "Notification",
+  "OrganizationVendorEnrollment",
   "Workspace",
   "WorkspaceMember",
   "TaskParameter",

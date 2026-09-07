@@ -351,6 +351,7 @@ model Organization {
   notifications          Notification[]
   taskParameters         TaskParameter[]
   vendors                Vendor[]
+  vendorEnrollments      OrganizationVendorEnrollment[]
   contractSources        ContractSource[]
   contractConsumers      ContractConsumer[]
   remediationAttempts    RemediationAttempt[]
@@ -641,6 +642,42 @@ model Vendor {
   changeEvents VendorChangeEvent[]
   usages       IntegrationUsage[]
   products     VendorProduct[]
+  enrollments  OrganizationVendorEnrollment[]
+}
+
+/**
+ * Per-organization enrollment of a vendor for provider-agent mode (WP13/P0-1).
+ *
+ * Catalog Vendor rows are non-secret shared metadata and must never carry one
+ * tenant's credential: before this model, issuing an agent key wrote
+ * agentKeyHash onto the shared row and claimed the whole vendor for the first
+ * organization. Credentials now live here, keyed by (organizationId,
+ * vendorId), so N organizations can enroll the same catalog vendor with
+ * independent keys. Status is a plain string (ACTIVE | REVOKED) validated at
+ * write boundaries; no Prisma enum to drift.
+ */
+model OrganizationVendorEnrollment {
+  id             String   @id @default(uuid())
+  organizationId String
+  vendorId       String
+  /// argon2id hash of the current agent API key (same format/policy as the
+  /// legacy Vendor.agentKeyHash column it replaces). Null when revoked.
+  agentKeyHash         String?
+  agentKeyHashPrevious String?
+  /// ACTIVE | REVOKED. Revocation clears both hashes; the row is kept as
+  /// history so re-issue is an update, never a duplicate.
+  status   String @default("ACTIVE")
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  vendor       Vendor       @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, vendorId])
+  @@index([organizationId])
+  @@index([vendorId])
 }
 
 model VendorProduct {

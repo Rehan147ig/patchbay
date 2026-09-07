@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { prisma } from "./client";
+import { ensureProbeRole, probeUrl } from "./test-probe";
 
 /**
  * REAL-database negative cross-tenant suite for RLS (WP11, spec §4.3).
@@ -21,39 +22,7 @@ const suffix = randomUUID().slice(0, 8);
 const orgA = `org-rls-a-${suffix}`;
 const orgB = `org-rls-b-${suffix}`;
 
-/**
- * Least-privilege probe role. The dev DATABASE_URL connects as a superuser,
- * and superusers bypass RLS entirely (even FORCE) — so negative tests must
- * run as a NOSUPERUSER role, exactly like the production app role. Created
- * idempotently; dev-only credential by the patchbay_dev_only precedent.
- */
-const PROBE_USER = "patchbay_rls_probe";
-const PROBE_PASSWORD = "rls_probe_dev_only";
-
-function probeUrl(): string {
-  const base = process.env.DATABASE_URL ?? "";
-  const url = new URL(base);
-  url.username = PROBE_USER;
-  url.password = PROBE_PASSWORD;
-  return url.toString();
-}
-
 let probe: PrismaClient | null = null;
-
-async function ensureProbeRole(): Promise<void> {
-  await prisma.$executeRawUnsafe(`
-    DO $$
-    BEGIN
-      IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '${PROBE_USER}') THEN
-        CREATE ROLE "${PROBE_USER}" WITH LOGIN PASSWORD '${PROBE_PASSWORD}' NOSUPERUSER NOCREATEDB NOCREATEROLE;
-      END IF;
-    END
-    $$`);
-  await prisma.$executeRawUnsafe(`GRANT CONNECT ON DATABASE patchbay TO "${PROBE_USER}"`);
-  await prisma.$executeRawUnsafe(`GRANT USAGE ON SCHEMA public TO "${PROBE_USER}"`);
-  await prisma.$executeRawUnsafe(`GRANT ALL ON ALL TABLES IN SCHEMA public TO "${PROBE_USER}"`);
-  await prisma.$executeRawUnsafe(`GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO "${PROBE_USER}"`);
-}
 
 /** Run fn with the RLS session variable pinned (same pooled connection). */
 async function asOrg<T>(organizationId: string, fn: (tx: PrismaClient) => Promise<T>): Promise<T> {
