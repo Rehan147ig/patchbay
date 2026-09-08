@@ -1,11 +1,19 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { buildSnapshotManifest, manifestHashMap } from "@patchbay/git-provider";
 import { bindSnapshotHashes, classifyBoundPlan } from "@patchbay/ai-harness";
-import { applyBoundPlanToCheckout, collectSnapshotExcerpts } from "./repository-snapshot";
+import {
+  SnapshotUnavailableError,
+  applyBoundPlanToCheckout,
+  buildSnapshotForRepository,
+  checkoutSnapshotForApply,
+  collectSnapshotExcerpts,
+  expireRepositorySnapshots,
+} from "./repository-snapshot";
+import { prisma } from "@patchbay/db";
 
 vi.mock("@patchbay/db", () => ({ prisma: {}, packageImpact: vi.fn() }));
 vi.mock("@patchbay/env", () => ({ getSecretStore: vi.fn() }));
@@ -205,5 +213,266 @@ describe("snapshot patch application", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("requires exactly one anchor match by default (zero/one/multiple)", () => {
+    const single = makeCheckout({ "src/a.ts": "foo();\n" });
+    try {
+      const manifest = buildSnapshotManifest(single);
+      const base = {
+        releaseRecordId: "r-1",
+        repositoryId: "repo-1",
+        rationale: "t",
+        confidence: 80,
+        requiresHumanReview: true,
+        riskLevel: "LOW" as const,
+        riskTags: [],
+        validationProfile: [],
+        addressedSymbols: [],
+      };
+      // One match: succeeds.
+      const one = bindSnapshotHashes(
+        {
+          ...base,
+          edits: [
+            {
+              filePath: "src/a.ts",
+              expectedSourceHash: "0".repeat(64),
+              operation: "REPLACE" as const,
+              searchText: "foo()",
+              replacement: "bar()",
+              description: "x",
+              confidence: 90,
+            },
+          ],
+        },
+        manifestHashMap(manifest),
+      );
+      expect(() => applyBoundPlanToCheckout(single, manifest, one.plan)).not.toThrow();
+    } finally {
+      rmSync(single, { recursive: true, force: true });
+    }
+    const zero = makeCheckout({ "src/a.ts": "nothing here\n" });
+    try {
+      const manifest = buildSnapshotManifest(zero);
+      const bound = bindSnapshotHashes(
+        {
+          releaseRecordId: "r-1",
+          repositoryId: "repo-1",
+          rationale: "t",
+          confidence: 80,
+          requiresHumanReview: true,
+          riskLevel: "LOW" as const,
+          riskTags: [],
+          edits: [
+            {
+              filePath: "src/a.ts",
+              expectedSourceHash: "0".repeat(64),
+              operation: "REPLACE" as const,
+              searchText: "missing-anchor",
+              replacement: "x",
+              description: "x",
+              confidence: 90,
+            },
+          ],
+          validationProfile: [],
+          addressedSymbols: [],
+        },
+        manifestHashMap(manifest),
+      );
+      expect(() => applyBoundPlanToCheckout(zero, manifest, bound.plan)).toThrow(
+        /anchor missing.*found 0/,
+      );
+    } finally {
+      rmSync(zero, { recursive: true, force: true });
+    }
+    const multi = makeCheckout({ "src/a.ts": "foo();\nfoo();\nfoo();\n" });
+    try {
+      const manifest = buildSnapshotManifest(multi);
+      const base = {
+        releaseRecordId: "r-1",
+        repositoryId: "repo-1",
+        rationale: "t",
+        confidence: 80,
+        requiresHumanReview: true,
+        riskLevel: "LOW" as const,
+        riskTags: [],
+        validationProfile: [],
+        addressedSymbols: [],
+      };
+      // Default (single-anchor): three matches fail closed, no silent 3x rewrite.
+      const ambiguous = bindSnapshotHashes(
+        {
+          ...base,
+          edits: [
+            {
+              filePath: "src/a.ts",
+              expectedSourceHash: "0".repeat(64),
+              operation: "REPLACE" as const,
+              searchText: "foo()",
+              replacement: "bar()",
+              description: "x",
+              confidence: 90,
+            },
+          ],
+        },
+        manifestHashMap(manifest),
+      );
+      expect(() => applyBoundPlanToCheckout(multi, manifest, ambiguous.plan)).toThrow(
+        /matches 3 locations.*expected exactly 1/,
+      );
+      // Explicit bounded multi-occurrence: declares N=3, replaces all three deterministically.
+      const explicit = bindSnapshotHashes(
+        {
+          ...base,
+          edits: [
+            {
+              filePath: "src/a.ts",
+              expectedSourceHash: "0".repeat(64),
+              operation: "REPLACE" as const,
+              searchText: "foo()",
+              replacement: "bar()",
+              expectedOccurrences: 3,
+              description: "x",
+              confidence: 90,
+            },
+          ],
+        },
+        manifestHashMap(manifest),
+      );
+      const artifacts = applyBoundPlanToCheckout(multi, manifest, explicit.plan);
+      expect(artifacts[0]?.patchedContent).toBe("bar();\nbar();\nbar();\n");
+      // Wrong count declaration also fails closed.
+      const wrong = bindSnapshotHashes(
+        {
+          ...base,
+          edits: [
+            {
+              filePath: "src/a.ts",
+              expectedSourceHash: "0".repeat(64),
+              operation: "REPLACE" as const,
+              searchText: "bar()",
+              replacement: "baz()",
+              expectedOccurrences: 2,
+              description: "x",
+              confidence: 90,
+            },
+          ],
+        },
+        manifestHashMap(buildSnapshotManifest(multi)),
+      );
+      expect(() =>
+        applyBoundPlanToCheckout(multi, buildSnapshotManifest(multi), wrong.plan),
+      ).toThrow(/expected exactly 2/);
+    } finally {
+      rmSync(multi, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("snapshot commit pinning (P0-1)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("refuses HEAD resolution: connected repos require expectedCommitSha (fail closed, zero checkout)", async () => {
+    const repo = {
+      id: "repo-1",
+      organizationId: "org-1",
+      provider: "GITHUB",
+      fullName: "acme/app",
+      defaultBranch: "main",
+      metadata: { installationId: 123 },
+    };
+    await expect(buildSnapshotForRepository(repo, {})).rejects.toThrow(SnapshotUnavailableError);
+    await expect(buildSnapshotForRepository(repo, {})).rejects.toThrow(/expectedCommitSha/);
+  });
+
+  it("checks out the analyzed commit even after main advances (injected provider)", async () => {
+    const checkedOut: string[] = [];
+    const dirA = makeCheckout({ "src/a.ts": "version A\n" });
+    const treeHash = "t".repeat(16);
+    const analyzedSha = "a".repeat(40);
+    const advancedSha = "b".repeat(40);
+    // Mock DB: installation owned, no existing snapshot, create returns new id.
+    (prisma as unknown as Record<string, unknown>).gitHubInstallation = {
+      findUnique: vi.fn().mockResolvedValue({ organizationId: "org-1" }),
+    };
+    (prisma as unknown as Record<string, unknown>).repositorySnapshot = {
+      findUnique: vi.fn().mockResolvedValue(null),
+      create: vi.fn().mockResolvedValue({ id: "snap-1" }),
+    };
+    const createProvider = vi.fn().mockResolvedValue({
+      // resolveHeadSha would return the ADVANCED head, but the service must
+      // never call it: checkout must receive the ANALYZED sha.
+      resolveHeadSha: vi.fn().mockResolvedValue(advancedSha),
+      checkout: vi.fn().mockImplementation(async (input: { sha: string }) => {
+        checkedOut.push(input.sha);
+        return { workspaceDir: dirA, treeHash };
+      }),
+    });
+    try {
+      const repo = {
+        id: "repo-1",
+        organizationId: "org-1",
+        provider: "GITHUB",
+        fullName: "acme/app",
+        defaultBranch: "main",
+        metadata: { installationId: 123 },
+      };
+      const built = await buildSnapshotForRepository(repo, {
+        expectedCommitSha: analyzedSha,
+        createProvider: createProvider as never,
+      });
+      expect(built.commitSha).toBe(analyzedSha);
+      expect(checkedOut).toEqual([analyzedSha]);
+      expect(checkedOut).not.toContain(advancedSha);
+    } finally {
+      rmSync(dirA, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("snapshot expiry (P1)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("refuses checkout of expired snapshots (marks EXPIRED, no patch)", async () => {
+    const past = new Date(Date.now() - 1000);
+    (prisma as unknown as Record<string, unknown>).repositorySnapshot = {
+      findUnique: vi.fn().mockResolvedValue({
+        id: "snap-exp",
+        organizationId: "org-1",
+        repositoryId: "repo-1",
+        status: "READY",
+        expiresAt: past,
+        commitSha: "a".repeat(40),
+        treeHash: "t".repeat(16),
+        manifestHash: "m".repeat(64),
+      }),
+      update: vi.fn().mockResolvedValue({}),
+    };
+    await expect(
+      checkoutSnapshotForApply("snap-exp", {
+        id: "repo-1",
+        organizationId: "org-1",
+        provider: "LOCAL",
+        fullName: null,
+        defaultBranch: null,
+        metadata: { fixture: "x" },
+      }),
+    ).rejects.toThrow(SnapshotUnavailableError);
+  });
+
+  it("retention sweep marks past-due READY rows EXPIRED", async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 2 });
+    (prisma as unknown as Record<string, unknown>).repositorySnapshot = { updateMany };
+    const result = await expireRepositorySnapshots(new Date("2030-01-01T00:00:00Z"));
+    expect(result.expired).toBe(2);
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { status: "READY", expiresAt: { lt: new Date("2030-01-01T00:00:00Z") } },
+      data: { status: "EXPIRED" },
+    });
   });
 });

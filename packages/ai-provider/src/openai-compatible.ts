@@ -416,7 +416,7 @@ export function buildPlanGenerationPrompt(input: PatchPlanPromptRequest): string
           excerptLines || "- none",
         ]
       : []),
-    "Return a strict JSON PatchPlan: { releaseRecordId, repositoryId, rationale, confidence, requiresHumanReview, riskLevel, riskTags: [], edits: [{ filePath, expectedSourceHash (64 hex chars; use a placeholder of 64 zeros if unknown), operation: REPLACE|INSERT_AFTER|DELETE, searchText, replacement, precondition, description, confidence }], validationProfile: [], addressedSymbols: [] }.",
+    "Return a strict JSON PatchPlan: { releaseRecordId, repositoryId, rationale, confidence, requiresHumanReview, riskLevel, riskTags: [], edits: [{ filePath, expectedSourceHash (64 hex chars; use a placeholder of 64 zeros if unknown), operation: REPLACE|INSERT_AFTER|DELETE, searchText, replacement, expectedOccurrences (optional 1-10, default 1; the anchor must match exactly this many locations or the edit fails), precondition, description, confidence }], validationProfile: [], addressedSymbols: [] }. Anchors are single-match by default: never emit an anchor that matches multiple locations unless you set expectedOccurrences explicitly.",
   ].join("\n");
 }
 

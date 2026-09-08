@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { prisma, Prisma, packageImpact } from "@patchbay/db";
-import { logger } from "@patchbay/domain";
+import { AuditAction } from "@patchbay/audit";
+import { ActorType, logger } from "@patchbay/domain";
 import { createAiProvider } from "@patchbay/ai-provider";
 import { digestJson, type JsonValue } from "@patchbay/ai-harness";
 import { getConnector } from "@patchbay/vendor-connectors";
@@ -19,10 +20,12 @@ import {
 } from "../lib/agent-workflow";
 import { recordRemediationAttempt } from "../lib/case-orchestration";
 import {
+  SnapshotUnavailableError,
   buildSnapshotForRepository,
   checkoutSnapshotForApply,
   collectSnapshotExcerpts,
 } from "../lib/repository-snapshot";
+import { writeAuditEvent } from "../lib/audit";
 
 /**
  * agent-plan processor (roadmap Phase H4): the Mastra-contract workflow
@@ -81,6 +84,25 @@ export async function processAgentPlan(job: Job): Promise<void> {
   // identity covers which budget the plan ran under.
   const rulePack = getConnector(run.releaseRecord.product.vendor.slug)?.rulePack ?? null;
   const input = buildAgentWorkflowInput(run, facts, rulePack);
+  // P1: snapshot BEFORE any model spend. A snapshot failure becomes a
+  // pre-model PLAN_ONLY/SNAPSHOT_UNAVAILABLE outcome — the planner never runs,
+  // zero tokens are spent, and all edits stay invalidated by construction.
+  let snapshot: SnapshotBinding;
+  try {
+    snapshot = await resolveSnapshotBinding(run);
+  } catch (error) {
+    if (error instanceof SnapshotUnavailableError) {
+      await recordSnapshotUnavailable(
+        run,
+        correlationId,
+        input,
+        error.message,
+        rulePack?.packVersion ?? null,
+      );
+      return;
+    }
+    throw error;
+  }
   const provider = createAiProvider(process.env);
   await markAgentRunRunning({
     run,
@@ -93,7 +115,6 @@ export async function processAgentPlan(job: Job): Promise<void> {
   if (await isAgentRunCancelled(run.id)) return;
 
   const recordStep = makeStepRecorder(run);
-  const snapshot = await resolveSnapshotBinding(run);
   const workflow = createAgentWorkflow({
     run,
     provider,
@@ -309,87 +330,243 @@ function makeStepRecorder(run: AgentRunWithRelations): (recording: StepRecording
   };
 }
 
+function isFixtureRepo(run: AgentRunWithRelations): boolean {
+  const metadata = (run.repository as { metadata?: unknown }).metadata;
+  if (typeof metadata !== "object" || metadata === null) return false;
+  const fixture = (metadata as { fixture?: unknown }).fixture;
+  return typeof fixture === "string" && fixture.length > 0;
+}
+
+/**
+ * Derives the exact commit the graph analyzed — never HEAD. Preference:
+ * live impact subgraph's snapshot -> latest READY GraphSnapshot -> match
+ * dependency commit. Absent all three -> SNAPSHOT_UNAVAILABLE (fail closed,
+ * pre-model PLAN_ONLY, zero spend). A branch advancing after analysis can
+ * never shift the AI onto newer code than the evidence/policy case.
+ */
+export async function resolveExpectedCommitSha(
+  run: AgentRunWithRelations,
+): Promise<{ commitSha: string; graphSnapshotId: string | null }> {
+  try {
+    const impact = await packageImpact({
+      organizationId: run.organizationId,
+      repositoryId: run.repositoryId,
+      packageName: run.releaseRecord.product.packageName,
+    });
+    const snapshotId = impact?.snapshotId ?? null;
+    if (snapshotId) {
+      const graph = await prisma.graphSnapshot.findUnique({
+        where: { id: snapshotId },
+        select: { commitSha: true, repositoryId: true, organizationId: true },
+      });
+      if (
+        graph &&
+        graph.repositoryId === run.repositoryId &&
+        graph.organizationId === run.organizationId
+      ) {
+        return { commitSha: graph.commitSha, graphSnapshotId: snapshotId };
+      }
+    }
+  } catch {
+    // Fall through to the READY snapshot / match legs below.
+  }
+  const ready = await prisma.graphSnapshot.findFirst({
+    where: { organizationId: run.organizationId, repositoryId: run.repositoryId, status: "READY" },
+    select: { id: true, commitSha: true },
+    orderBy: { completedAt: "desc" },
+  });
+  if (ready) return { commitSha: ready.commitSha, graphSnapshotId: ready.id };
+  const matchSha = run.match?.dependency.commitSha ?? null;
+  if (matchSha) return { commitSha: matchSha, graphSnapshotId: null };
+  throw new SnapshotUnavailableError(
+    `no analyzed commit for repository ${run.repositoryId}: no READY graph snapshot and no match commit (refusing HEAD resolution)`,
+  );
+}
+
 /**
  * Snapshot-backed binding for the agent workflow (replaces fixture-only
  * `fixturesOf`): builds the immutable snapshot through the same contract for
  * fixture and connected repositories, then collects bounded excerpts for the
- * impacted files. Any failure yields an EMPTY binding (all edits invalidate)
- * — never a fixture-only fallback, never a silent patch.
+ * impacted files. Connected repositories pin the EXACT analyzed commit
+ * (graph snapshot or match) — never HEAD. Any failure THROWS
+ * SnapshotUnavailableError so the caller records pre-model PLAN_ONLY with
+ * zero model spend (never an empty binding followed by a paid planner call).
  */
 export async function resolveSnapshotBinding(run: AgentRunWithRelations): Promise<SnapshotBinding> {
-  const empty: SnapshotBinding = {
-    snapshotId: null,
-    commitSha: null,
-    treeHash: null,
-    manifestHash: null,
-    manifest: new Map(),
-    excerpts: [],
+  const repository = run.repository as {
+    id?: string;
+    organizationId?: string;
+    provider?: string;
+    fullName?: string | null;
+    defaultBranch?: string | null;
+    metadata?: unknown;
   };
+  const repoRow = {
+    id: run.repositoryId,
+    organizationId: run.organizationId,
+    provider: String(repository.provider ?? "LOCAL"),
+    fullName: (repository.fullName ?? null) as string | null,
+    defaultBranch: (repository.defaultBranch ?? null) as string | null,
+    metadata: repository.metadata as unknown,
+  };
+  const fixture = isFixtureRepo(run);
+  const expected = fixture ? null : await resolveExpectedCommitSha(run);
+  let built: Awaited<ReturnType<typeof buildSnapshotForRepository>>;
   try {
-    const repository = run.repository as {
-      id?: string;
-      organizationId?: string;
-      provider?: string;
-      fullName?: string | null;
-      defaultBranch?: string | null;
-      metadata?: unknown;
-    };
-    const repoRow = {
-      id: run.repositoryId,
-      organizationId: run.organizationId,
-      provider: String(repository.provider ?? "LOCAL"),
-      fullName: (repository.fullName ?? null) as string | null,
-      defaultBranch: (repository.defaultBranch ?? null) as string | null,
-      metadata: repository.metadata as unknown,
-    };
-    const built = await buildSnapshotForRepository(repoRow);
-    const manifestMap = new Map(built.manifest.files.map((file) => [file.path, file.sha256]));
-    // Impacted files for excerpt ranking (same query the impact analyst uses).
-    let topFiles: string[] = [];
-    try {
-      const impact = await packageImpact({
-        organizationId: run.organizationId,
-        repositoryId: run.repositoryId,
-        packageName: run.releaseRecord.product.packageName,
-      });
-      topFiles = [...(impact?.modules ?? [])]
-        .sort((a, b) => b.evidenceCount - a.evidenceCount || (a.filePath < b.filePath ? -1 : 1))
-        .slice(0, 8)
-        .map((module) => module.filePath);
-    } catch {
-      topFiles = [];
-    }
-    let excerpts: Array<{ filePath: string; excerpt: string }> = [];
-    if (topFiles.length > 0) {
-      try {
-        const checkout = await checkoutSnapshotForApply(built.snapshotId, repoRow);
-        try {
-          excerpts = collectSnapshotExcerpts(checkout.rootDir, topFiles, {
-            maxFiles: 8,
-            maxCharsPerFile: 2_000,
-          });
-        } finally {
-          checkout.cleanup();
-        }
-      } catch {
-        excerpts = [];
-      }
-    }
-    return {
-      snapshotId: built.snapshotId,
-      commitSha: built.commitSha,
-      treeHash: built.treeHash,
-      manifestHash: built.manifestHash,
-      manifest: manifestMap,
-      excerpts,
-    };
+    built = await buildSnapshotForRepository(
+      repoRow,
+      expected
+        ? {
+            expectedCommitSha: expected.commitSha,
+            graphSnapshotId: expected.graphSnapshotId ?? undefined,
+          }
+        : {},
+    );
   } catch (error) {
-    logger.warn("snapshot binding unavailable; continuing with empty binding (fail closed)", {
-      agentRunId: run.id,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return empty;
+    if (error instanceof SnapshotUnavailableError) throw error;
+    throw new SnapshotUnavailableError(
+      `snapshot build failed for repository ${run.repositoryId}: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
+  const manifestMap = new Map(built.manifest.files.map((file) => [file.path, file.sha256]));
+  // Impacted files for excerpt ranking (same query the impact analyst uses).
+  let topFiles: string[] = [];
+  try {
+    const impact = await packageImpact({
+      organizationId: run.organizationId,
+      repositoryId: run.repositoryId,
+      packageName: run.releaseRecord.product.packageName,
+    });
+    topFiles = [...(impact?.modules ?? [])]
+      .sort((a, b) => b.evidenceCount - a.evidenceCount || (a.filePath < b.filePath ? -1 : 1))
+      .slice(0, 8)
+      .map((module) => module.filePath);
+  } catch {
+    topFiles = [];
+  }
+  let excerpts: Array<{ filePath: string; excerpt: string }> = [];
+  if (topFiles.length > 0) {
+    try {
+      const checkout = await checkoutSnapshotForApply(built.snapshotId, repoRow);
+      try {
+        excerpts = collectSnapshotExcerpts(checkout.rootDir, topFiles, {
+          maxFiles: 8,
+          maxCharsPerFile: 2_000,
+        });
+      } finally {
+        checkout.cleanup();
+      }
+    } catch {
+      excerpts = [];
+    }
+  }
+  return {
+    snapshotId: built.snapshotId,
+    commitSha: built.commitSha,
+    treeHash: built.treeHash,
+    manifestHash: built.manifestHash,
+    manifest: manifestMap,
+    excerpts,
+  };
+}
+
+/**
+ * Pre-model SNAPSHOT_UNAVAILABLE outcome: no planner/reviewer call, zero
+ * tokens, zero cost. The run is marked FAILED with a classified error, the
+ * attempt records SNAPSHOT_UNAVAILABLE, and the case moves to PLAN_ONLY (not
+ * retryable PLANNING) with audit evidence explaining why.
+ */
+async function recordSnapshotUnavailable(
+  run: AgentRunWithRelations,
+  correlationId: string,
+  input: ReturnType<typeof buildAgentWorkflowInput>,
+  reason: string,
+  rulePackVersion: string | null,
+): Promise<void> {
+  await prisma.agentRun.update({
+    where: { id: run.id },
+    data: {
+      status: "FAILED",
+      error: `SNAPSHOT_UNAVAILABLE: ${reason}`.slice(0, 2000),
+      inputJson: input as never,
+      costEstimateCents: 0,
+      completedAt: new Date(),
+    },
+  });
+  await recordRemediationAttempt({
+    caseId: run.remediationCaseId ?? null,
+    strategyId: "agent-plan",
+    rulePackVersion,
+    agentRunId: run.id,
+    inputHash: digestJson(input as unknown as JsonValue),
+    status: "SKIPPED",
+    failureCode: "SNAPSHOT_UNAVAILABLE",
+    organizationId: run.organizationId,
+    correlationId,
+  });
+  if (run.remediationCaseId) {
+    const existing = await prisma.remediationCase.findUnique({
+      where: { id: run.remediationCaseId },
+      select: { id: true, status: true, reasonCode: true },
+    });
+    if (existing && (existing.status === "PLANNING" || existing.status === "POLICY_ELIGIBLE")) {
+      await prisma.$transaction([
+        prisma.remediationCase.update({
+          where: { id: existing.id },
+          data: { status: "PLAN_ONLY" },
+        }),
+        prisma.remediationCaseEvent.create({
+          data: {
+            organizationId: run.organizationId,
+            remediationCaseId: existing.id,
+            status: "PLAN_ONLY",
+            reasonCode: existing.reasonCode,
+            detailJson: {
+              agentRunId: run.id,
+              boundOutcome: "PLAN_ONLY",
+              reason: `SNAPSHOT_UNAVAILABLE: ${reason}`.slice(0, 1000),
+            },
+            correlationId,
+          },
+        }),
+      ]);
+    } else if (existing) {
+      await prisma.remediationCaseEvent.create({
+        data: {
+          organizationId: run.organizationId,
+          remediationCaseId: existing.id,
+          status: existing.status,
+          reasonCode: existing.reasonCode,
+          detailJson: {
+            agentRunId: run.id,
+            failure: `SNAPSHOT_UNAVAILABLE: ${reason}`.slice(0, 1000),
+          },
+          correlationId,
+        },
+      });
+    }
+  }
+  await writeAuditEvent({
+    organizationId: run.organizationId,
+    actorType: ActorType.SYSTEM,
+    actorId: null,
+    action: AuditAction.AGENT_RUN_FAILED,
+    entityType: "agentRun",
+    entityId: run.id,
+    correlationId,
+    after: {
+      releaseRecordId: run.releaseRecordId,
+      repositoryId: run.repositoryId,
+      error: `SNAPSHOT_UNAVAILABLE: ${reason}`.slice(0, 1000),
+      failureKind: "SNAPSHOT_UNAVAILABLE",
+      modelSpendCents: 0,
+    },
+  });
+  logger.warn("agent plan skipped: snapshot unavailable (pre-model PLAN_ONLY, zero spend)", {
+    agentRunId: run.id,
+    correlationId,
+    reason: reason.slice(0, 500),
+  });
 }
 
 function providerLabel(): string {

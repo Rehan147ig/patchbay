@@ -3,8 +3,9 @@
 ## Trust chain
 
 ```
-exact commit SHA (API-resolved, never a branch ref)
+analyzed commit SHA (graph snapshot or match — never HEAD-resolved here)
   -> job-owned temp checkout (GitHub App installation token, org-bound)
+  -> checkout EXACT expected SHA or fail closed (no HEAD fallback)
   -> verify FETCH_HEAD == SHA + `git write-tree` == treeHash
   -> manifest (sorted path + size + mode + sha256, manifestHash)
   -> RepositorySnapshot row (ids + hashes + timestamps + provenance ONLY)
@@ -12,9 +13,23 @@ exact commit SHA (API-resolved, never a branch ref)
   -> AI PatchPlan (structured intent only, placeholder hashes)
   -> bindSnapshotHashes (missing/unsafe/stale -> INVALIDATED)
   -> pack budgets + approval-required forcing
-  -> applyBoundPlanToCheckout (same snapshot, TOCTOU-checked, declared-only)
+  -> applyBoundPlanToCheckout (same snapshot, TOCTOU-checked, declared-only,
+     single-anchor by default, explicit bounded expectedOccurrences for multi)
   -> isolated validation -> policy -> approval-required draft PR
 ```
+
+Pinning rule (P0): the snapshot builder takes `expectedCommitSha` from the
+graph snapshot the impact evidence was read from (fallbacks: latest READY
+graph snapshot, then match dependency commit). Connected repositories with no
+analyzed commit fail closed as pre-model `PLAN_ONLY/SNAPSHOT_UNAVAILABLE`
+with zero model spend — HEAD is never resolved as a substitute, so a branch
+advancing after analysis cannot shift the AI onto newer code.
+
+Anchor rule (P0): every edit declares `expectedOccurrences` (default 1, max
+10). Zero matches = stale, N≠expected = ambiguous — both fail closed with no
+partial application. Multi-occurrence edits must set N explicitly and match
+exactly N (deterministic, bounded); the prompt instructs single-match anchors
+by default.
 
 - AI proposes intent. Deterministic code owns state, reads, hashes,
   mutation, validation, policy, approval, and delivery.
@@ -29,12 +44,30 @@ exact commit SHA (API-resolved, never a branch ref)
 
 - `RepositorySnapshot.expiresAt` defaults to 90 days (`SNAPSHOT_RETENTION_DAYS`).
 - Rows are `READY | EXPIRED | CLEANED_UP | FAILED` (String, validated at writes).
+- Expiry is ENFORCED at runtime: `checkoutSnapshotForApply` refuses expired or
+  non-READY rows (marks EXPIRED best-effort, throws `SnapshotUnavailableError`,
+  no patch, no PR), and the 6-hour retention sweep flips past-due READY rows
+  to EXPIRED (`expireRepositorySnapshots`, wired next to agent-run/artifact
+  purges). Reuse of the same commit after expiry revives the row explicitly
+  with a fresh window (manifest/tree re-verified, never silently reused).
 - Checkout paths are temporary execution state, removed in `finally`
   (`withSnapshotCheckout`, job `finally` blocks). Cleanup runs after success
   AND failure (tested).
 - The DB never stores source content — only commit SHA, tree hash, manifest
   hash, extractor/graph versions, timestamps, and provenance FKs
   (`AgentRun/PatchArtifact/ValidationRun/RemediationAttempt.repositorySnapshotId`).
+
+## Eligibility boundary: manifest size
+
+- `MAX_SNAPSHOT_FILES = 2000`, `MAX_SNAPSHOT_FILE_BYTES = 1 MiB` (skipped
+  `.git`/`node_modules`, non-regular files, oversized files). Exceeding 2000
+  files throws `SnapshotBudgetError` during manifest build.
+- A budget-exceeded snapshot is NOT retried as a partial manifest: the job
+  records pre-model `PLAN_ONLY/SNAPSHOT_UNAVAILABLE` with zero model spend
+  (same path as missing sources). Large enterprise repositories therefore stay
+  `PLAN_ONLY` until a safe sparse/targeted snapshot strategy lands (e.g.
+  impacted-file subset pinned to the same commit with manifest-subset hashing).
+  This is a current eligibility boundary, not a silent truncation.
 
 ## Replay
 
@@ -57,6 +90,11 @@ exact commit SHA (API-resolved, never a branch ref)
 ENCRYPTION/WEBHOOK/INFRASTRUCTURE`) keep dual/human approval + quorum.
 - Zero-edit -> `PLAN_ONLY`. Any invalidated edit -> `INVALIDATED` (fail closed
   even when some edits remain). No partial patch ever becomes a PR.
+- Snapshot failures (no analyzed commit, unbuildable source, expired row,
+  budget-exceeded manifest) become pre-model `PLAN_ONLY/SNAPSHOT_UNAVAILABLE`:
+  the planner/reviewer never run, zero tokens are spent, the attempt records
+  `SKIPPED/SNAPSHOT_UNAVAILABLE`, and the case moves to `PLAN_ONLY` with audit
+  evidence (never a paid call followed by invalidation).
 - Budgets: ONE total `AI_RUN_BUDGET_CENTS` across planner + reviewer
   (reserve-before-call; reviewer spends the remainder). Unknown model pricing
   throws `UnknownModelPriceError` (never zero). Provider errors persist only

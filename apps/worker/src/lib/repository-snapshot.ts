@@ -42,6 +42,13 @@ export class SnapshotApplyError extends Error {
   }
 }
 
+export class SnapshotUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SnapshotUnavailableError";
+  }
+}
+
 export interface SnapshotRepositoryRow {
   id: string;
   organizationId: string;
@@ -81,6 +88,32 @@ function expiresAtDefault(): Date {
   return new Date(Date.now() + SNAPSHOT_RETENTION_DAYS * 24 * 60 * 60 * 1000);
 }
 
+export interface SnapshotProvider {
+  checkout(input: {
+    sha: string;
+    baseBranch?: string;
+    repositoryFullName?: string;
+  }): Promise<{ workspaceDir: string; treeHash: string }>;
+}
+
+export interface BuildSnapshotOptions {
+  /**
+   * Exact commit the graph analyzed (GraphSnapshot.commitSha or
+   * match.dependency.commitSha). REQUIRED for connected repositories:
+   * the snapshot never resolves HEAD itself, so a branch advancing after
+   * analysis cannot shift the AI onto newer code. Absent -> fail closed
+   * (SNAPSHOT_UNAVAILABLE, pre-model PLAN_ONLY, zero model spend).
+   */
+  expectedCommitSha?: string;
+  extractorVersion?: string;
+  graphSnapshotId?: string;
+  /** Injectable provider factory (tests); defaults to the GitHub App store. */
+  createProvider?: (
+    installationId: number,
+    repositoryFullName: string,
+  ) => Promise<SnapshotProvider>;
+}
+
 /**
  * Builds (or reuses) the immutable snapshot for a repository:
  * exact commit -> disposable checkout -> manifest -> persisted row -> cleanup.
@@ -88,7 +121,7 @@ function expiresAtDefault(): Date {
  */
 export async function buildSnapshotForRepository(
   repository: SnapshotRepositoryRow,
-  options: { extractorVersion?: string; graphSnapshotId?: string } = {},
+  options: BuildSnapshotOptions = {},
 ): Promise<BuiltSnapshot> {
   const fixture = fixtureOf(repository.metadata);
   if (fixture) {
@@ -121,14 +154,23 @@ export async function buildSnapshotForRepository(
 
   const installationId = installationIdOf(repository.metadata);
   if (repository.provider === "GITHUB" && installationId && repository.fullName) {
+    // P0: never resolve HEAD here. The caller passes the exact commit the
+    // graph analyzed (graph snapshot or match); without it we fail closed
+    // BEFORE any checkout or model spend. A branch advancing after analysis
+    // must never shift the AI onto newer code than the evidence/policy case.
+    const commitSha = options.expectedCommitSha;
+    if (!commitSha) {
+      throw new SnapshotUnavailableError(
+        `repository ${repository.id} has no analyzed commit to pin: pass expectedCommitSha from the graph snapshot or match (refusing HEAD resolution)`,
+      );
+    }
     await assertInstallationOwned(installationId, repository.organizationId);
-    const provider = await createGitHubAppProviderFromStore(
-      { installationId, repositoryFullName: repository.fullName },
-      getSecretStore(),
-    );
-    // Exact analyzed commit: HEAD resolved through the API, never a branch ref
-    // passed through to checkout.
-    const commitSha = await provider.resolveHeadSha(repository.defaultBranch ?? undefined);
+    const provider = options.createProvider
+      ? await options.createProvider(installationId, repository.fullName)
+      : await createGitHubAppProviderFromStore(
+          { installationId, repositoryFullName: repository.fullName },
+          getSecretStore(),
+        );
     const checkout = await provider.checkout({
       sha: commitSha,
       baseBranch: repository.defaultBranch ?? undefined,
@@ -170,6 +212,22 @@ export async function buildSnapshotForRepository(
   );
 }
 
+/**
+ * Retention sweep (runs on RETENTION_SWEEP_INTERVAL_MS alongside agent-run
+ * and artifact purges): marks READY snapshots past expiresAt as EXPIRED.
+ * Expired rows are never checked out (fail closed) and never revived
+ * implicitly — a fresh snapshot row is built for the same commit on next use.
+ */
+export async function expireRepositorySnapshots(
+  now: Date = new Date(),
+): Promise<{ expired: number }> {
+  const result = await prisma.repositorySnapshot.updateMany({
+    where: { status: "READY", expiresAt: { lt: now } },
+    data: { status: "EXPIRED" },
+  });
+  return { expired: result.count };
+}
+
 async function upsertSnapshotRow(input: {
   organizationId: string;
   repositoryId: string;
@@ -185,7 +243,7 @@ async function upsertSnapshotRow(input: {
     where: {
       repositoryId_commitSha: { repositoryId: input.repositoryId, commitSha: input.commitSha },
     },
-    select: { id: true, manifestHash: true, treeHash: true },
+    select: { id: true, manifestHash: true, treeHash: true, status: true, expiresAt: true },
   });
   if (existing) {
     // Replay identity: same commit must yield the same manifest/tree. A stored
@@ -194,6 +252,14 @@ async function upsertSnapshotRow(input: {
       throw new Error(
         `snapshot identity conflict for ${input.repositoryId}@${input.commitSha.slice(0, 12)}: stored manifest no longer matches the checkout`,
       );
+    }
+    // Revive expired/superseded rows explicitly (fresh retention window) so
+    // an EXPIRED row is never silently reused past its deadline.
+    if (existing.status !== "READY" || (existing.expiresAt && existing.expiresAt < new Date())) {
+      await prisma.repositorySnapshot.update({
+        where: { id: existing.id },
+        data: { status: "READY", expiresAt: expiresAtDefault() },
+      });
     }
     return { id: existing.id };
   }
@@ -257,7 +323,23 @@ export async function checkoutSnapshotForApply(
     throw new Error(`snapshot ${snapshotId} does not belong to repository ${repository.id}`);
   }
   if (snapshot.status !== "READY") {
-    throw new Error(`snapshot ${snapshotId} is not READY (status=${snapshot.status})`);
+    throw new SnapshotUnavailableError(
+      `snapshot ${snapshotId} is not READY (status=${snapshot.status}); refusing checkout`,
+    );
+  }
+  if (snapshot.expiresAt && snapshot.expiresAt < new Date()) {
+    // Best-effort status transition (never masks the fail-closed throw).
+    try {
+      await prisma.repositorySnapshot.update({
+        where: { id: snapshot.id },
+        data: { status: "EXPIRED" },
+      });
+    } catch {
+      // Ignore marking failures; the throw below is authoritative.
+    }
+    throw new SnapshotUnavailableError(
+      `snapshot ${snapshotId} expired at ${snapshot.expiresAt.toISOString()}; refusing checkout (rebuild a fresh snapshot)`,
+    );
   }
 
   const fixture = fixtureOf(repository.metadata);
@@ -481,45 +563,61 @@ export function applyBoundPlanToCheckout(
   return artifacts;
 }
 
+function countOccurrences(content: string, anchor: string): number {
+  if (anchor.length === 0) return 0;
+  return content.split(anchor).length - 1;
+}
+
 function applyOneEdit(
   content: string,
   edit: {
     operation: string;
     searchText?: string | null;
     replacement?: string | null;
+    expectedOccurrences?: number | null;
     filePath: string;
   },
 ): string {
+  if (
+    edit.operation !== "REPLACE" &&
+    edit.operation !== "INSERT_AFTER" &&
+    edit.operation !== "DELETE"
+  ) {
+    throw new SnapshotApplyError(`unsupported operation ${edit.operation}: ${edit.filePath}`);
+  }
+  if (!edit.searchText) {
+    throw new SnapshotApplyError(`${edit.operation} requires searchText: ${edit.filePath}`);
+  }
+  if (
+    edit.operation !== "DELETE" &&
+    (edit.replacement === undefined || edit.replacement === null)
+  ) {
+    throw new SnapshotApplyError(`${edit.operation} requires replacement: ${edit.filePath}`);
+  }
+  // Single-anchor by default: the anchor must match EXACTLY the declared
+  // occurrence count (default 1). Zero matches = stale plan; multiple matches
+  // with default 1 = ambiguous plan (one edit must never rewrite N locations
+  // silently). Multi-occurrence edits must declare expectedOccurrences = N
+  // (bounded max 10 by schema) and match exactly N.
+  const expected = edit.expectedOccurrences ?? 1;
+  const actual = countOccurrences(content, edit.searchText);
+  if (actual === 0) {
+    throw new SnapshotApplyError(
+      `${edit.operation} anchor missing in ${edit.filePath}; stale plan (expected ${expected}, found 0)`,
+    );
+  }
+  if (actual !== expected) {
+    throw new SnapshotApplyError(
+      `${edit.operation} anchor matches ${actual} locations in ${edit.filePath}; expected exactly ${expected} (declare expectedOccurrences explicitly for multi-occurrence edits)`,
+    );
+  }
   if (edit.operation === "REPLACE") {
-    if (!edit.searchText || edit.replacement === undefined || edit.replacement === null) {
-      throw new SnapshotApplyError(`REPLACE requires searchText + replacement: ${edit.filePath}`);
-    }
-    if (!content.includes(edit.searchText)) {
-      throw new SnapshotApplyError(`REPLACE anchor missing in ${edit.filePath}; stale plan`);
-    }
-    return content.split(edit.searchText).join(edit.replacement);
+    return content.split(edit.searchText).join(edit.replacement as string);
   }
   if (edit.operation === "INSERT_AFTER") {
-    if (!edit.searchText || edit.replacement === undefined || edit.replacement === null) {
-      throw new SnapshotApplyError(
-        `INSERT_AFTER requires searchText + replacement: ${edit.filePath}`,
-      );
-    }
-    if (!content.includes(edit.searchText)) {
-      throw new SnapshotApplyError(`INSERT_AFTER anchor missing in ${edit.filePath}; stale plan`);
-    }
-    return content.split(edit.searchText).join(edit.searchText + edit.replacement);
+    return content.split(edit.searchText).join(edit.searchText + (edit.replacement as string));
   }
-  if (edit.operation === "DELETE") {
-    if (!edit.searchText) {
-      throw new SnapshotApplyError(`DELETE requires searchText: ${edit.filePath}`);
-    }
-    if (!content.includes(edit.searchText)) {
-      throw new SnapshotApplyError(`DELETE anchor missing in ${edit.filePath}; stale plan`);
-    }
-    return content.split(edit.searchText).join("");
-  }
-  throw new SnapshotApplyError(`unsupported operation ${edit.operation}: ${edit.filePath}`);
+  return content.split(edit.searchText).join("");
 }
 
 /**

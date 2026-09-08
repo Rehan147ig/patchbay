@@ -68,7 +68,10 @@ describe("snapshot manifest", () => {
       // path validator itself, and prove the manifest guard where allowed.
       expect(() => assertSafeSnapshotPath("../escape.ts")).toThrow(SnapshotPathError);
       try {
-        symlinkSync(path.join(tmpdir(), "patchbay-outside-secret.txt"), path.join(dir, "evil-link"));
+        symlinkSync(
+          path.join(tmpdir(), "patchbay-outside-secret.txt"),
+          path.join(dir, "evil-link"),
+        );
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "EPERM") return;
         throw error;

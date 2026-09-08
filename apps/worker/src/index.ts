@@ -55,6 +55,7 @@ import { sweepWatchtowerStaleness } from "./lib/watchtower-staleness";
 import { registerWatchtowerSchedulers } from "./schedule/watchtower";
 import { purgeExpiredAgentRuns } from "@patchbay/operations";
 import { purgeValidationArtifacts } from "@patchbay/db";
+import { expireRepositorySnapshots } from "./lib/repository-snapshot";
 import { sweepCapabilityHealth } from "./lib/capability-sweep";
 
 const TASK_SWEEP_INTERVAL_MS = 60_000;
@@ -223,6 +224,12 @@ async function main(): Promise<void> {
         logger.error("validation artifact retention sweep failed", { error: String(error) });
       },
     );
+    // Repository snapshots are immutable and time-boxed: past-expiresAt rows
+    // flip READY -> EXPIRED and refuse checkout until rebuilt. No source
+    // content is stored, so expiry is a status transition, not a blob purge.
+    expireRepositorySnapshots().catch((error: unknown) => {
+      logger.error("repository snapshot retention sweep failed", { error: String(error) });
+    });
   }, RETENTION_SWEEP_INTERVAL_MS);
 
   const capabilitySweepTimer = setInterval(() => {

@@ -235,6 +235,14 @@ export const patchPlanEditSchema = z.object({
   /** Exact text to anchor the edit (REPLACE/INSERT_AFTER). Bounded, never regex. */
   searchText: z.string().min(1).max(4000).optional(),
   replacement: z.string().max(4000).optional(),
+  /**
+   * Exact anchor occurrence count the edit intends to change (default 1).
+   * Single-anchor by default: zero matches (stale) or multiple matches
+   * (ambiguous) fail closed. Multi-occurrence edits must be explicit
+   * (set N) and are bounded (max 10) so one AI edit can never rewrite an
+   * unbounded number of locations.
+   */
+  expectedOccurrences: z.number().int().min(1).max(10).optional(),
   /** Human-readable AST/precondition check description (e.g. "caller expression is a member call"). */
   precondition: z.string().min(1).max(500).optional(),
   description: z.string().min(1).max(500),
