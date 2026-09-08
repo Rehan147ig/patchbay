@@ -260,11 +260,16 @@ describe("provenance", async () => {
     expect(result.provenance.limits.timeoutMs).toBeGreaterThan(0);
   });
 
-  it("classifies command failures and timeouts", async () => {
+  // Two sequential `npm test` spawns share nothing: each case keeps the same
+  // 20s budget it had jointly, so one slow spawn under full-suite parallel
+  // load can no longer starve the other into a timeout. Assertions unchanged.
+  it("classifies command failures", async () => {
     const failing = makeWorkspace({ test: 'node -e "process.exit(7)"' });
     const failedResult = await runValidation("npm test", failing);
     expect(failedResult.provenance.failureClass).toBe("command-failed");
+  }, 20_000);
 
+  it("classifies timeouts", async () => {
     const hanging = makeWorkspace({ test: 'node -e "setTimeout(() => {}, 60000)"' });
     const timedOutResult = await runValidation("npm test", hanging, { timeoutMs: 500 });
     expect(timedOutResult.provenance.failureClass).toBe("timed-out");

@@ -98,11 +98,11 @@ describe("processAgentPlan attempt provenance (WP7)", () => {
     // In-memory snapshot store: build (findUnique -> null, create) then
     // re-checkout (findUnique -> stored READY row) round-trips honestly.
     const store = new Map<string, Record<string, unknown>>();
-    vi.mocked(prisma.repositorySnapshot.findUnique).mockImplementation(async (args: unknown) => {
+    vi.mocked(prisma.repositorySnapshot.findUnique).mockImplementation((async (args: unknown) => {
       const where = (args as { where: { id?: string } }).where;
-      return (where.id ? (store.get(where.id) ?? null) : null) as never;
-    });
-    vi.mocked(prisma.repositorySnapshot.create).mockImplementation(async (args: unknown) => {
+      return where.id ? (store.get(where.id) ?? null) : null;
+    }) as never);
+    vi.mocked(prisma.repositorySnapshot.create).mockImplementation((async (args: unknown) => {
       const data = (args as { data: Record<string, unknown> }).data;
       const id = "snap-test-1";
       store.set(id, {
@@ -111,8 +111,8 @@ describe("processAgentPlan attempt provenance (WP7)", () => {
         status: "READY",
         expiresAt: new Date(Date.now() + 86_400_000),
       });
-      return { id } as never;
-    });
+      return { id };
+    }) as never);
     vi.mocked(prisma.repositorySnapshot.update).mockResolvedValue({} as never);
     vi.mocked(prisma.graphSnapshot.findUnique).mockResolvedValue(null);
     vi.mocked(prisma.graphSnapshot.findFirst).mockResolvedValue(null);
