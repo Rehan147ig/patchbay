@@ -60,3 +60,23 @@ export type {
   RepositorySourceDeps,
   RepositorySourceRepository,
 } from "./repository-source";
+export {
+  MAX_SNAPSHOT_FILES,
+  MAX_SNAPSHOT_FILE_BYTES,
+  SnapshotBudgetError,
+  SnapshotPathError,
+  SnapshotVerificationError,
+  assertSafeSnapshotPath,
+  buildSnapshotManifest,
+  manifestHashMap,
+  manifestHashOf,
+  sha256HexOf,
+  verifySnapshotCheckout,
+  withSnapshotCheckout,
+} from "./snapshot";
+export type {
+  ActualCheckoutIdentity,
+  ExpectedCheckoutIdentity,
+  SnapshotManifest,
+  SnapshotManifestFile,
+} from "./snapshot";

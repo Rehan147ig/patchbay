@@ -2,7 +2,6 @@ import { z } from "zod";
 import { prisma, Prisma } from "@patchbay/db";
 import { logger } from "@patchbay/domain";
 import { createAiProvider } from "@patchbay/ai-provider";
-import { resolveFixtureDir } from "@patchbay/repo-analysis";
 import { planReplay, type StepRecord } from "@patchbay/ai-harness";
 import type { Job } from "bullmq";
 import {
@@ -18,7 +17,7 @@ import {
   type FactsJson,
   type StepRecording,
 } from "../lib/agent-workflow";
-import { loadAgentRun } from "./agent-plan";
+import { loadAgentRun, resolveSnapshotBinding } from "./agent-plan";
 
 /**
  * agent-replay processor (roadmap Phase H4: manual replay).
@@ -69,11 +68,16 @@ export async function processAgentReplay(job: Job): Promise<void> {
   if (await isAgentRunCancelled(run.id)) return;
 
   const recordStep = makeReplayStepRecorder(run);
+  // Safe replay: re-resolve the snapshot (same exact commit for fixtures via
+  // manifest-derived SHA; re-verified on checkout) instead of trusting an old
+  // local path. The planner re-binds to the fresh manifest; carried analyst
+  // steps are digest-verified before reuse.
+  const snapshot = await resolveSnapshotBinding(run);
   const workflow = createAgentWorkflow({
     run,
     provider,
     budgetCents: storedInput.budgetCents,
-    fixturesDir: fixturesOf(run),
+    snapshot,
     recordStep,
     isCancelled: () => isAgentRunCancelled(run.id),
   });
@@ -156,11 +160,4 @@ function makeReplayStepRecorder(
       },
     });
   };
-}
-
-function fixturesOf(run: AgentRunWithRelations): string | null {
-  const metadata = run.repository.metadata;
-  if (typeof metadata !== "object" || metadata === null) return null;
-  const fixture = (metadata as { fixture?: unknown }).fixture;
-  return typeof fixture === "string" && fixture.length > 0 ? resolveFixtureDir(fixture) : null;
 }

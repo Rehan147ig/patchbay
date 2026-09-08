@@ -39,6 +39,15 @@ const MODEL_PRICE_CENTS_PER_MILLION: Record<string, { input: number; output: num
   "gpt-4o-2024-08-06": { input: 2.5, output: 10 },
 };
 
+export class UnknownModelPriceError extends Error {
+  constructor(model: string) {
+    super(
+      `unknown model price for '${model}': refusing to estimate as mock/zero cost (fail closed for paid execution)`,
+    );
+    this.name = "UnknownModelPriceError";
+  }
+}
+
 export class PlanSchemaError extends Error {
   constructor(message: string) {
     super(message);
@@ -107,6 +116,12 @@ export function buildPlannerRequest(input: PatchGenerationInput): PatchPlanPromp
       edgeKinds: module.edgeKinds,
       evidenceCount: module.evidenceCount,
     })),
+    ...(parsed.snapshotId ? { snapshotId: parsed.snapshotId } : {}),
+    ...(parsed.expectedCommitSha ? { snapshotCommitSha: parsed.expectedCommitSha } : {}),
+    ...(parsed.snapshotTreeHash ? { snapshotTreeHash: parsed.snapshotTreeHash } : {}),
+    ...(parsed.snapshotManifestHash ? { snapshotManifestHash: parsed.snapshotManifestHash } : {}),
+    ...(parsed.excerpts.length > 0 ? { excerpts: parsed.excerpts } : {}),
+    ...(parsed.rulePackVersion ? { rulePackVersion: parsed.rulePackVersion } : {}),
   };
 }
 
@@ -247,11 +262,36 @@ export function bindSourceHashes(
 
 export function estimateCostCents(result: AiProviderResult): number {
   const model = result.usage?.model ?? "mock";
-  const price = MODEL_PRICE_CENTS_PER_MILLION[model] ?? MODEL_PRICE_CENTS_PER_MILLION.mock!;
+  const price = MODEL_PRICE_CENTS_PER_MILLION[model];
+  if (!price) {
+    // Unknown pricing is NEVER silently zero: fail closed for paid execution.
+    // Callers (workflow budget gates) map this to a terminal failure, never a
+    // free run. Mock/zero-token deterministic runs stay on the known `mock`
+    // row above.
+    throw new UnknownModelPriceError(model);
+  }
   const inputTokens = result.usage?.inputTokens ?? 0;
   const outputTokens = result.usage?.outputTokens ?? 0;
   const cents = (inputTokens * price.input + outputTokens * price.output) / 1_000_000;
   return Math.ceil(cents * 100);
+}
+
+/**
+ * Total AgentRun budget (AI_RUN_BUDGET_CENTS): ONE budget across planner,
+ * reviewer, retries, and replay. Callers reserve/check the REMAINING budget
+ * before each model call — never the full budget twice.
+ */
+export function remainingBudgetCents(totalCents: number, spentCents: number): number {
+  return totalCents - spentCents;
+}
+
+/** Throws BudgetExceededError when nothing remains (reserve-before-call gate). */
+export function assertRemainingBudget(totalCents: number, spentCents: number): number {
+  const remaining = remainingBudgetCents(totalCents, spentCents);
+  if (remaining < 0) {
+    throw new BudgetExceededError(totalCents, spentCents);
+  }
+  return remaining;
 }
 
 /**
@@ -278,6 +318,25 @@ async function callProvider(
   }
 }
 
+export {
+  MAX_EVIDENCE_FILES,
+  MAX_EXCERPT_CHARS,
+  MAX_GRAPH_HOPS,
+  MAX_TOTAL_CONTEXT_CHARS,
+  SNAPSHOT_HASH_PLACEHOLDER,
+  bindSnapshotHashes,
+  buildEvidencePacket,
+  classifyBoundPlan,
+  isSafeSnapshotPath,
+} from "./snapshot-binding";
+export type {
+  BoundPlanOutcome,
+  BoundSnapshotPlan,
+  EvidenceExcerpt,
+  EvidencePacket,
+  EvidencePacketInput,
+  SnapshotInvalidation,
+} from "./snapshot-binding";
 export { DEFAULT_ROUNDS, measureWorkflow, percentile } from "./measure";
 export type {
   BenchmarkReport,

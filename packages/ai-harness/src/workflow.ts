@@ -170,6 +170,9 @@ export function defaultFailureClassifier(error: unknown, stepId: string): Workfl
   if (isNamedError(error, "PackBudgetExceededError")) {
     return { stepId, kind: "BUDGET_EXCEEDED", message: messageOf(error) };
   }
+  if (isNamedError(error, "UnknownModelPriceError")) {
+    return { stepId, kind: "BUDGET_EXCEEDED", message: messageOf(error) };
+  }
   if (isNamedError(error, "PlanSchemaError")) {
     return { stepId, kind: "SCHEMA_VIOLATION", message: messageOf(error) };
   }

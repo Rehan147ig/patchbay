@@ -1,9 +1,8 @@
 import { z } from "zod";
-import { prisma, Prisma } from "@patchbay/db";
+import { prisma, Prisma, packageImpact } from "@patchbay/db";
 import { logger } from "@patchbay/domain";
 import { createAiProvider } from "@patchbay/ai-provider";
 import { digestJson, type JsonValue } from "@patchbay/ai-harness";
-import { resolveFixtureDir } from "@patchbay/repo-analysis";
 import { getConnector } from "@patchbay/vendor-connectors";
 import type { Job } from "bullmq";
 import {
@@ -15,9 +14,15 @@ import {
   markAgentRunRunning,
   type AgentRunWithRelations,
   type FactsJson,
+  type SnapshotBinding,
   type StepRecording,
 } from "../lib/agent-workflow";
 import { recordRemediationAttempt } from "../lib/case-orchestration";
+import {
+  buildSnapshotForRepository,
+  checkoutSnapshotForApply,
+  collectSnapshotExcerpts,
+} from "../lib/repository-snapshot";
 
 /**
  * agent-plan processor (roadmap Phase H4): the Mastra-contract workflow
@@ -88,11 +93,12 @@ export async function processAgentPlan(job: Job): Promise<void> {
   if (await isAgentRunCancelled(run.id)) return;
 
   const recordStep = makeStepRecorder(run);
+  const snapshot = await resolveSnapshotBinding(run);
   const workflow = createAgentWorkflow({
     run,
     provider,
     budgetCents: runBudgetCents(),
-    fixturesDir: fixturesOf(run),
+    snapshot,
     recordStep,
     isCancelled: () => isAgentRunCancelled(run.id),
     rulePack,
@@ -122,25 +128,38 @@ export async function processAgentPlan(job: Job): Promise<void> {
     organizationId: run.organizationId,
     correlationId,
   });
-  const planner = result.output?.["planner"] as { plan?: { edits?: unknown[] } } | undefined;
+  const planner = result.output?.["planner"] as
+    | { plan?: { edits?: unknown[] }; invalidated?: unknown[]; snapshotId?: string | null }
+    | undefined;
   // Case timeline first: failures must append their timeline entry even though
   // the job then throws (a FAILED run that skips its timeline lies by omission).
-  await recordCaseOutcome(run, outcome, correlationId, planner?.plan?.edits?.length ?? 0);
+  // A partially invalidated plan NEVER becomes PATCH_PROPOSED: it stays
+  // PLAN_ONLY with audit evidence explaining why (fail closed, no partial patch).
+  await recordCaseOutcome(
+    run,
+    outcome,
+    correlationId,
+    planner?.plan?.edits?.length ?? 0,
+    Array.isArray(planner?.invalidated) ? planner.invalidated.length : 0,
+  );
   if (outcome.status !== "SUCCEEDED" && outcome.failureMessage) {
     throw new Error(outcome.failureMessage);
   }
 }
 
 /**
- * WP3: reflect the plan run on its RemediationCase. Success with proposed
- * edits -> PATCH_PROPOSED; success with no edits -> PLAN_ONLY; failures leave
- * the case at PLANNING (retryable) and only append a timeline event.
+ * WP3 + snapshot boundary: reflect the plan run on its RemediationCase.
+ * - Success with fully bound edits -> PATCH_PROPOSED;
+ * - success with zero edits -> PLAN_ONLY;
+ * - success with ANY invalidated edits -> PLAN_ONLY (never a partial patch);
+ * - failures leave the case at PLANNING (retryable) + timeline event.
  */
 async function recordCaseOutcome(
   run: AgentRunWithRelations,
   outcome: { status: string; failureMessage: string | null },
   correlationId: string,
   editCount: number,
+  invalidatedCount = 0,
 ): Promise<void> {
   if (!run.remediationCaseId) return;
   const existing = await prisma.remediationCase.findUnique({
@@ -151,7 +170,7 @@ async function recordCaseOutcome(
 
   if (outcome.status === "SUCCEEDED") {
     if (existing.status === "PLANNING" || existing.status === "POLICY_ELIGIBLE") {
-      const next = editCount === 0 ? "PLAN_ONLY" : "PATCH_PROPOSED";
+      const next = editCount === 0 || invalidatedCount > 0 ? "PLAN_ONLY" : "PATCH_PROPOSED";
       await prisma.$transaction([
         prisma.remediationCase.update({
           where: { id: existing.id },
@@ -163,7 +182,17 @@ async function recordCaseOutcome(
             remediationCaseId: existing.id,
             status: next,
             reasonCode: existing.reasonCode,
-            detailJson: { agentRunId: run.id, editCount },
+            detailJson: {
+              agentRunId: run.id,
+              editCount,
+              invalidatedCount,
+              boundOutcome:
+                invalidatedCount > 0
+                  ? "INVALIDATED"
+                  : editCount === 0
+                    ? "PLAN_ONLY"
+                    : "PATCH_PROPOSED",
+            },
             correlationId,
           },
         }),
@@ -280,11 +309,87 @@ function makeStepRecorder(run: AgentRunWithRelations): (recording: StepRecording
   };
 }
 
-function fixturesOf(run: AgentRunWithRelations): string | null {
-  const metadata = run.repository.metadata;
-  if (typeof metadata !== "object" || metadata === null) return null;
-  const fixture = (metadata as { fixture?: unknown }).fixture;
-  return typeof fixture === "string" && fixture.length > 0 ? resolveFixtureDir(fixture) : null;
+/**
+ * Snapshot-backed binding for the agent workflow (replaces fixture-only
+ * `fixturesOf`): builds the immutable snapshot through the same contract for
+ * fixture and connected repositories, then collects bounded excerpts for the
+ * impacted files. Any failure yields an EMPTY binding (all edits invalidate)
+ * — never a fixture-only fallback, never a silent patch.
+ */
+export async function resolveSnapshotBinding(run: AgentRunWithRelations): Promise<SnapshotBinding> {
+  const empty: SnapshotBinding = {
+    snapshotId: null,
+    commitSha: null,
+    treeHash: null,
+    manifestHash: null,
+    manifest: new Map(),
+    excerpts: [],
+  };
+  try {
+    const repository = run.repository as {
+      id?: string;
+      organizationId?: string;
+      provider?: string;
+      fullName?: string | null;
+      defaultBranch?: string | null;
+      metadata?: unknown;
+    };
+    const repoRow = {
+      id: run.repositoryId,
+      organizationId: run.organizationId,
+      provider: String(repository.provider ?? "LOCAL"),
+      fullName: (repository.fullName ?? null) as string | null,
+      defaultBranch: (repository.defaultBranch ?? null) as string | null,
+      metadata: repository.metadata as unknown,
+    };
+    const built = await buildSnapshotForRepository(repoRow);
+    const manifestMap = new Map(built.manifest.files.map((file) => [file.path, file.sha256]));
+    // Impacted files for excerpt ranking (same query the impact analyst uses).
+    let topFiles: string[] = [];
+    try {
+      const impact = await packageImpact({
+        organizationId: run.organizationId,
+        repositoryId: run.repositoryId,
+        packageName: run.releaseRecord.product.packageName,
+      });
+      topFiles = [...(impact?.modules ?? [])]
+        .sort((a, b) => b.evidenceCount - a.evidenceCount || (a.filePath < b.filePath ? -1 : 1))
+        .slice(0, 8)
+        .map((module) => module.filePath);
+    } catch {
+      topFiles = [];
+    }
+    let excerpts: Array<{ filePath: string; excerpt: string }> = [];
+    if (topFiles.length > 0) {
+      try {
+        const checkout = await checkoutSnapshotForApply(built.snapshotId, repoRow);
+        try {
+          excerpts = collectSnapshotExcerpts(checkout.rootDir, topFiles, {
+            maxFiles: 8,
+            maxCharsPerFile: 2_000,
+          });
+        } finally {
+          checkout.cleanup();
+        }
+      } catch {
+        excerpts = [];
+      }
+    }
+    return {
+      snapshotId: built.snapshotId,
+      commitSha: built.commitSha,
+      treeHash: built.treeHash,
+      manifestHash: built.manifestHash,
+      manifest: manifestMap,
+      excerpts,
+    };
+  } catch (error) {
+    logger.warn("snapshot binding unavailable; continuing with empty binding (fail closed)", {
+      agentRunId: run.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return empty;
+  }
 }
 
 function providerLabel(): string {

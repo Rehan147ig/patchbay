@@ -267,6 +267,22 @@ export const patchGenerationInputSchema = z.object({
   releaseRecordId: z.string().min(1),
   repositoryId: z.string().min(1),
   expectedCommitSha: z.string().max(200).optional(),
+  /** Immutable snapshot identity (exact commit analyzed; never a branch ref). */
+  snapshotId: z.string().min(1).max(200).optional(),
+  snapshotTreeHash: z.string().max(200).optional(),
+  snapshotManifestHash: z.string().max(200).optional(),
+  /** Ranked source excerpts from impacted files only (untrusted, bounded). */
+  excerpts: z
+    .array(
+      z.object({
+        filePath: z.string().min(1).max(512),
+        excerpt: z.string().max(2_000),
+      }),
+    )
+    .max(8)
+    .default([]),
+  /** Certified rule-pack version guiding the plan, when present. */
+  rulePackVersion: z.string().max(200).optional(),
   vendorSlug: z.string().min(1).max(100),
   packageName: z.string().min(1).max(100),
   fromVersion: z.string().max(50).nullable(),

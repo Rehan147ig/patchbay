@@ -1,6 +1,3 @@
-import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { prisma, Prisma, packageImpact } from "@patchbay/db";
 import { AuditAction } from "@patchbay/audit";
 import {
@@ -16,10 +13,14 @@ import type { AiProvider } from "@patchbay/ai-provider";
 import {
   PROMPT_TEMPLATE_VERSION,
   PackBudgetExceededError,
-  bindSourceHashes,
+  assertRemainingBudget,
+  bindSnapshotHashes,
+  buildEvidencePacket,
+  classifyBoundPlan,
   defineWorkflow,
   digestJson,
   hashInput,
+  remainingBudgetCents,
   runPlanner,
   runReviewer,
   WorkflowAbortedError,
@@ -89,6 +90,10 @@ export interface ImpactOutput {
 export interface PlannerOutput {
   plan: PatchPlan;
   invalidated: Array<{ filePath: string; reason: string }>;
+  boundOutcome: string;
+  boundReason: string;
+  snapshotId: string | null;
+  commitSha: string | null;
   costEstimateCents: number;
   tokenUsage: JsonObject;
 }
@@ -143,11 +148,25 @@ export interface StepRecording {
   tokenUsage?: JsonValue | null;
 }
 
+export interface SnapshotBinding {
+  /** Immutable snapshot the planner analyzes (exact commit, never a branch). */
+  snapshotId: string | null;
+  commitSha: string | null;
+  treeHash: string | null;
+  manifestHash: string | null;
+  /** Manifest map (path -> sha256) for binding; empty map invalidates everything. */
+  manifest: ReadonlyMap<string, string>;
+  /** Ranked source excerpts from impacted files only (untrusted, bounded). */
+  excerpts: Array<{ filePath: string; excerpt: string }>;
+}
+
 export interface AgentWorkflowDeps {
   run: AgentRunWithRelations;
   provider: AiProvider;
+  /** ONE total AgentRun budget across planner + reviewer (AI_RUN_BUDGET_CENTS). */
   budgetCents: number;
-  fixturesDir: string | null;
+  /** Snapshot-backed binding (replaces the fixture-only path). */
+  snapshot: SnapshotBinding | null;
   recordStep: (recording: StepRecording) => Promise<void>;
   isCancelled: () => Promise<boolean>;
   /** WP6 pack enforced on planner edits (absent = globals only). */
@@ -263,10 +282,46 @@ export function createAgentWorkflow(deps: AgentWorkflowDeps): WorkflowHandle {
           await guardAborted(deps);
           const facts = ctx.state["release-analyst"] as unknown as FactsOutput;
           const impact = ctx.state["impact-analyst"] as unknown as ImpactOutput;
+          const snapshot = deps.snapshot;
+          const commitSha =
+            snapshot?.commitSha ?? deps.run.match?.dependency.commitSha ?? undefined;
+          // Bounded deterministic evidence packet: ranked excerpts from
+          // impacted files only, snapshot identity, rule-pack metadata. The
+          // model never sees a shell, filesystem, credentials, branch access,
+          // command selection, or network — only this packet.
+          const packet = buildEvidencePacket({
+            vendorSlug: input.vendorSlug,
+            packageName: input.packageName,
+            fromVersion: facts.fromVersion,
+            toVersion: facts.toVersion,
+            breaking: facts.breaking,
+            drafts: facts.drafts,
+            modules: impact.modules,
+            snapshot: {
+              commitSha: commitSha ?? "unknown",
+              treeHash: snapshot?.treeHash ?? "unknown",
+              manifestHash: snapshot?.manifestHash ?? "unknown",
+            },
+            excerpts: snapshot?.excerpts ?? [],
+            rulePack: deps.rulePack
+              ? {
+                  packVersion: deps.rulePack.packVersion,
+                  vendorSlug: deps.rulePack.vendorSlug,
+                  contractKind: deps.rulePack.contractKind,
+                  validationProfile: deps.rulePack.validationProfile,
+                  riskTags: deps.rulePack.riskTags,
+                }
+              : null,
+          });
           const plannerInput = {
             releaseRecordId: input.releaseRecordId,
             repositoryId: input.repositoryId,
-            expectedCommitSha: deps.run.match?.dependency.commitSha ?? undefined,
+            expectedCommitSha: commitSha,
+            ...(snapshot?.snapshotId ? { snapshotId: snapshot.snapshotId } : {}),
+            ...(snapshot?.treeHash ? { snapshotTreeHash: snapshot.treeHash } : {}),
+            ...(snapshot?.manifestHash ? { snapshotManifestHash: snapshot.manifestHash } : {}),
+            excerpts: packet.excerpts,
+            ...(deps.rulePack ? { rulePackVersion: deps.rulePack.packVersion } : {}),
             vendorSlug: input.vendorSlug,
             packageName: input.packageName,
             fromVersion: facts.fromVersion,
@@ -278,6 +333,8 @@ export function createAgentWorkflow(deps: AgentWorkflowDeps): WorkflowHandle {
             modules: impact.modules,
           };
           const startedAt = Date.now();
+          // Total budget: reserve before the planner call (spent=0 here).
+          assertRemainingBudget(deps.budgetCents, 0);
           const { plan, result, costEstimateCents } = await runPlanner(
             deps.provider,
             plannerInput,
@@ -285,7 +342,19 @@ export function createAgentWorkflow(deps: AgentWorkflowDeps): WorkflowHandle {
               budgetCents: deps.budgetCents,
             },
           );
-          const bound = bindFixtureHashes(plan, deps.fixturesDir);
+          // Snapshot-backed binding: exact snapshot -> evidence packet -> AI
+          // PatchPlan -> bind every edit to manifest hashes. Missing, unsafe,
+          // or stale targets invalidate (never silently repaired).
+          const bound = bindSnapshotHashes(plan, snapshot?.manifest ?? new Map());
+          // Conservative autonomy: AI-generated connected-repository patches
+          // are ALWAYS approval-required (deterministic certified packs keep
+          // their draft-PR eligibility via the rule-based path, never here).
+          // No auto-merge, ever.
+          bound.plan.requiresHumanReview = true;
+          const classification = classifyBoundPlan(
+            bound.plan.edits.length,
+            bound.invalidated.length,
+          );
           // WP7 pack gate: enforced on the BOUND plan, so edits already
           // dropped as invalidated never count against the budget. A violation
           // fails here (BUDGET_EXCEEDED → case stays PLANNING + timeline),
@@ -304,6 +373,10 @@ export function createAgentWorkflow(deps: AgentWorkflowDeps): WorkflowHandle {
             outputJson: {
               plan: bound.plan,
               invalidated: bound.invalidated,
+              boundOutcome: classification.outcome,
+              boundReason: classification.reason,
+              snapshotId: snapshot?.snapshotId ?? null,
+              commitSha: commitSha ?? null,
               costEstimateCents,
             } as unknown as JsonValue,
             latencyMs: Date.now() - startedAt,
@@ -314,6 +387,10 @@ export function createAgentWorkflow(deps: AgentWorkflowDeps): WorkflowHandle {
           return {
             plan: bound.plan,
             invalidated: bound.invalidated,
+            boundOutcome: classification.outcome,
+            boundReason: classification.reason,
+            snapshotId: snapshot?.snapshotId ?? null,
+            commitSha: commitSha ?? null,
             costEstimateCents,
             tokenUsage: (result.usage ?? {}) as JsonObject,
           } as unknown as JsonValue;
@@ -331,6 +408,11 @@ export function createAgentWorkflow(deps: AgentWorkflowDeps): WorkflowHandle {
           const facts = ctx.state["release-analyst"] as unknown as FactsOutput;
           const impact = ctx.state["impact-analyst"] as unknown as ImpactOutput;
           const startedAt = Date.now();
+          // Total budget: the reviewer spends what the planner left. Planner
+          // + reviewer can never exceed the single AgentRun budget.
+          const spentAfterPlanner = planner.costEstimateCents ?? 0;
+          const reviewerBudget = remainingBudgetCents(deps.budgetCents, spentAfterPlanner);
+          assertRemainingBudget(deps.budgetCents, spentAfterPlanner);
           const { verdict, result, costEstimateCents } = await runReviewer(
             deps.provider,
             planner.plan,
@@ -341,7 +423,7 @@ export function createAgentWorkflow(deps: AgentWorkflowDeps): WorkflowHandle {
               toVersion: facts.toVersion,
               breaking: facts.breaking,
             },
-            { budgetCents: deps.budgetCents },
+            { budgetCents: reviewerBudget },
           );
           await deps.recordStep({
             role: AgentRole.REVIEWER,
@@ -448,26 +530,6 @@ async function guardAborted(deps: AgentWorkflowDeps): Promise<void> {
   }
 }
 
-function bindFixtureHashes(
-  plan: PatchPlan,
-  fixtureDir: string | null,
-): { plan: PatchPlan; invalidated: Array<{ filePath: string; reason: string }> } {
-  const fileHashes = new Map<string, string>();
-  for (const edit of plan.edits) {
-    const filePath = fixtureDir ? path.join(fixtureDir, edit.filePath) : null;
-    if (!filePath) continue;
-    try {
-      fileHashes.set(
-        edit.filePath,
-        createHash("sha256").update(readFileSync(filePath)).digest("hex"),
-      );
-    } catch {
-      // file missing -> left unbound, dropped by bindSourceHashes below
-    }
-  }
-  return bindSourceHashes(plan, fileHashes);
-}
-
 /** Marks the run RUNNING, persists the workflow input for replay, audits. */
 export async function markAgentRunRunning(params: {
   run: AgentRunWithRelations;
@@ -537,10 +599,17 @@ export async function finishAgentWorkflow(params: {
   };
 
   if (result.status === "SUCCEEDED") {
+    const boundOutcome =
+      (planner as { boundOutcome?: string } | undefined)?.boundOutcome ??
+      classifyBoundPlan(planner?.plan.edits.length ?? 0, planner?.invalidated.length ?? 0).outcome;
     const outputJson = {
       plan: planner?.plan ?? null,
       review: reviewer?.verdict ?? null,
       invalidated: planner?.invalidated ?? [],
+      boundOutcome,
+      boundReason: (planner as { boundReason?: string } | undefined)?.boundReason ?? null,
+      snapshotId: (planner as { snapshotId?: string | null } | undefined)?.snapshotId ?? null,
+      commitSha: (planner as { commitSha?: string | null } | undefined)?.commitSha ?? null,
       gates: result.gates,
       workflow: workflowArtifact,
     };
@@ -558,6 +627,7 @@ export async function finishAgentWorkflow(params: {
         costEstimateCents,
         latencyMs,
         completedAt: new Date(),
+        ...(outputJson.snapshotId ? { repositorySnapshotId: outputJson.snapshotId as string } : {}),
       },
     });
     await writeAuditEvent({
@@ -576,6 +646,10 @@ export async function finishAgentWorkflow(params: {
         reviewApproved: reviewer?.verdict.approved ?? false,
         editCount: planner?.plan.edits.length ?? 0,
         invalidatedCount: planner?.invalidated.length ?? 0,
+        boundOutcome,
+        snapshotId: outputJson.snapshotId,
+        commitSha: outputJson.commitSha,
+        rulePackVersion: input.rulePack?.packVersion ?? null,
         costEstimateCents,
         gates: result.gates.map((gate) => ({ gateId: gate.gateId, passed: gate.passed })),
       },

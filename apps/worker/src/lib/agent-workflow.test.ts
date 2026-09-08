@@ -96,7 +96,7 @@ describe("agent workflow (Phase H4)", () => {
       run: RUN,
       provider: new MockAiProvider(),
       budgetCents: 0,
-      fixturesDir: null,
+      snapshot: null,
       recordStep,
       isCancelled: async () => false,
     });
@@ -142,7 +142,7 @@ describe("agent workflow (Phase H4)", () => {
       run: RUN,
       provider: new MockAiProvider(),
       budgetCents: 0,
-      fixturesDir: null,
+      snapshot: null,
       recordStep,
       isCancelled: async () => false,
     });
@@ -169,7 +169,7 @@ describe("agent workflow (Phase H4)", () => {
       run: RUN,
       provider: new MockAiProvider(),
       budgetCents: 0,
-      fixturesDir: null,
+      snapshot: null,
       recordStep,
       isCancelled: async () => true,
     });
@@ -207,7 +207,7 @@ describe("agent workflow (Phase H4)", () => {
         },
       } as never,
       budgetCents: 0,
-      fixturesDir: null,
+      snapshot: null,
       recordStep,
       isCancelled: async () => false,
     });
@@ -243,7 +243,7 @@ describe("agent workflow (Phase H4)", () => {
       run: RUN,
       provider: failingProvider,
       budgetCents: 0,
-      fixturesDir: null,
+      snapshot: null,
       recordStep,
       isCancelled: async () => false,
     });
@@ -259,7 +259,7 @@ describe("agent workflow (Phase H4)", () => {
       run: RUN,
       provider: new MockAiProvider(),
       budgetCents: 0,
-      fixturesDir: null,
+      snapshot: null,
       recordStep,
       isCancelled: async () => false,
     });
@@ -359,18 +359,42 @@ describe("pack budgets (WP6 packs, WP7 enforcement)", () => {
     } as never;
 
     const { recordings, recordStep } = recordingHarness();
-    // Real files so fixture-hash binding keeps the stubbed edits (unbound
-    // edits are invalidated before the pack gate ever sees them).
+    // Snapshot manifest so binding keeps the stubbed edits (unbound edits are
+    // invalidated before the pack gate ever sees them). Uses the same
+    // snapshot contract as production — no fixture-only path.
     const fixtureDir = mkdtempSync(path.join(tmpdir(), "patchbay-pack-budget-"));
     try {
       mkdirSync(path.join(fixtureDir, "src"), { recursive: true });
       writeFileSync(path.join(fixtureDir, "src", "a.ts"), "export const a = 1;\n");
       writeFileSync(path.join(fixtureDir, "src", "b.ts"), "export const b = 2;\n");
+      const { createHash } = await import("node:crypto");
+      const { readFileSync } = await import("node:fs");
+      const manifest = new Map<string, string>([
+        [
+          "src/a.ts",
+          createHash("sha256")
+            .update(readFileSync(path.join(fixtureDir, "src", "a.ts")))
+            .digest("hex"),
+        ],
+        [
+          "src/b.ts",
+          createHash("sha256")
+            .update(readFileSync(path.join(fixtureDir, "src", "b.ts")))
+            .digest("hex"),
+        ],
+      ]);
       const workflow = createAgentWorkflow({
         run: RUN,
         provider,
         budgetCents: 0,
-        fixturesDir: fixtureDir,
+        snapshot: {
+          snapshotId: "snap-test",
+          commitSha: "abc123",
+          treeHash: "tree-test",
+          manifestHash: "manifest-test",
+          manifest,
+          excerpts: [],
+        },
         recordStep,
         isCancelled: async () => false,
         rulePack: { ...PACK },

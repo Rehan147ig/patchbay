@@ -32,6 +32,7 @@ const INPUT: PatchGenerationInput = {
       evidenceCount: 1,
     },
   ],
+  excerpts: [],
 };
 
 function stubProvider(
