@@ -14,7 +14,9 @@ const getRedis = () => testClient!.redis;
 
 describe("P0-C: Concurrency & Fairness", () => {
   beforeAll(async () => {
-    testClient = await createRedisTestClient("redis://127.0.0.1:6379");
+    // Honor the configured Redis (local compose maps 6380; CI serves 6379).
+    // A hardcoded port loops forever on ECONNREFUSED anywhere else.
+    testClient = await createRedisTestClient(process.env.REDIS_URL ?? "redis://127.0.0.1:6379");
   });
 
   afterAll(async () => {
