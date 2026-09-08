@@ -7,7 +7,9 @@ import { expect, test } from "@playwright/test";
  */
 test("Settings shows the autonomous updates card with guardrails", async ({ page }) => {
   await page.goto("/login");
-  await page.getByRole("button", { name: "Sign in as demo user" }).click();
+  await page.getByLabel("Work Email").fill("demo@patchbay.dev");
+  await page.getByLabel("Password").fill("dev-only");
+  await page.getByRole("button", { name: "Sign in to console" }).click();
   await page.waitForURL(/\/overview/);
 
   await page.goto("/settings");
@@ -17,7 +19,9 @@ test("Settings shows the autonomous updates card with guardrails", async ({ page
 
 test("Autonomy policy API round-trips guardrail values", async ({ page }) => {
   await page.goto("/login");
-  await page.getByRole("button", { name: "Sign in as demo user" }).click();
+  await page.getByLabel("Work Email").fill("demo@patchbay.dev");
+  await page.getByLabel("Password").fill("dev-only");
+  await page.getByRole("button", { name: "Sign in to console" }).click();
   await page.waitForURL(/\/overview/);
 
   // page.request shares the login cookies, so the MEMBER-gated API answers.

@@ -7,7 +7,9 @@ import { expect, test } from "@playwright/test";
  */
 test("Outcomes dashboard renders SLO cards and empty states", async ({ page }) => {
   await page.goto("/login");
-  await page.getByRole("button", { name: "Sign in as demo user" }).click();
+  await page.getByLabel("Work Email").fill("demo@patchbay.dev");
+  await page.getByLabel("Password").fill("dev-only");
+  await page.getByRole("button", { name: "Sign in to console" }).click();
   await page.waitForURL(/\/overview/);
 
   await page.goto("/outcomes");
@@ -24,7 +26,9 @@ test("Outcomes dashboard renders SLO cards and empty states", async ({ page }) =
 
 test("Settings shows the capability gates card with no gates seeded", async ({ page }) => {
   await page.goto("/login");
-  await page.getByRole("button", { name: "Sign in as demo user" }).click();
+  await page.getByLabel("Work Email").fill("demo@patchbay.dev");
+  await page.getByLabel("Password").fill("dev-only");
+  await page.getByRole("button", { name: "Sign in to console" }).click();
   await page.waitForURL(/\/overview/);
 
   await page.goto("/settings");
