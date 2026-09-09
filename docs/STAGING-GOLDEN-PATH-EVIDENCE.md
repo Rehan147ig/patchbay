@@ -189,18 +189,78 @@ without explicit authorization):
 
 ## 6. Provenance note
 
-HEAD is `4de43e5`; `git status --short` shows only the §5 test files, this
-rewritten file (v2 supersedes the v1 committed in `4de43e5`), the build side
-effect, and the two preserved briefs. No production source file differs from
-`4de43e5`.
+HEAD is `af12bd5`; working tree adds only this file (v3: CI-green §7b evidence
+plus the mandated verdict), the `next-env.d.ts` build side effect (untouched),
+and the two preserved briefs. Commits since `4de43e5`: `1210f36`
+(metrics real-column fix), `b3b7fac` (e2e credentials/tour/wasm), `d864e99`
+(next/sharp CVE bump), `cdc08d2`/`8c3edd9` (CI worker step, js-yaml override),
+`ad1df33` (worker lifetime fix). No production source file differs from
+`af12bd5`.
 
-## Final verdict: LOCAL_READY; CI_PENDING; STAGING_GOLDEN_PATH_BLOCKED
+## 7. GitHub Actions CI runs (production-gates)
 
-All local gates green (174/174 files, 1644/1644 tests, 36/36 corpus, typecheck,
-build, format, lint); all live-PG gates green (migration artifact + 11/11
-drills with NOSUPERUSER RLS and WORM enforcement); all live-Redis gates green
-(27/27: 13 P0-C + 11 P0-B + 3 conformance, 0 failed, 0 skipped); all
-snapshot/policy regressions green (64/64 + sandbox 42/42). The beta verdict
+### 7a. Run for `2dda6b1` — e2e red (credential mismatch, fixed since)
+
+- Push run https://github.com/Rehan147ig/patchbay/actions/runs/34261070707 was
+  superseded by PR run https://github.com/Rehan147ig/patchbay/actions/runs/34261075415
+  (same head SHA `2dda6b1`, `pull_request` event) via the workflow concurrency
+  group (`cancel-in-progress: true`) — an infra preemption, not a code result.
+  The PR run is operative: **completed, conclusion `failure`, single failing
+  step `Browser end-to-end tests`**; every other step green (setup, containers,
+  checkout, pnpm/Node, install, Prisma generate, migrations incl.
+  `20260908000000`, seed, static gates, unit+integration suite, corpus, live
+  PG/Redis drills, build, Playwright install).
+- Failing-step log (`--log-failed`): 5 failed / 1 skipped. All 5 failures are
+  identical: form fills succeed, `Sign in to console` clicks, then
+  `page.waitForURL(/\/overview/)` → `Test timeout of 300000ms exceeded`
+  (`openai-demo.spec.ts:13`, `outcomes.spec.ts:13,32`,
+  `settings-autonomy.spec.ts:13,25`). `staging-golden-path` correctly SKIPPED
+  (no `E2E_STAGING`). Traces/artifacts uploaded per the workflow upload step.
+- Root cause (test/env defect, no production change needed): the login route
+  (`apps/web/src/app/api/auth/login/route.ts`) compares the submitted password
+  against server env `DEMO_USER_PASSWORD` (fail-closed 401 otherwise; no stored
+  hash — seed creates users without passwords). CI sets
+  `DEMO_USER_PASSWORD: ci-demo-password` (`.github/workflows/production-gates.yml`
+  env), but all 5 browser specs hardcode `.fill("dev-only")` (the local-dev
+  value, matching local `.env`). Result: deterministic 401 in CI → no
+  `location.assign("/overview")` → 5-minute timeout ×5. Locally green because
+  local env uses the dev value. The `1e0828b` selector fix is proven working —
+  fills/clicks succeed; only the credential is wrong.
+- Proposed genuine fix (NOT applied — awaiting explicit authorization; no
+  weakened assertions, no production change): read credentials from env with
+  local defaults in the 3 spec files, exactly the convention
+  `staging-golden-path.spec.ts:35-36` already uses
+  (`E2E_DEMO_EMAIL ?? "demo@patchbay.dev"`, `E2E_DEMO_PASSWORD ?? "dev-only"`),
+  and add `E2E_DEMO_EMAIL: demo@patchbay.dev` /
+  `E2E_DEMO_PASSWORD: ci-demo-password` to the CI Browser-e2e step env (mirrors
+  runbook §10). Local behavior with unset `E2E_*` stays byte-identical to today.
+
+### 7b. Run for `af12bd5` — production-gates GREEN (exact pushed SHA)
+
+- Push run https://github.com/Rehan147ig/patchbay/actions/runs/34331833011
+  (head SHA `af12bd5c84eb9f9b81aedf58c52d22a2c4728c8f`): **completed,
+  conclusion `success`** — every step green: setup, containers (PG15/Redis7
+  services), checkout, pnpm/Node, install, Prisma generate, migrations incl.
+  `20260908000000`, seed, static gates, unit+integration suite, corpus, live
+  PG/Redis drills, build, Playwright install, **Browser end-to-end tests**
+  (openai-demo full chain incl. VALIDATED + draft PR, outcomes 2/2,
+  settings-autonomy 2/2, staging-golden-path correctly skipped), artifact
+  upload. The sibling PR run also succeeded the same morning.
+- Companion Security workflow on the same tree: semgrep/gitleaks/deepsec green,
+  `pnpm audit --prod` clean (Next 16.3.3 + sharp ^0.35.4 cleared the two
+  critical RCEs); OSV-Scanner still flags vitest 3.2.7 GHSA-82fw-gwwq-j7x9
+  (moderate 5.9, dev-only test runner — major upgrade to 4.1.11 deferred with
+  justification) after the js-yaml ^4.3.2 override cleared GHSA-2883-xcg3-v3hh.
+  OSV is a separate workflow from production-gates; recorded here so the
+  verdict below is not misread as "all CI workflows green".
+
+## Final verdict: LOCAL_AND_CI_READY; STAGING_GOLDEN_PATH_BLOCKED
+
+Local gates green (174/174 files, 1644/1644 tests, 36/36 corpus, typecheck,
+build, format, lint); live-PG gates green (migration artifact + 11/11 drills);
+live-Redis gates green (27/27, 0 failed, 0 skipped); snapshot/policy
+regressions green (64/64 + sandbox 42/42); production-gates green on exact SHA
+`af12bd5` (run 34331833011, all steps incl. browser e2e). The beta verdict
 (`READY_FOR_CONTROLLED_BETA`, draft-PR-only + human approval + no auto-merge +
 allowlist + narrow pack, no compliance claims) is explicitly NOT granted: real
 staging GitHub App proof (Phase D — B2 checklist) remains mandatory and has not
