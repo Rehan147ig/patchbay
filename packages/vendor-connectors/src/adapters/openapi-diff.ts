@@ -24,6 +24,94 @@ export interface OpenApiDiffFacts {
   breaking: boolean;
 }
 
+export interface WebhookPayloadDiffFacts {
+  eventType: string;
+  addedFields: string[];
+  removedFields: string[];
+  renamedFields: Array<{ from: string; to: string }>;
+  breaking: boolean;
+}
+
+function webhookSections(spec: unknown): Record<string, unknown> {
+  if (!spec || typeof spec !== "object") return {};
+  const root = spec as Record<string, unknown>;
+  return Object.assign(
+    {},
+    ...[root.webhooks, root["x-webhooks"]].filter(
+      (section): section is Record<string, unknown> =>
+        !!section && typeof section === "object" && !Array.isArray(section),
+    ),
+  );
+}
+
+function resolveSchema(spec: unknown, schema: unknown): unknown {
+  if (!schema || typeof schema !== "object") return schema;
+  const ref = (schema as Record<string, unknown>).$ref;
+  if (typeof ref !== "string" || !spec || typeof spec !== "object") return schema;
+  const components = (spec as Record<string, unknown>).components;
+  const schemas =
+    components && typeof components === "object"
+      ? (components as Record<string, unknown>).schemas
+      : undefined;
+  const name = ref.replace(/^#\/components\/schemas\//, "");
+  return schemas && typeof schemas === "object"
+    ? ((schemas as Record<string, unknown>)[name] ?? schema)
+    : schema;
+}
+
+function webhookSchema(spec: unknown, value: unknown): unknown {
+  if (!value || typeof value !== "object") return null;
+  const root = value as Record<string, unknown>;
+  const operation = root.post && typeof root.post === "object" ? root.post : root;
+  if (!operation || typeof operation !== "object") return null;
+  const requestBody = (operation as Record<string, unknown>).requestBody;
+  if (!requestBody || typeof requestBody !== "object") return null;
+  const content = (requestBody as Record<string, unknown>).content;
+  if (!content || typeof content !== "object") return null;
+  const media =
+    (content as Record<string, unknown>)["application/json"] ?? Object.values(content)[0];
+  if (!media || typeof media !== "object") return null;
+  return resolveSchema(spec, (media as Record<string, unknown>).schema);
+}
+
+function schemaFields(spec: unknown, schema: unknown, prefix = ""): string[] {
+  if (!schema || typeof schema !== "object") return [];
+  const resolved = resolveSchema(spec, schema);
+  if (!resolved || typeof resolved !== "object") return [];
+  const properties = (resolved as Record<string, unknown>).properties;
+  if (!properties || typeof properties !== "object") return [];
+  const fields: string[] = [];
+  for (const [name, child] of Object.entries(properties)) {
+    const field = prefix ? `${prefix}.${name}` : name;
+    fields.push(field, ...schemaFields(spec, child, field));
+  }
+  return fields;
+}
+
+/** Compare OpenAPI 3.1 `webhooks` and OpenAPI 3.0 `x-webhooks` payloads. */
+export function diffWebhookPayloads(before: unknown, after: unknown): WebhookPayloadDiffFacts[] {
+  const beforeWebhooks = webhookSections(before);
+  const afterWebhooks = webhookSections(after);
+  const eventTypes = new Set([...Object.keys(beforeWebhooks), ...Object.keys(afterWebhooks)]);
+  const facts: WebhookPayloadDiffFacts[] = [];
+  for (const eventType of [...eventTypes].sort()) {
+    const beforeFields = schemaFields(before, webhookSchema(before, beforeWebhooks[eventType]));
+    const afterFields = schemaFields(after, webhookSchema(after, afterWebhooks[eventType]));
+    const addedFields = afterFields.filter((field) => !beforeFields.includes(field)).sort();
+    const removedFields = beforeFields.filter((field) => !afterFields.includes(field)).sort();
+    if (addedFields.length || removedFields.length) {
+      facts.push({
+        eventType,
+        addedFields,
+        removedFields,
+        renamedFields: [],
+        breaking: removedFields.length > 0,
+      });
+    }
+  }
+  return facts;
+}
+
 type OpenApiOperation = {
   method: string;
   path: string;
