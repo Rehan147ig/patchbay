@@ -105,6 +105,33 @@ jobs:
       - name: Install Playwright browser
         run: pnpm exec playwright install --with-deps chromium
 
+      # The demo/analysis/plan/validate/PR chain is worker-executed (BullMQ):
+      # "Analyze change" only enqueues, so the browser suite needs a live
+      # worker beside the Playwright web server. Same trust level as the unit
+      # suite (mock provider, fixture repos, allowlisted commands on the host).
+      # SANDBOX_VALIDATION_MODE is deliberately NOT github-checks-only here:
+      # the openai-demo spec asserts a real VALIDATED run, which requires the
+      # worker to execute the allowlist (test-mode process backend, exactly as
+      # the sandbox unit tests already do on these runners).
+      - name: Start worker for E2E job processing
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/patchbay?schema=public
+          REDIS_URL: redis://127.0.0.1:6379
+          DEV_AUTH_SECRET: ci-dev-auth-secret-012345678901234567890123
+          NEXTAUTH_SECRET: ci-nextauth-secret-012345678901234567890123
+          DEMO_USER_PASSWORD: ci-demo-password
+          AI_PROVIDER: mock
+          SANDBOX_VALIDATION_MODE: hosted-docker
+          WATCHTOWER_POLLING_ENABLED: "false"
+          EVIDENCE_STORE_DIR: ${{ github.workspace }}/.evidence
+        run: |
+          pnpm --filter @patchbay/worker start > worker-e2e.log 2>&1 &
+          for i in $(seq 1 30); do
+            grep -q "redis connection ok" worker-e2e.log && break
+            sleep 2
+          done
+          grep -q "redis connection ok" worker-e2e.log
+
       - name: Browser end-to-end tests
         # The browser specs log in as the seeded demo user: wire the spec-side
         # E2E_DEMO_* variables to the server's DEMO_USER_* credentials above.
@@ -126,3 +153,4 @@ jobs:
             playwright-report/
             test-artifacts/
             .evidence/
+            worker-e2e.log
