@@ -106,6 +106,13 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Browser end-to-end tests
+        # The browser specs log in as the seeded demo user: wire the spec-side
+        # E2E_DEMO_* variables to the server's DEMO_USER_* credentials above.
+        # (The specs fall back to the local dev-only defaults when unset, so
+        # local `pnpm e2e` behavior is unchanged.)
+        env:
+          E2E_DEMO_EMAIL: demo@patchbay.dev
+          E2E_DEMO_PASSWORD: ci-demo-password
         run: pnpm e2e
 
       - name: Upload test artifacts

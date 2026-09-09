@@ -42,9 +42,12 @@ function loadParser(): Promise<JavaParser> {
     parserPromise = (async () => {
       const { Parser, Language } = await import("web-tree-sitter");
       await Parser.init();
-      const wasmPath = require.resolve(
-        /*turbopackIgnore: true*/ "tree-sitter-java/tree-sitter-java.wasm",
-      );
+      // Runtime Node resolution, not a bundle dependency: the specifier is
+      // assembled so bundlers cannot statically trace the .wasm asset into the
+      // web bundle (webpack dev ignores /*turbopackIgnore*/ and fails parsing
+      // the binary; Turbopack honors the comment). Identical resolved value.
+      const wasmSpecifier = ["tree-sitter-java", "tree-sitter-java.wasm"].join("/");
+      const wasmPath = require.resolve(/*turbopackIgnore: true*/ wasmSpecifier);
       const language = await Language.load(await readFile(/*turbopackIgnore: true*/ wasmPath));
       const parser = new Parser();
       parser.setLanguage(language);
