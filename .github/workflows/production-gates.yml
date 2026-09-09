@@ -119,9 +119,17 @@ jobs:
         # unit tests already do on these runners).
         # (The specs fall back to the local dev-only defaults when E2E_DEMO_*
         # is unset, so local `pnpm e2e` behavior with a local worker is unchanged.)
+        # SANDBOX_VALIDATION_MODE overrides the job-level github-checks-only:
+        # the validate route records SKIPPED (and enqueues nothing) under
+        # github-checks-only, so openai-demo could never reach VALIDATED. The
+        # worker already runs hosted-docker; the web server must agree, or the
+        # route short-circuits before any job exists. Same trust as the unit
+        # suite (fixture repos, allowlisted commands, test-mode process
+        # backend); unit tests keep the job-level github-checks-only value.
         env:
           E2E_DEMO_EMAIL: demo@patchbay.dev
           E2E_DEMO_PASSWORD: ci-demo-password
+          SANDBOX_VALIDATION_MODE: hosted-docker
         run: |
           DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/patchbay?schema=public \
           REDIS_URL=redis://127.0.0.1:6379 \
