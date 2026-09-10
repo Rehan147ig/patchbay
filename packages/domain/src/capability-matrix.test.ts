@@ -28,7 +28,6 @@ describe("capability vocabulary stability", () => {
       "REST",
       "GRAPHQL",
       "SDK",
-      "MCP",
       "WEBHOOK",
       "ASYNC",
       "AUTH_CONFIG",
@@ -130,7 +129,7 @@ describe("capability matrix serialization", () => {
 
   it("exposes the full vocabulary for API serialization", () => {
     expect(CAPABILITY_VOCABULARY.matrixVersion).toBe(CAPABILITY_MATRIX_VERSION);
-    expect(CAPABILITY_VOCABULARY.contractKinds).toContain("MCP");
+    expect(CAPABILITY_VOCABULARY.contractKinds).toContain("WEBHOOK");
     expect(CAPABILITY_VOCABULARY.deliveryModes).toContain("CHECK_RUN");
     expect(CAPABILITY_VOCABULARY.certificationStates).toHaveLength(5);
   });

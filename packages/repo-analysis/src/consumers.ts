@@ -24,7 +24,7 @@ export interface ConsumerEvidence {
 
 export interface ContractConsumerDescriptor {
   contractKind: ContractKind;
-  /** Stable within the repo: package name, MCP server name, or "METHOD /path". */
+  /** Stable within the repo: package name or "METHOD /path". */
   identifier: string;
   /** Declared range or pinned version; null when statically unknown. */
   versionRange: string | null;
@@ -85,14 +85,6 @@ export function contractConsumersFromExtraction(
         identifier: node.displayName,
         versionRange: node.properties["resolvedVersion"] || null,
         confidence: node.properties["resolvedVersion"] ? 95 : 70,
-        evidenceJson: base,
-      });
-    } else if (node.kind === GraphNodeKind.MCP_SERVER) {
-      consumers.push({
-        contractKind: "MCP",
-        identifier: node.displayName,
-        versionRange: null,
-        confidence: 90,
         evidenceJson: base,
       });
     } else if (node.kind === GraphNodeKind.EVENT_HANDLER) {

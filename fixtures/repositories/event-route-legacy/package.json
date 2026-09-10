@@ -1,11 +1,10 @@
 {
-  "name": "@acme/mcp-agent-service",
+  "name": "@acme/event-route-service",
   "private": true,
   "type": "module",
   "version": "1.4.0",
   "dependencies": {
     "express": "^4.19.2",
-    "@modelcontextprotocol/sdk": "^1.0.0",
     "pino": "^9.2.0"
   },
   "devDependencies": {

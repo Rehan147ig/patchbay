@@ -50,7 +50,7 @@ export type GraphIndexJobData = z.infer<typeof GraphIndexJobDataSchema>;
 
 const BATCH_SIZE = 10_000;
 /**
- * Snapshot format version (WP3): bumped for the MCP_SERVER + EVENT_HANDLER
+ * Snapshot format version (WP3): bumped for the EVENT_HANDLER and webhook
  * node kinds so pre-WP3 READY snapshots are never reused as if they contained
  * the new facts — every repository re-extracts once on upgrade, then resumes
  * incremental behavior. Fact-level extractor identity is unchanged.

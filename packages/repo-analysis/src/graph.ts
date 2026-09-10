@@ -676,59 +676,6 @@ export async function extractGraph(options: ExtractGraphOptions): Promise<GraphE
     });
   }
 
-  // MCP contract layer (WP3): one node per wired MCP server plus dependency
-  // nodes for MCP SDK packages. Server names and config paths come from the
-  // (snapshot-current) analysis; content hashes come from the walked tree, so
-  // full and incremental extractions of one snapshot agree byte-for-byte and
-  // the key-based merge converges on config edits. No call-site edges: which
-  // module invokes which server is not statically decidable, and invented
-  // edges would poison blast-radius inputs (documented future work: tool-name
-  // references in code and prompts, spec §2.3).
-  for (const config of analysis.mcpConfigs) {
-    const configHash = walked.jsonHashes.get(config.path) ?? "";
-    const configEvidence = evidence(config.path, null, null, configHash);
-    for (const server of config.servers) {
-      const serverKey = `mcp-server:${server}`;
-      addNode({
-        key: serverKey,
-        kind: GraphNodeKind.MCP_SERVER,
-        displayName: server,
-        filePath: config.path,
-        startLine: null,
-        endLine: null,
-        properties: { server, source: config.source, configPath: config.path },
-        contentHash: factHash(serverKey, GraphNodeKind.MCP_SERVER, {
-          server,
-          source: config.source,
-          configPath: config.path,
-          configHash,
-        }),
-        evidence: [configEvidence],
-      });
-      addEdge({
-        key: edgeKey("repo:root", GraphEdgeKind.CONTAINS, serverKey),
-        kind: GraphEdgeKind.CONTAINS,
-        fromKey: "repo:root",
-        toKey: serverKey,
-        provenance: GraphProvenance.EXTRACTED,
-        confidence: 100,
-        properties: { source: config.source, configPath: config.path },
-        evidence: [configEvidence],
-      });
-    }
-  }
-  for (const packageName of analysis.mcpSdkPackages) {
-    const manifestPath =
-      analysis.manifests.find((manifest) => packageName in manifest.dependencies)?.path ?? null;
-    const manifestEvidence =
-      manifestPath !== null
-        ? evidence(manifestPath, null, null, walked.jsonHashes.get(manifestPath) ?? "")
-        : null;
-    if (manifestEvidence) {
-      ensureDependencyNode(packageName, dependencyKey(packageName), manifestEvidence);
-    }
-  }
-
   function ensureDependencyNode(packageName: string, depKey: string, ev: GraphEvidenceFact): void {
     if (nodes.has(depKey)) return;
     const ranges = [...(dependencyRanges.get(packageName) ?? [])];

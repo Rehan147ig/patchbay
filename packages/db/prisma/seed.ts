@@ -178,8 +178,8 @@ async function seedValidationProfiles(): Promise<void> {
 
 /**
  * Demo contract sources (WP13 staging): the org watches the OpenAI and
- * Stripe SDK feeds, the NPM registry channel, and a generic MCP server
- * feed. No credentials (configEncrypted stays null); sync runs through the
+ * Stripe SDK feeds and the NPM registry channel. No credentials
+ * (configEncrypted stays null); sync runs through the
  * normal poll pipeline. Idempotent via the (org, vendor, kind, name) key.
  */
 async function seedContractSources(): Promise<void> {
@@ -187,7 +187,6 @@ async function seedContractSources(): Promise<void> {
     { vendorSlug: "openai", kind: "SDK", name: "openai-node" },
     { vendorSlug: "stripe", kind: "SDK", name: "stripe-node" },
     { vendorSlug: "openai", kind: "REST", name: "npm-registry" },
-    { vendorSlug: "autonomous-generic", kind: "MCP", name: "mcp-generic" },
   ];
   for (const source of sources) {
     await prisma.contractSource.upsert({

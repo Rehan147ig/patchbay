@@ -1,6 +1,5 @@
 import express from "express";
 
-import { listAgentTools } from "./lib/agent-client";
 import { logger } from "./lib/logger";
 
 const app = express();
@@ -10,10 +9,9 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });
 
-app.post("/api/run", async (req, res) => {
+app.post("/api/run", (req, res) => {
   logger.info("agent run requested", { task: req.body?.task ?? null });
-  const tools = await listAgentTools();
-  res.json({ tools });
+  res.json({ accepted: true });
 });
 
 const router = express.Router();

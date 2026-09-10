@@ -1,17 +1,7 @@
 import { describe, expect, it } from "vitest";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { GraphNodeKind } from "@patchbay/domain";
-import { extractGraph, type GraphExtraction } from "./graph";
+import { type GraphExtraction } from "./graph";
 import { contractConsumersFromExtraction } from "./consumers";
-
-function fixtureDir(name: string): string {
-  return path.resolve(
-    path.dirname(fileURLToPath(import.meta.url)),
-    "../../../fixtures/repositories",
-    name,
-  );
-}
 
 function syntheticExtraction(): GraphExtraction {
   const evidence = {
@@ -49,17 +39,6 @@ function syntheticExtraction(): GraphExtraction {
         evidence: [{ ...evidence, filePath: "package.json", startLine: null }],
       },
       {
-        key: "mcp-server:postgres",
-        kind: GraphNodeKind.MCP_SERVER,
-        displayName: "postgres",
-        filePath: ".cursor/mcp.json",
-        startLine: null,
-        endLine: null,
-        properties: { server: "postgres" },
-        contentHash: "12".repeat(32),
-        evidence: [{ ...evidence, filePath: ".cursor/mcp.json", startLine: null }],
-      },
-      {
         key: "event-handler:GET:/health",
         kind: GraphNodeKind.EVENT_HANDLER,
         displayName: "GET /health",
@@ -77,23 +56,12 @@ function syntheticExtraction(): GraphExtraction {
 }
 
 describe("contractConsumersFromExtraction", () => {
-  it("maps SDK deps, MCP servers, and handlers with pinned-commit evidence", () => {
+  it("maps SDK dependencies and handlers with pinned-commit evidence", () => {
     const consumers = contractConsumersFromExtraction({
       extraction: syntheticExtraction(),
       sdkKinds: new Map([["openai", "SDK"]]),
     });
     expect(consumers).toEqual([
-      {
-        contractKind: "MCP",
-        identifier: "postgres",
-        versionRange: null,
-        confidence: 90,
-        evidenceJson: expect.objectContaining({
-          commitSha: "sha-test",
-          filePath: ".cursor/mcp.json",
-          extractorVersion: "1",
-        }),
-      },
       {
         contractKind: "SDK",
         identifier: "openai",
@@ -116,31 +84,6 @@ describe("contractConsumersFromExtraction", () => {
       extraction: syntheticExtraction(),
       sdkKinds: new Map(),
     });
-    expect(consumers.map((consumer) => consumer.identifier)).toEqual(["postgres", "GET /health"]);
-  });
-
-  it("derives consumers end to end from the mcp-agent fixture extraction", async () => {
-    const extraction = await extractGraph({
-      rootDir: fixtureDir("mcp-agent-legacy"),
-      trackPackages: ["express", "@modelcontextprotocol/sdk"],
-    });
-    const consumers = contractConsumersFromExtraction({
-      extraction,
-      sdkKinds: new Map([
-        ["express", "SDK"],
-        ["@modelcontextprotocol/sdk", "SDK"],
-      ]),
-    });
-    const identifiers = consumers.map(
-      (consumer) => `${consumer.contractKind}:${consumer.identifier}`,
-    );
-    expect(identifiers).toContain("MCP:github");
-    expect(identifiers).toContain("MCP:postgres");
-    expect(identifiers).toContain("WEBHOOK:GET /health");
-    expect(identifiers).toContain("SDK:@modelcontextprotocol/sdk");
-    for (const consumer of consumers) {
-      expect(consumer.evidenceJson.commitSha).toBe(extraction.commitSha);
-      expect(consumer.evidenceJson.sourceHash).toMatch(/^[0-9a-f]{64}$/);
-    }
+    expect(consumers.map((consumer) => consumer.identifier)).toEqual(["GET /health"]);
   });
 });

@@ -35,7 +35,6 @@
 | `kubernetes` | npm | `@kubernetes/client-node` | typescript/javascript | `ASSESS` | impact-analysis | PLAN_ONLY | — | — | — |
 | `langchain` | npm | `langchain` | typescript/javascript | `PLAN` | plan-only | PLAN_ONLY | 2026-08-17 | 1.0.0 | node-ts-reparse |
 | `lemon-squeezy` | npm | `lemon-squeezy` | typescript/javascript | `ASSESS` | impact-analysis | PLAN_ONLY | — | — | — |
-| `mcp-generic` | mcp | `mcp-tools-list` | typescript/javascript | `PLAN` | plan-only (MCP) | PLAN_ONLY | 2026-09-04 | mcp-diff/1.0.0 | node-ts-reparse |
 | `mistral` | npm | `@mistralai/mistralai` | typescript/javascript | `ASSESS` | impact-analysis | PLAN_ONLY | — | — | — |
 | `mongodb` | npm | `mongodb` | typescript/javascript | `ASSESS` | impact-analysis | PLAN_ONLY | — | — | — |
 | `mongoose` | npm | `mongoose` | typescript/javascript | `ASSESS` | impact-analysis | PLAN_ONLY | — | — | — |

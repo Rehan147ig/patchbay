@@ -275,8 +275,6 @@ export const GraphNodeKind = {
   SERVICE: "SERVICE",
   QUEUE_TOPIC: "QUEUE_TOPIC",
   DATABASE: "DATABASE",
-  /** An MCP server wired in an agent client config (WP3). */
-  MCP_SERVER: "MCP_SERVER",
   /** An HTTP route registration (Express-style app/router METHOD(path), WP3). */
   EVENT_HANDLER: "EVENT_HANDLER",
   /** A structured webhook payload validator discovered in application code. */

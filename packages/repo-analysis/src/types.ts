@@ -1,5 +1,4 @@
 import type { RiskTag, UsageType } from "@patchbay/domain";
-import type { McpClientConfig } from "./mcp";
 
 export interface AnalyzedUsage {
   /** npm package name the usage refers to (e.g. "stripe"). */
@@ -93,13 +92,6 @@ export interface RepositoryAnalysis {
   pythonManifests: PythonManifest[];
   usages: AnalyzedUsage[];
   errors: AnalysisError[];
-  /**
-   * MCP client configs pinning servers (`.cursor/mcp.json`,
-   * `claude_desktop_config.json`), powering server-drift watch + radar.
-   */
-  mcpConfigs: McpClientConfig[];
-  /** `@modelcontextprotocol/*` packages in manifests/lockfiles (sorted). */
-  mcpSdkPackages: string[];
 }
 
 export interface AnalyzeRepositoryOptions {

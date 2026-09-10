@@ -37,8 +37,6 @@ function analysis(): RepositoryAnalysis {
     pythonManifests: [],
     usages: [],
     errors: [],
-    mcpConfigs: [],
-    mcpSdkPackages: [],
   };
 }
 

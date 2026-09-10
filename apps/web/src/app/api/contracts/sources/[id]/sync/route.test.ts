@@ -78,7 +78,7 @@ describe("POST /api/contracts/sources/[id]/sync (WP12)", () => {
   it("fails closed for kinds without a producer and for foreign sources", async () => {
     vi.mocked(prisma.contractSource.findFirst).mockResolvedValueOnce({
       ...npmSource,
-      kind: "MCP",
+      kind: "ASYNC",
     } as never);
     await expect(POST(request(), params)).resolves.toMatchObject({ status: 422 });
     vi.mocked(prisma.contractSource.findFirst).mockResolvedValueOnce(null);

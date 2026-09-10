@@ -42,7 +42,7 @@ describe("connector capability registry", () => {
     }
   });
 
-  it("openai/stripe/twilio/anthropic/supabase/vercel-ai-sdk/openai-python/google-gemini/autonomous-generic are certified DRAFT_PR; aws-sdk/auth0/langchain/mcp-generic are PLAN; the rest are ASSESS", () => {
+  it("openai/stripe/twilio/anthropic/supabase/vercel-ai-sdk/openai-python/google-gemini/autonomous-generic are certified DRAFT_PR; aws-sdk/auth0/langchain are PLAN; the rest are ASSESS", () => {
     const levelOf = (slug: string): string => getCapability(slug)?.level ?? "none";
     expect(levelOf("openai")).toBe("DRAFT_PR");
     expect(levelOf("stripe")).toBe("DRAFT_PR");
@@ -53,7 +53,6 @@ describe("connector capability registry", () => {
     expect(levelOf("openai-python")).toBe("DRAFT_PR");
     expect(levelOf("google-gemini")).toBe("DRAFT_PR");
     expect(levelOf("autonomous-generic")).toBe("DRAFT_PR");
-    expect(levelOf("mcp-generic")).toBe("PLAN");
     expect(levelOf("aws-sdk")).toBe("PLAN");
     expect(levelOf("auth0")).toBe("PLAN");
     expect(levelOf("langchain")).toBe("PLAN");
@@ -70,7 +69,6 @@ describe("connector capability registry", () => {
       "vercel-ai-sdk",
       "google-gemini",
       "autonomous-generic",
-      "mcp-generic",
     ]);
     for (const slug of listConnectorSlugs()) {
       if (!certified.has(slug)) {
@@ -132,7 +130,6 @@ describe("connector capability registry", () => {
       "aws-sdk",
       "google-gemini",
       "langchain",
-      "mcp-generic",
       "openai",
       "openai-python",
       "stripe",

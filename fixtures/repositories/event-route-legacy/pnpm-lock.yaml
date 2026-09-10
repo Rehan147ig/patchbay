@@ -10,7 +10,6 @@ importers:
       express:
         specifier: ^4.19.2
         version: 4.22.2
-      "@modelcontextprotocol/sdk":
         specifier: ^1.0.0
         version: 1.0.0
       pino:
@@ -27,7 +26,6 @@ importers:
 packages:
   express@4.22.2:
     resolution: {integrity: sha512-placeholder}
-  "@modelcontextprotocol/sdk@1.0.0":
     resolution: {integrity: sha512-placeholder}
   pino@9.14.0:
     resolution: {integrity: sha512-placeholder}

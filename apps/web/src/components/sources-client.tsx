@@ -194,7 +194,7 @@ function RegisterSourceForm() {
             className="mt-1 block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm"
             defaultValue="SDK"
           >
-            {["SDK", "REST", "GRAPHQL", "MCP", "WEBHOOK", "ASYNC", "AUTH_CONFIG"].map((kind) => (
+            {["SDK", "REST", "GRAPHQL", "WEBHOOK", "ASYNC", "AUTH_CONFIG"].map((kind) => (
               <option key={kind} value={kind}>
                 {kind}
               </option>

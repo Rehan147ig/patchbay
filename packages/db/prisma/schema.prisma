@@ -1096,7 +1096,6 @@ enum GraphNodeKind {
   SERVICE
   QUEUE_TOPIC
   DATABASE
-  MCP_SERVER
   EVENT_HANDLER
 }
 
@@ -1383,7 +1382,7 @@ model NormalizedChange {
 // ---------------------------------------------------------------------------
 // Contract pipeline (WP2): versioned external contracts as first-class rows.
 // Vendor/Release* models carry today's npm/release traffic; these three models
-// generalize to every contract family (REST, GraphQL, SDK, MCP, webhook,
+// generalize to every contract family (REST, GraphQL, SDK, webhook,
 // async, auth/config) behind the ContractProviderAdapter interface.
 // ---------------------------------------------------------------------------
 
@@ -1476,7 +1475,7 @@ model ContractChange {
 }
 
 /**
- * A repository's consumption of one contract (WP3): which package, server, or
+ * A repository's consumption of one contract (WP3): which package or
  * route the repo depends on, at which version, with what confidence, and the
  * graph evidence proving it. Written by WP4 orchestration from the pure
  * contractConsumersFromExtraction mapper; the graph snapshot that observed it
@@ -1489,9 +1488,9 @@ model ContractConsumer {
   contractSourceId String
   /** Contract family vocabulary lives in domain ContractKind (Zod-validated at write boundaries). */
   contractKind String
-  /** Stable within the repo: package name, MCP server name, or "METHOD /path". */
+  /** Stable within the repo: package name or "METHOD /path". */
   identifier   String
-  /** Declared range or pinned version; null when statically unknown (MCP servers, routes). */
+  /** Declared range or pinned version; null when statically unknown for routes. */
   versionRange String?
   /** 0-100; resolution-pinned evidence scores higher than syntactic evidence. */
   confidence   Int      @default(0)
