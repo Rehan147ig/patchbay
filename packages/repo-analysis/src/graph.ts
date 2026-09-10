@@ -396,12 +396,45 @@ export async function extractGraph(options: ExtractGraphOptions): Promise<GraphE
     }
 
     // Event-handler registrations (WP3): conservative Express-style route
-    // detection — `app.<method>(path, …)` / `router.<method>(path, …)` with a
+    // detection — `app.<method>(path, …)` / `router.<method>(path, …)` /
+    // `fastify.<method>(path, …)` / `server.<method>(path, …)` with a
     // string-literal path only. No template literals, no variables, no `use`
     // (middleware, not a route): a missed exotic registration loses a fact,
     // but a wrong one would poison blast-radius and policy inputs. The
     // receiver names are a documented convention, not a proof of framework.
     for (const route of collectRouteRegistrations(sourceFile, position)) {
+      const handlerKey = `event-handler:${route.method}:${route.path}`;
+      addNode({
+        key: handlerKey,
+        kind: GraphNodeKind.EVENT_HANDLER,
+        displayName: `${route.method} ${route.path}`,
+        filePath: file.rel,
+        startLine: route.line,
+        endLine: null,
+        properties: { method: route.method, path: route.path, receiver: route.receiver },
+        contentHash: factHash(handlerKey, GraphNodeKind.EVENT_HANDLER, {
+          method: route.method,
+          path: route.path,
+        }),
+        evidence: [evidence(file.rel, route.line, null, file.sourceHash)],
+      });
+      addEdge({
+        key: edgeKey(moduleNodeKey, GraphEdgeKind.CONTAINS, handlerKey),
+        kind: GraphEdgeKind.CONTAINS,
+        fromKey: moduleNodeKey,
+        toKey: handlerKey,
+        provenance: GraphProvenance.EXTRACTED,
+        confidence: 90,
+        properties: { method: route.method, path: route.path },
+        evidence: [evidence(file.rel, route.line, null, file.sourceHash)],
+      });
+    }
+
+    // Next.js App Router handlers: exported HTTP-method functions in
+    // `**/route.ts` files. The path derives from the file location (not a
+    // call argument), so confidence stays at the conservative 90 shared with
+    // the Express loop above — same EXTRACTED provenance, no stronger claim.
+    for (const route of collectNextJsRouteHandlers(sourceFile, file.rel, position)) {
       const handlerKey = `event-handler:${route.method}:${route.path}`;
       addNode({
         key: handlerKey,
@@ -799,7 +832,7 @@ interface RouteRegistration {
   line: number;
 }
 
-const ROUTE_RECEIVERS = new Set(["app", "router"]);
+const ROUTE_RECEIVERS = new Set(["app", "router", "fastify", "server"]);
 const ROUTE_METHODS = new Set(["get", "post", "put", "delete", "patch", "options", "head", "all"]);
 
 /**
@@ -837,6 +870,50 @@ function collectRouteRegistrations(
     ts.forEachChild(node, visit);
   }
   visit(sourceFile);
+  return routes;
+}
+
+const NEXT_HTTP_EXPORTS = new Set(["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]);
+
+/**
+ * Next.js App Router handlers: exported HTTP-method functions in
+ * `**\/app/**\/route.ts` or `**\/api/**\/route.ts` files
+ * (`export async function POST(req) { … }`). The route path derives from the
+ * file location, so only the file-shape gate plus the exact export name can
+ * fail — both deterministic. Non-route files return [] without reading content.
+ */
+function collectNextJsRouteHandlers(
+  sourceFile: ts.SourceFile,
+  filePath: string,
+  position: (node: ts.Node) => number,
+): RouteRegistration[] {
+  const normalized = filePath.replaceAll("\\", "/");
+  if (
+    !/(?:^|\/)app\/.*\/route\.tsx?$/.test(normalized) &&
+    !/(?:^|\/)api\/.*\/route\.tsx?$/.test(normalized)
+  ) {
+    return [];
+  }
+  const appIndex = normalized.lastIndexOf("/app/");
+  const apiIndex = normalized.lastIndexOf("/api/");
+  const routeRoot = appIndex >= 0 ? normalized.slice(appIndex + 4) : normalized.slice(apiIndex);
+  const routePath = routeRoot.replace(/\/route\.tsx?$/, "") || "/";
+  const routes: RouteRegistration[] = [];
+  ts.forEachChild(sourceFile, (node) => {
+    if (
+      ts.isFunctionDeclaration(node) &&
+      node.name &&
+      NEXT_HTTP_EXPORTS.has(node.name.text) &&
+      node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
+    ) {
+      routes.push({
+        method: node.name.text,
+        path: routePath,
+        receiver: "nextjs-route",
+        line: position(node),
+      });
+    }
+  });
   return routes;
 }
 

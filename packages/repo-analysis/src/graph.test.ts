@@ -395,3 +395,44 @@ describe("extractGraph - mcp-agent fixture (WP3 contract layers)", () => {
     expect(second.edgeFacts).toEqual(first.edgeFacts);
   });
 });
+
+describe("extractGraph - webhook route handlers (P0)", () => {
+  it("detects Next.js route exports and Fastify registrations", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "patchbay-webhooks-"));
+    await fs.mkdir(path.join(rootDir, "app/api/webhooks/stripe"), { recursive: true });
+    await fs.mkdir(path.join(rootDir, "src/events"), { recursive: true });
+    await fs.writeFile(path.join(rootDir, "package.json"), JSON.stringify({ name: "webhooks" }));
+    await fs.writeFile(
+      path.join(rootDir, "app/api/webhooks/stripe/route.ts"),
+      "export async function POST(req: Request) { return Response.json({ ok: true }); }\n",
+    );
+    await fs.writeFile(
+      path.join(rootDir, "src/events/server.ts"),
+      'import fastify from "fastify";\nfastify.post("/webhooks/stripe", async () => {});\n',
+    );
+    const graph = await extractGraph({ rootDir, trackPackages: [] });
+    expect(
+      nodeByKey(graph.nodeFacts, "event-handler:POST:/api/webhooks/stripe")?.properties.receiver,
+    ).toBe("nextjs-route");
+    expect(
+      nodeByKey(graph.nodeFacts, "event-handler:POST:/webhooks/stripe")?.properties.receiver,
+    ).toBe("fastify");
+    expect(graph.errors).toEqual([]);
+    const first = await extractGraph({ rootDir, trackPackages: [] });
+    expect(first.nodeFacts).toEqual(graph.nodeFacts);
+    expect(first.edgeFacts).toEqual(graph.edgeFacts);
+  });
+
+  it("ignores non-route files and non-exported functions", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "patchbay-webhooks-negative-"));
+    await fs.mkdir(path.join(rootDir, "src/lib"), { recursive: true });
+    await fs.writeFile(path.join(rootDir, "package.json"), JSON.stringify({ name: "webhooks" }));
+    await fs.writeFile(
+      path.join(rootDir, "src/lib/helpers.ts"),
+      "export async function POST(req: Request) { return Response.json({ ok: true }); }\n",
+    );
+    const graph = await extractGraph({ rootDir, trackPackages: [] });
+    expect(graph.nodeFacts.some((node) => node.key.startsWith("event-handler:"))).toBe(false);
+    expect(graph.errors).toEqual([]);
+  });
+});
