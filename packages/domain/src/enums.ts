@@ -279,8 +279,6 @@ export const GraphNodeKind = {
   MCP_SERVER: "MCP_SERVER",
   /** An HTTP route registration (Express-style app/router METHOD(path), WP3). */
   EVENT_HANDLER: "EVENT_HANDLER",
-  /** A structured webhook payload validator discovered in application code. */
-  WEBHOOK_SCHEMA: "WEBHOOK_SCHEMA",
 } as const;
 export type GraphNodeKind = (typeof GraphNodeKind)[keyof typeof GraphNodeKind];
 

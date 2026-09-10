@@ -428,59 +428,6 @@ export async function extractGraph(options: ExtractGraphOptions): Promise<GraphE
         evidence: [evidence(file.rel, route.line, null, file.sourceHash)],
       });
     }
-    for (const route of collectNextJsRouteHandlers(sourceFile, file.rel, position)) {
-      const handlerKey = `event-handler:${route.method}:${route.path}`;
-      addNode({
-        key: handlerKey,
-        kind: GraphNodeKind.EVENT_HANDLER,
-        displayName: `${route.method} ${route.path}`,
-        filePath: file.rel,
-        startLine: route.line,
-        endLine: null,
-        properties: { method: route.method, path: route.path, receiver: route.receiver },
-        contentHash: factHash(handlerKey, GraphNodeKind.EVENT_HANDLER, {
-          method: route.method,
-          path: route.path,
-        }),
-        evidence: [evidence(file.rel, route.line, null, file.sourceHash)],
-      });
-      addEdge({
-        key: edgeKey(moduleNodeKey, GraphEdgeKind.CONTAINS, handlerKey),
-        kind: GraphEdgeKind.CONTAINS,
-        fromKey: moduleNodeKey,
-        toKey: handlerKey,
-        provenance: GraphProvenance.EXTRACTED,
-        confidence: 95,
-        properties: { method: route.method, path: route.path },
-        evidence: [evidence(file.rel, route.line, null, file.sourceHash)],
-      });
-    }
-    for (const schema of collectZodWebhookSchemas(sourceFile, file.rel)) {
-      const schemaKey = `webhook-schema:${file.rel}:${schema.name}`;
-      addNode({
-        key: schemaKey,
-        kind: GraphNodeKind.WEBHOOK_SCHEMA,
-        displayName: schema.name,
-        filePath: file.rel,
-        startLine: schema.line,
-        endLine: null,
-        properties: { fields: schema.fields.join(","), library: "zod" },
-        contentHash: factHash(schemaKey, GraphNodeKind.WEBHOOK_SCHEMA, {
-          fields: schema.fields.join(","),
-        }),
-        evidence: [evidence(file.rel, schema.line, null, file.sourceHash)],
-      });
-      addEdge({
-        key: edgeKey(moduleNodeKey, GraphEdgeKind.CONTAINS, schemaKey),
-        kind: GraphEdgeKind.CONTAINS,
-        fromKey: moduleNodeKey,
-        toKey: schemaKey,
-        provenance: GraphProvenance.EXTRACTED,
-        confidence: 90,
-        properties: { library: "zod" },
-        evidence: [evidence(file.rel, schema.line, null, file.sourceHash)],
-      });
-    }
 
     // Tests.
     if (isTestFile || hasTestCall(sourceFile)) {
@@ -852,91 +799,8 @@ interface RouteRegistration {
   line: number;
 }
 
-const ROUTE_RECEIVERS = new Set(["app", "router", "fastify", "server"]);
+const ROUTE_RECEIVERS = new Set(["app", "router"]);
 const ROUTE_METHODS = new Set(["get", "post", "put", "delete", "patch", "options", "head", "all"]);
-
-const NEXT_HTTP_EXPORTS = new Set(["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]);
-
-function collectNextJsRouteHandlers(
-  sourceFile: ts.SourceFile,
-  filePath: string,
-  position: (node: ts.Node) => number,
-): RouteRegistration[] {
-  const normalized = filePath.replaceAll("\\", "/");
-  if (
-    !/(?:^|\/)app\/.*\/route\.tsx?$/.test(normalized) &&
-    !/(?:^|\/)api\/.*\/route\.tsx?$/.test(normalized)
-  ) {
-    return [];
-  }
-  const appIndex = normalized.lastIndexOf("/app/");
-  const apiIndex = normalized.lastIndexOf("/api/");
-  const routeRoot = appIndex >= 0 ? normalized.slice(appIndex + 4) : normalized.slice(apiIndex);
-  const routePath = routeRoot.replace(/\/route\.tsx?$/, "") || "/";
-  const routes: RouteRegistration[] = [];
-  ts.forEachChild(sourceFile, (node) => {
-    if (
-      ts.isFunctionDeclaration(node) &&
-      node.name &&
-      NEXT_HTTP_EXPORTS.has(node.name.text) &&
-      node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
-    ) {
-      routes.push({
-        method: node.name.text,
-        path: routePath,
-        receiver: "nextjs-route",
-        line: position(node),
-      });
-    }
-  });
-  return routes;
-}
-
-interface ZodSchemaRegistration {
-  name: string;
-  fields: string[];
-  line: number;
-}
-
-function collectZodWebhookSchemas(
-  sourceFile: ts.SourceFile,
-  filePath: string,
-): ZodSchemaRegistration[] {
-  const normalized = filePath.replaceAll("\\", "/");
-  if (!/(?:^|\/)(?:webhook|webhooks|events?)(?:\/|$)/i.test(normalized)) return [];
-  const schemas: ZodSchemaRegistration[] = [];
-  const fieldsFromObject = (node: ts.Expression, prefix = ""): string[] => {
-    if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) return [];
-    if (node.expression.name.text !== "object") return [];
-    const [arg] = node.arguments;
-    if (!arg || !ts.isObjectLiteralExpression(arg)) return [];
-    const fields: string[] = [];
-    for (const property of arg.properties) {
-      if (!ts.isPropertyAssignment(property) || !ts.isIdentifier(property.name)) continue;
-      const field = prefix ? `${prefix}.${property.name.text}` : property.name.text;
-      fields.push(field);
-      if (ts.isCallExpression(property.initializer)) {
-        fields.push(...fieldsFromObject(property.initializer, field));
-      }
-    }
-    return fields;
-  };
-  function visit(node: ts.Node): void {
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
-      const fields = fieldsFromObject(node.initializer);
-      if (fields.length > 0) {
-        schemas.push({
-          name: node.name.text,
-          fields,
-          line: sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1,
-        });
-      }
-    }
-    ts.forEachChild(node, visit);
-  }
-  visit(sourceFile);
-  return schemas;
-}
 
 /**
  * Conservative Express-style route registrations in one source file. Only

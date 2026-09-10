@@ -395,37 +395,3 @@ describe("extractGraph - mcp-agent fixture (WP3 contract layers)", () => {
     expect(second.edgeFacts).toEqual(first.edgeFacts);
   });
 });
-
-describe("extractGraph - webhook event extraction", () => {
-  it("detects Next.js route exports, Fastify routes, and nested Zod fields", async () => {
-    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "patchbay-webhooks-"));
-    await fs.mkdir(path.join(rootDir, "app/api/webhooks/stripe"), { recursive: true });
-    await fs.mkdir(path.join(rootDir, "src/events"), { recursive: true });
-    await fs.writeFile(path.join(rootDir, "package.json"), JSON.stringify({ name: "webhooks" }));
-    await fs.writeFile(
-      path.join(rootDir, "app/api/webhooks/stripe/route.ts"),
-      "export async function POST(req: Request) { return Response.json({ ok: true }); }\n",
-    );
-    await fs.writeFile(
-      path.join(rootDir, "src/events/server.ts"),
-      [
-        'import { z } from "zod";',
-        "const StripeInvoicePayload = z.object({ data: z.object({ object: z.object({ customer_id: z.string() }) }), id: z.string() });",
-        'fastify.post("/webhooks/stripe", async () => {});',
-      ].join("\n"),
-    );
-    const graph = await extractGraph({ rootDir, trackPackages: [] });
-    expect(
-      nodeByKey(graph.nodeFacts, "event-handler:POST:/api/webhooks/stripe")?.properties.receiver,
-    ).toBe("nextjs-route");
-    expect(
-      nodeByKey(graph.nodeFacts, "event-handler:POST:/webhooks/stripe")?.properties.receiver,
-    ).toBe("fastify");
-    expect(
-      nodeByKey(graph.nodeFacts, "webhook-schema:src/events/server.ts:StripeInvoicePayload"),
-    ).toMatchObject({
-      kind: GraphNodeKind.WEBHOOK_SCHEMA,
-      properties: { fields: "data,data.object,data.object.customer_id,id", library: "zod" },
-    });
-  });
-});

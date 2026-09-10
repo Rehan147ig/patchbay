@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { diffOpenApiSpecs, diffWebhookPayloads } from "./openapi-diff";
+import { diffOpenApiSpecs } from "./openapi-diff";
 
 const BEFORE = {
   openapi: "3.1.0",
@@ -122,46 +122,5 @@ describe("diffOpenApiSpecs", () => {
     const diff = diffOpenApiSpecs(BEFORE, cosmetic);
     expect(diff.changedOperations).toEqual([]);
     expect(diff.breaking).toBe(false);
-  });
-});
-
-describe("diffWebhookPayloads", () => {
-  it("detects nested additions and breaking removals", () => {
-    const before = {
-      webhooks: {
-        invoice: {
-          post: {
-            requestBody: {
-              content: {
-                "application/json": {
-                  schema: {
-                    type: "object",
-                    properties: {
-                      data: { type: "object", properties: { customer_id: { type: "string" } } },
-                      id: { type: "string" },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    };
-    const after = structuredClone(before);
-    const properties =
-      after.webhooks.invoice.post.requestBody.content["application/json"].schema.properties;
-    delete properties.data.properties.customer_id;
-    properties.data.properties.customer = { type: "string" };
-    properties.amount = { type: "number" };
-    expect(diffWebhookPayloads(before, after)).toEqual([
-      {
-        eventType: "invoice",
-        addedFields: ["amount", "data.customer"],
-        removedFields: ["data.customer_id"],
-        renamedFields: [],
-        breaking: true,
-      },
-    ]);
   });
 });
