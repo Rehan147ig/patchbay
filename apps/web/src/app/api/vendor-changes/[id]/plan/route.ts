@@ -113,6 +113,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           line: usageLine(usage),
           symbol: usage.symbol,
           excerpt: usageExcerpt(usage),
+          // Surface signal for the repair lanes: handler/validator usages
+          // route to the webhook lane even when no normalization names them.
+          ...(usage.usageType ? { usageType: usage.usageType } : {}),
         }));
 
         // TOCTOU guard: hash each affected file as observed right now so the

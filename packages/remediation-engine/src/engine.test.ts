@@ -671,3 +671,166 @@ describe("generatePlan source-hash drift (WP6 §6.3)", () => {
     expect(plan.skippedFiles).toEqual([]);
   });
 });
+
+describe("generatePlan surface lanes", () => {
+  const EMBEDDING_USAGE: PlanInput["usages"] = [
+    {
+      filePath: "src/embeddings/embedding-service.ts",
+      line: 6,
+      symbol: "openai.createEmbedding",
+      excerpt: "  const response = await openai.createEmbedding({",
+    },
+  ];
+  const EMBEDDING_RENAME: PlanInput["patchSuggestions"] = [
+    {
+      symbol: "openai.createEmbedding",
+      replacement: "openai.embeddings.create",
+      description: "Rename openai.createEmbedding to openai.embeddings.create (openai v4).",
+      confidence: 95,
+    },
+  ];
+
+  it("leaves SDK files untouched by API rewrites they do not participate in", async () => {
+    const plan = await generatePlan({
+      fixtureDir: OPENAI_FIXTURE,
+      repositoryName: "ai-assistant-service",
+      usages: EMBEDDING_USAGE,
+      patchSuggestions: EMBEDDING_RENAME,
+      normalizations: [
+        {
+          changeType: "METHOD_RENAMED",
+          oldValue: "openai.createEmbedding",
+          newValue: "openai.embeddings.create",
+          breaking: true,
+          affectedSymbols: ["openai.createEmbedding"],
+        },
+        {
+          changeType: "RESPONSE_FIELD_REMOVED",
+          oldValue: "completion.data",
+          breaking: true,
+          affectedSymbols: ["completion.data"],
+        },
+      ],
+      assessmentConfidence: 92,
+    });
+
+    // The SDK rename fires; the API unwrap must not: this file contains no
+    // `completion.data` text and no API-attributed usage. Before lanes, the
+    // file gained a phantom 90-confidence unwrap description (diluting the
+    // patch to 90) purely because an API normalization existed elsewhere.
+    expect(plan.patches, JSON.stringify(plan, null, 2)).toHaveLength(1);
+    const patch = plan.patches[0]!;
+    expect(patch.filePath).toBe("src/embeddings/embedding-service.ts");
+    expect(patch.confidence).toBe(95);
+    expect(patch.patched).toContain("openai.embeddings.create");
+    expect(patch.patched).toContain("response.data.data[0]");
+    expect(plan.proposedChanges.some((change) => change.description.includes("unwrap"))).toBe(
+      false,
+    );
+    expect(plan.requiresHumanReview).toBe(false);
+    expect(plan.strategy).toContain("Repaired: SDK 1 file(s).");
+    expect(plan.strategy).toContain("Analyzed and unaffected: API");
+    expect(plan.strategy).toContain("Not in this change: webhook.");
+  });
+
+  it("reports untouched surfaces for SDK-only changes", async () => {
+    const plan = await generatePlan({
+      fixtureDir: OPENAI_FIXTURE,
+      repositoryName: "ai-assistant-service",
+      usages: EMBEDDING_USAGE,
+      patchSuggestions: EMBEDDING_RENAME,
+      normalizations: [
+        {
+          changeType: "SDK_VERSION_UPGRADE",
+          oldValue: "3.x",
+          newValue: "4.x",
+          breaking: false,
+          affectedSymbols: [],
+        },
+        {
+          changeType: "METHOD_RENAMED",
+          oldValue: "openai.createEmbedding",
+          newValue: "openai.embeddings.create",
+          breaking: true,
+          affectedSymbols: ["openai.createEmbedding"],
+        },
+      ],
+      assessmentConfidence: 92,
+    });
+
+    expect(plan.patches).toHaveLength(1);
+    expect(plan.strategy).toContain("Repaired: SDK 1 file(s).");
+    expect(plan.strategy).toContain("Not in this change: API, webhook.");
+    expect(plan.requiresHumanReview).toBe(false);
+  });
+
+  it("stops safely on webhook-only changes with an explicit unrepairable report", async () => {
+    const plan = await generatePlan({
+      fixtureDir: OPENAI_FIXTURE,
+      repositoryName: "ai-assistant-service",
+      usages: [
+        {
+          filePath: "src/webhooks/adyen.ts",
+          line: 12,
+          symbol: "adyen.notifications",
+          excerpt: "app.post(webhookHandler(adyen.notifications));",
+        },
+      ],
+      patchSuggestions: [],
+      normalizations: [
+        {
+          changeType: "WEBHOOK_CHANGE",
+          oldValue: "notification payload",
+          breaking: true,
+          affectedSymbols: ["adyen.notifications", "webhooks"],
+        },
+      ],
+      assessmentConfidence: 92,
+    });
+
+    expect(plan.patches).toEqual([]);
+    expect(plan.requiresHumanReview).toBe(true);
+    expect(plan.strategy).toContain("Plan-only");
+    expect(plan.strategy).toContain(
+      "Webhook: 1 handler(s) affected but no safe rule — human review (src/webhooks/adyen.ts:adyen.notifications).",
+    );
+    expect(plan.strategy).toContain("Not in this change: SDK, API.");
+  });
+
+  it("repairs through the webhook lane when a webhook-linked rule exists", async () => {
+    const plan = await generatePlan({
+      fixtureDir: OPENAI_FIXTURE,
+      repositoryName: "ai-assistant-service",
+      usages: [
+        {
+          filePath: "src/chat/chat-service.ts",
+          line: 31,
+          symbol: "openai.createChatCompletion",
+          excerpt:
+            '  const completion = openai.createChatCompletion({ model: "gpt-4", messages });',
+        },
+      ],
+      patchSuggestions: [
+        {
+          symbol: "openai.createChatCompletion",
+          replacement: "openai.chat.completions.create",
+          description: "Rename openai.createChatCompletion to openai.chat.completions.create.",
+          confidence: 95,
+        },
+      ],
+      normalizations: [
+        {
+          changeType: "WEBHOOK_CHANGE",
+          oldValue: "completion event",
+          breaking: true,
+          affectedSymbols: ["openai.createChatCompletion"],
+        },
+      ],
+      assessmentConfidence: 92,
+    });
+
+    expect(plan.patches, JSON.stringify(plan, null, 2)).toHaveLength(1);
+    expect(plan.strategy).toContain("Repaired: webhook 1 file(s).");
+    expect(plan.requiresHumanReview).toBe(false);
+  });
+});
