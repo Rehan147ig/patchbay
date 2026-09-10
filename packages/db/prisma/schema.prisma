@@ -1097,6 +1097,7 @@ enum GraphNodeKind {
   QUEUE_TOPIC
   DATABASE
   EVENT_HANDLER
+  WEBHOOK_SCHEMA
 }
 
 enum GraphEdgeKind {

@@ -24,94 +24,6 @@ export interface OpenApiDiffFacts {
   breaking: boolean;
 }
 
-export interface WebhookPayloadDiffFacts {
-  eventType: string;
-  addedFields: string[];
-  removedFields: string[];
-  renamedFields: Array<{ from: string; to: string }>;
-  breaking: boolean;
-}
-
-function webhookSections(spec: unknown): Record<string, unknown> {
-  if (!spec || typeof spec !== "object") return {};
-  const root = spec as Record<string, unknown>;
-  return Object.assign(
-    {},
-    ...[root.webhooks, root["x-webhooks"]].filter(
-      (section): section is Record<string, unknown> =>
-        !!section && typeof section === "object" && !Array.isArray(section),
-    ),
-  );
-}
-
-function resolveSchema(spec: unknown, schema: unknown): unknown {
-  if (!schema || typeof schema !== "object") return schema;
-  const ref = (schema as Record<string, unknown>).$ref;
-  if (typeof ref !== "string" || !spec || typeof spec !== "object") return schema;
-  const components = (spec as Record<string, unknown>).components;
-  const schemas =
-    components && typeof components === "object"
-      ? (components as Record<string, unknown>).schemas
-      : undefined;
-  const name = ref.replace(/^#\/components\/schemas\//, "");
-  return schemas && typeof schemas === "object"
-    ? ((schemas as Record<string, unknown>)[name] ?? schema)
-    : schema;
-}
-
-function webhookSchema(spec: unknown, value: unknown): unknown {
-  if (!value || typeof value !== "object") return null;
-  const root = value as Record<string, unknown>;
-  const operation = root.post && typeof root.post === "object" ? root.post : root;
-  if (!operation || typeof operation !== "object") return null;
-  const requestBody = (operation as Record<string, unknown>).requestBody;
-  if (!requestBody || typeof requestBody !== "object") return null;
-  const content = (requestBody as Record<string, unknown>).content;
-  if (!content || typeof content !== "object") return null;
-  const media =
-    (content as Record<string, unknown>)["application/json"] ?? Object.values(content)[0];
-  if (!media || typeof media !== "object") return null;
-  return resolveSchema(spec, (media as Record<string, unknown>).schema);
-}
-
-function schemaFields(spec: unknown, schema: unknown, prefix = ""): string[] {
-  if (!schema || typeof schema !== "object") return [];
-  const resolved = resolveSchema(spec, schema);
-  if (!resolved || typeof resolved !== "object") return [];
-  const properties = (resolved as Record<string, unknown>).properties;
-  if (!properties || typeof properties !== "object") return [];
-  const fields: string[] = [];
-  for (const [name, child] of Object.entries(properties)) {
-    const field = prefix ? `${prefix}.${name}` : name;
-    fields.push(field, ...schemaFields(spec, child, field));
-  }
-  return fields;
-}
-
-/** Compare OpenAPI 3.1 `webhooks` and OpenAPI 3.0 `x-webhooks` payloads. */
-export function diffWebhookPayloads(before: unknown, after: unknown): WebhookPayloadDiffFacts[] {
-  const beforeWebhooks = webhookSections(before);
-  const afterWebhooks = webhookSections(after);
-  const eventTypes = new Set([...Object.keys(beforeWebhooks), ...Object.keys(afterWebhooks)]);
-  const facts: WebhookPayloadDiffFacts[] = [];
-  for (const eventType of [...eventTypes].sort()) {
-    const beforeFields = schemaFields(before, webhookSchema(before, beforeWebhooks[eventType]));
-    const afterFields = schemaFields(after, webhookSchema(after, afterWebhooks[eventType]));
-    const addedFields = afterFields.filter((field) => !beforeFields.includes(field)).sort();
-    const removedFields = beforeFields.filter((field) => !afterFields.includes(field)).sort();
-    if (addedFields.length || removedFields.length) {
-      facts.push({
-        eventType,
-        addedFields,
-        removedFields,
-        renamedFields: [],
-        breaking: removedFields.length > 0,
-      });
-    }
-  }
-  return facts;
-}
-
 type OpenApiOperation = {
   method: string;
   path: string;
@@ -214,4 +126,207 @@ export function diffOpenApiSpecs(before: unknown, after: unknown): OpenApiDiffFa
     changedOperations,
     breaking: removedOperations.length > 0 || changedOperations.length > 0,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Webhook payload diff (P1, events plane). Same contract as above — pure,
+// deterministic, never throws on malformed input — but for the inbound event
+// plane: `webhooks:` (OpenAPI 3.1) and `x-webhooks:` (3.0 extension) sections
+// instead of `paths:`. Breaking means "an existing consumer handler can
+// break": a removed or renamed payload field. Added fields never break a
+// consumer that parses what it knows, so additions are reported but benign.
+// ---------------------------------------------------------------------------
+
+export interface WebhookFieldRename {
+  from: string;
+  to: string;
+}
+
+export interface WebhookPayloadDiffFacts {
+  /** Event key as written in the spec, e.g. "invoice.payment_succeeded". */
+  eventType: string;
+  /** Dot-joined leaf paths present after but not before. */
+  addedFields: string[];
+  /** Dot-joined leaf paths present before but not after (and not renamed). */
+  removedFields: string[];
+  /** Removed+added pairs with byte-identical shape summaries. */
+  renamedFields: WebhookFieldRename[];
+  /** True when any field was removed or renamed. */
+  breaking: boolean;
+}
+
+/** Resolution depth cap: real specs nest shallowly; cycles fail closed. */
+const MAX_REF_DEPTH = 10;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+/** Local `#/...` JSON-pointer lookup inside one document; remote refs stay opaque. */
+function resolveLocalRef(root: unknown, ref: string, seen: ReadonlySet<string>): unknown {
+  if (!ref.startsWith("#/") || seen.has(ref)) return undefined;
+  const nextSeen = new Set(seen);
+  nextSeen.add(ref);
+  let current: unknown = root;
+  for (const segment of ref
+    .slice(2)
+    .split("/")
+    .map((part) => part.replace(/~1/g, "/").replace(/~0/g, "~"))) {
+    if (!isRecord(current)) return undefined;
+    current = current[segment];
+  }
+  return resolveRefs(root, current, nextSeen, 0);
+}
+
+function resolveRefs(
+  root: unknown,
+  node: unknown,
+  seen: ReadonlySet<string>,
+  depth: number,
+): unknown {
+  if (depth > MAX_REF_DEPTH) return node;
+  if (!isRecord(node) && !Array.isArray(node)) return node;
+  if (Array.isArray(node)) return node.map((item) => resolveRefs(root, item, seen, depth + 1));
+  const record = node as Record<string, unknown>;
+  const ref = record.$ref;
+  if (typeof ref === "string") {
+    if (!ref.startsWith("#/")) return { $ref: ref };
+    const resolved = resolveLocalRef(root, ref, seen);
+    if (resolved === undefined) return { $ref: ref };
+    const siblings: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(record)) {
+      if (key !== "$ref") siblings[key] = value;
+    }
+    return isRecord(resolved) ? { ...resolved, ...siblings } : resolved;
+  }
+  const next: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(record)) {
+    next[key] = resolveRefs(root, value, seen, depth + 1);
+  }
+  return next;
+}
+
+/** Leaf field paths of a JSON-schema-ish node: objects recurse with dots, arrays add `[]`. */
+function flattenFields(node: unknown, prefix: string, out: Map<string, string>): void {
+  if (!isRecord(node)) {
+    if (prefix) out.set(prefix, JSON.stringify(summarize(node)));
+    return;
+  }
+  const properties = node.properties;
+  if (isRecord(properties)) {
+    const keys = Object.keys(properties);
+    if (keys.length === 0) {
+      if (prefix) out.set(prefix, JSON.stringify(summarize(node)));
+      return;
+    }
+    for (const key of keys) {
+      flattenFields(
+        (properties as Record<string, unknown>)[key],
+        prefix ? `${prefix}.${key}` : key,
+        out,
+      );
+    }
+    return;
+  }
+  if (node.type === "array" && node.items !== undefined) {
+    flattenFields(node.items, `${prefix}[]`, out);
+    return;
+  }
+  const composed = ["allOf", "oneOf", "anyOf"]
+    .filter((key) => Array.isArray(node[key]))
+    .flatMap((key) => node[key] as unknown[]);
+  if (composed.length > 0) {
+    for (const branch of composed) flattenFields(branch, prefix, out);
+    return;
+  }
+  if (prefix) out.set(prefix, JSON.stringify(summarize(node)));
+}
+
+function requestSchemaOf(operation: unknown): unknown {
+  if (!isRecord(operation)) return undefined;
+  const requestBody = operation.requestBody;
+  if (!isRecord(requestBody)) return undefined;
+  const content = requestBody.content;
+  if (!isRecord(content)) return undefined;
+  const media = content["application/json"] ?? content["application/problem+json"];
+  if (!isRecord(media)) {
+    const first = Object.values(content).find(isRecord);
+    if (!first) return undefined;
+    return (first as Record<string, unknown>).schema;
+  }
+  return (media as Record<string, unknown>).schema;
+}
+
+function eventOperations(section: unknown): Map<string, unknown> {
+  const events = new Map<string, unknown>();
+  if (!isRecord(section)) return events;
+  for (const [eventType, item] of Object.entries(section)) {
+    if (!isRecord(item)) continue;
+    for (const key of Object.keys(item)) {
+      if (!METHODS.includes(key.toLowerCase())) continue;
+      // First HTTP method wins per event (webhook items carry one operation).
+      if (!events.has(eventType)) events.set(eventType, (item as Record<string, unknown>)[key]);
+    }
+  }
+  return events;
+}
+
+/** `webhooks:` wins over legacy `x-webhooks:` per event key. */
+function extractWebhookEvents(doc: unknown): Map<string, unknown> {
+  if (!isRecord(doc)) return new Map();
+  const legacy = eventOperations(doc["x-webhooks"]);
+  const current = eventOperations(doc["webhooks"]);
+  return new Map([...legacy, ...current]);
+}
+
+function eventFields(root: unknown, operation: unknown): Map<string, string> {
+  const resolved = resolveRefs(root, requestSchemaOf(operation), new Set(), 0);
+  const fields = new Map<string, string>();
+  if (resolved !== undefined) flattenFields(resolved, "", fields);
+  return fields;
+}
+
+/**
+ * Diff webhook payload schemas between two specs. One fact per added, removed,
+ * or field-changed event; unchanged events emit nothing. Renames pair a
+ * removed and an added field with byte-identical shape summaries (greedy,
+ * sorted — deterministic, never inferred across differing shapes).
+ */
+export function diffWebhookPayloads(before: unknown, after: unknown): WebhookPayloadDiffFacts[] {
+  const beforeEvents = extractWebhookEvents(before);
+  const afterEvents = extractWebhookEvents(after);
+  const eventTypes = [...new Set([...beforeEvents.keys(), ...afterEvents.keys()])].sort();
+  const facts: WebhookPayloadDiffFacts[] = [];
+  for (const eventType of eventTypes) {
+    const beforeFields = eventFields(before, beforeEvents.get(eventType));
+    const afterFields = eventFields(after, afterEvents.get(eventType));
+    const removed = [...beforeFields.keys()].filter((field) => !afterFields.has(field)).sort();
+    const added = [...afterFields.keys()].filter((field) => !beforeFields.has(field)).sort();
+    const renamedFields: WebhookFieldRename[] = [];
+    const consumedAdded = new Set<string>();
+    for (const from of removed) {
+      const match = added.find(
+        (to) => !consumedAdded.has(to) && beforeFields.get(from) === afterFields.get(to),
+      );
+      if (match !== undefined) {
+        consumedAdded.add(match);
+        renamedFields.push({ from, to: match });
+      }
+    }
+    const renamedFrom = new Set(renamedFields.map((rename) => rename.from));
+    const removedFields = removed.filter((field) => !renamedFrom.has(field));
+    const addedFields = added.filter((field) => !consumedAdded.has(field));
+    renamedFields.sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : 0));
+    if (removedFields.length === 0 && addedFields.length === 0 && renamedFields.length === 0) {
+      continue;
+    }
+    facts.push({
+      eventType,
+      addedFields,
+      removedFields,
+      renamedFields,
+      breaking: removedFields.length > 0 || renamedFields.length > 0,
+    });
+  }
+  return facts;
 }

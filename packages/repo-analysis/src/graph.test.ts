@@ -323,8 +323,81 @@ describe("extractGraph - shared analysis", () => {
   });
 });
 
-describe("extractGraph - webhook event extraction", () => {
-  it("detects Next.js route exports, Fastify routes, and nested Zod fields", async () => {
+describe("extractGraph - mcp-agent fixture (WP3 contract layers)", () => {
+  const TRACKED_MCP = [...TRACKED, "@modelcontextprotocol/sdk"];
+
+  it("maps MCP servers from client configs with content-bound evidence", async () => {
+    const graph = await extractGraph({
+      rootDir: fixtureDir("mcp-agent-legacy"),
+      trackPackages: TRACKED_MCP,
+    });
+
+    for (const server of ["github", "postgres"]) {
+      const node = nodeByKey(graph.nodeFacts, `mcp-server:${server}`);
+      expect(node?.kind).toBe(GraphNodeKind.MCP_SERVER);
+      expect(node?.filePath).toBe(".cursor/mcp.json");
+      expect(node?.properties.source).toBe("cursor");
+      expect(node?.contentHash).toMatch(/^[0-9a-f]{64}$/);
+      expect(node?.evidence[0]?.sourceHash).toMatch(/^[0-9a-f]{64}$/);
+      expect(node?.evidence[0]?.extractorVersion).toBe("1");
+      expect(
+        edgesOf(graph.edgeFacts, "repo:root", GraphEdgeKind.CONTAINS, `mcp-server:${server}`),
+      ).toHaveLength(1);
+    }
+    expect(graph.errors).toEqual([]);
+  });
+
+  it("maps MCP SDK packages to dependency nodes even without tracked usage", async () => {
+    const graph = await extractGraph({
+      rootDir: fixtureDir("mcp-agent-legacy"),
+      trackPackages: TRACKED,
+    });
+
+    const dep = nodeByKey(graph.nodeFacts, "dep:@modelcontextprotocol/sdk");
+    expect(dep?.kind).toBe(GraphNodeKind.DEPENDENCY);
+    expect(dep?.properties.resolvedVersion).toBe("1.0.0");
+  });
+
+  it("maps Express route registrations as event handlers with line evidence", async () => {
+    const graph = await extractGraph({
+      rootDir: fixtureDir("mcp-agent-legacy"),
+      trackPackages: TRACKED_MCP,
+    });
+
+    const health = nodeByKey(graph.nodeFacts, "event-handler:GET:/health");
+    expect(health?.kind).toBe(GraphNodeKind.EVENT_HANDLER);
+    expect(health?.filePath).toBe("src/server.ts");
+    expect(health?.properties).toMatchObject({ method: "GET", path: "/health", receiver: "app" });
+
+    const run = nodeByKey(graph.nodeFacts, "event-handler:POST:/api/run");
+    expect(run?.kind).toBe(GraphNodeKind.EVENT_HANDLER);
+
+    const revoke = nodeByKey(graph.nodeFacts, "event-handler:DELETE:/api/sessions/:id");
+    expect(revoke?.kind).toBe(GraphNodeKind.EVENT_HANDLER);
+    expect(revoke?.properties.receiver).toBe("router");
+
+    expect(
+      edgesOf(
+        graph.edgeFacts,
+        "module:src/server.ts",
+        GraphEdgeKind.CONTAINS,
+        "event-handler:GET:/health",
+      ),
+    ).toHaveLength(1);
+    expect(graph.errors).toEqual([]);
+  });
+
+  it("is deterministic across runs including the new layers", async () => {
+    const rootDir = fixtureDir("mcp-agent-legacy");
+    const first = await extractGraph({ rootDir, trackPackages: TRACKED_MCP });
+    const second = await extractGraph({ rootDir, trackPackages: TRACKED_MCP });
+    expect(second.nodeFacts).toEqual(first.nodeFacts);
+    expect(second.edgeFacts).toEqual(first.edgeFacts);
+  });
+});
+
+describe("extractGraph - webhook route handlers (P0)", () => {
+  it("detects Next.js route exports and Fastify registrations", async () => {
     const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "patchbay-webhooks-"));
     await fs.mkdir(path.join(rootDir, "app/api/webhooks/stripe"), { recursive: true });
     await fs.mkdir(path.join(rootDir, "src/events"), { recursive: true });
@@ -335,11 +408,7 @@ describe("extractGraph - webhook event extraction", () => {
     );
     await fs.writeFile(
       path.join(rootDir, "src/events/server.ts"),
-      [
-        'import { z } from "zod";',
-        "const StripeInvoicePayload = z.object({ data: z.object({ object: z.object({ customer_id: z.string() }) }), id: z.string() });",
-        'fastify.post("/webhooks/stripe", async () => {});',
-      ].join("\n"),
+      'import fastify from "fastify";\nfastify.post("/webhooks/stripe", async () => {});\n',
     );
     const graph = await extractGraph({ rootDir, trackPackages: [] });
     expect(
@@ -348,11 +417,108 @@ describe("extractGraph - webhook event extraction", () => {
     expect(
       nodeByKey(graph.nodeFacts, "event-handler:POST:/webhooks/stripe")?.properties.receiver,
     ).toBe("fastify");
-    expect(
-      nodeByKey(graph.nodeFacts, "webhook-schema:src/events/server.ts:StripeInvoicePayload"),
-    ).toMatchObject({
-      kind: GraphNodeKind.WEBHOOK_SCHEMA,
-      properties: { fields: "data,data.object,data.object.customer_id,id", library: "zod" },
+    expect(graph.errors).toEqual([]);
+    const first = await extractGraph({ rootDir, trackPackages: [] });
+    expect(first.nodeFacts).toEqual(graph.nodeFacts);
+    expect(first.edgeFacts).toEqual(graph.edgeFacts);
+  });
+
+  it("ignores non-route files and non-exported functions", async () => {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "patchbay-webhooks-negative-"));
+    await fs.mkdir(path.join(rootDir, "src/lib"), { recursive: true });
+    await fs.writeFile(path.join(rootDir, "package.json"), JSON.stringify({ name: "webhooks" }));
+    await fs.writeFile(
+      path.join(rootDir, "src/lib/helpers.ts"),
+      "export async function POST(req: Request) { return Response.json({ ok: true }); }\n",
+    );
+    const graph = await extractGraph({ rootDir, trackPackages: [] });
+    expect(graph.nodeFacts.some((node) => node.key.startsWith("event-handler:"))).toBe(false);
+    expect(graph.errors).toEqual([]);
+  });
+});
+
+describe("extractGraph - zod webhook schemas (P1)", () => {
+  async function writeRepo(files: Record<string, string>): Promise<string> {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "patchbay-zod-schemas-"));
+    await fs.writeFile(path.join(rootDir, "package.json"), JSON.stringify({ name: "schemas" }));
+    for (const [rel, content] of Object.entries(files)) {
+      await fs.mkdir(path.join(rootDir, path.dirname(rel)), { recursive: true });
+      await fs.writeFile(path.join(rootDir, rel), content);
+    }
+    return rootDir;
+  }
+
+  it("collects validator-named z.object schemas with field evidence", async () => {
+    const rootDir = await writeRepo({
+      "src/webhooks/stripe.ts":
+        'import { z } from "zod";\n' +
+        "export const stripeEventSchema = z.object({ id: z.string(), data: z.object({ object: z.string() }) });\n",
     });
+    const graph = await extractGraph({ rootDir, trackPackages: [] });
+    const node = nodeByKey(
+      graph.nodeFacts,
+      "webhook-schema:src/webhooks/stripe.ts:stripeEventSchema",
+    );
+    expect(node?.kind).toBe(GraphNodeKind.WEBHOOK_SCHEMA);
+    expect(node?.filePath).toBe("src/webhooks/stripe.ts");
+    expect(node?.properties).toMatchObject({ fields: "id,data.object" });
+    expect(
+      edgesOf(
+        graph.edgeFacts,
+        "module:src/webhooks/stripe.ts",
+        GraphEdgeKind.CONTAINS,
+        "webhook-schema:src/webhooks/stripe.ts:stripeEventSchema",
+      ),
+    ).toHaveLength(1);
+    expect(graph.errors).toEqual([]);
+    const rerun = await extractGraph({ rootDir, trackPackages: [] });
+    expect(rerun.nodeFacts).toEqual(graph.nodeFacts);
+    expect(rerun.edgeFacts).toEqual(graph.edgeFacts);
+  });
+
+  it("collects non-validator names only when co-located with a route", async () => {
+    const rootDir = await writeRepo({
+      "src/webhooks/handler.ts":
+        'import { z } from "zod";\n' +
+        'app.post("/hook", () => {});\n' +
+        "const shape = z.object({ id: z.string() });\n",
+      "src/webhooks/isolated.ts":
+        'import { z } from "zod";\n' + "const shape = z.object({ id: z.string() });\n",
+    });
+    const graph = await extractGraph({ rootDir, trackPackages: [] });
+    expect(
+      nodeByKey(graph.nodeFacts, "webhook-schema:src/webhooks/handler.ts:shape")?.properties,
+    ).toMatchObject({ fields: "id" });
+    expect(
+      nodeByKey(graph.nodeFacts, "webhook-schema:src/webhooks/isolated.ts:shape"),
+    ).toBeUndefined();
+    expect(graph.errors).toEqual([]);
+  });
+
+  it("ignores non-webhook dirs, non-zod objects, and chained non-object schemas", async () => {
+    const rootDir = await writeRepo({
+      "src/lib/forms.ts":
+        'import { z } from "zod";\n' +
+        "export const loginSchema = z.object({ email: z.string() });\n",
+      "src/webhooks/mixed.ts":
+        'import { z } from "zod";\n' +
+        "export const notZod = something.object({ id: z.string() });\n" +
+        "export const maybeId = z.string().optional();\n" +
+        "export const strictPayload = z.object({ id: z.string() }).strict();\n",
+    });
+    const graph = await extractGraph({ rootDir, trackPackages: [] });
+    expect(
+      nodeByKey(graph.nodeFacts, "webhook-schema:src/lib/forms.ts:loginSchema"),
+    ).toBeUndefined();
+    expect(
+      nodeByKey(graph.nodeFacts, "webhook-schema:src/webhooks/mixed.ts:notZod"),
+    ).toBeUndefined();
+    expect(
+      nodeByKey(graph.nodeFacts, "webhook-schema:src/webhooks/mixed.ts:maybeId"),
+    ).toBeUndefined();
+    expect(
+      nodeByKey(graph.nodeFacts, "webhook-schema:src/webhooks/mixed.ts:strictPayload")?.properties,
+    ).toMatchObject({ fields: "id" });
+    expect(graph.errors).toEqual([]);
   });
 });

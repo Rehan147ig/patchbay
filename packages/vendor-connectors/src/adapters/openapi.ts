@@ -7,12 +7,8 @@ import type {
   WatchtowerAdapter,
   WatchtowerEvidence,
 } from "../watchtower";
-import {
-  diffOpenApiSpecs,
-  diffWebhookPayloads,
-  type OpenApiDiffFacts,
-  type WebhookPayloadDiffFacts,
-} from "./openapi-diff";
+import { diffOpenApiSpecs, diffWebhookPayloads, type OpenApiDiffFacts } from "./openapi-diff";
+import type { WebhookPayloadDiffFacts } from "./openapi-diff";
 import { fetchWithTrust } from "../safe-fetch";
 import { OPENAPI_TRUST_PROFILE } from "../trust";
 
@@ -22,7 +18,6 @@ interface OpenAPISpec {
   paths: Record<string, unknown>;
   components?: Record<string, unknown>;
   webhooks?: Record<string, unknown>;
-  [key: string]: unknown;
 }
 
 interface OpenApiCursor extends AdapterCursor {
@@ -99,7 +94,12 @@ export function createOpenAPIAdapter(vendorSlug: string, specUrl: string): Watch
       cursor?: AdapterCursor,
     ): Promise<{ evidence: WatchtowerEvidence[]; cursor: AdapterCursor }> {
       const prev = normalizeCursor(cursor);
-      const headers: Record<string, string> = { Accept: "application/json" };
+      // YAML specs (openai) advertise YAML; JSON specs keep the JSON accept.
+      // raw.githubusercontent serves either regardless — the header documents intent.
+      const wantsYaml = specUrl.endsWith(".yaml") || specUrl.endsWith(".yml");
+      const headers: Record<string, string> = {
+        Accept: wantsYaml ? "application/yaml, text/yaml, application/json" : "application/json",
+      };
       if (prev.etag) headers["If-None-Match"] = prev.etag;
 
       const response = await fetchWithTrust(specUrl, OPENAPI_TRUST_PROFILE, { headers });
@@ -108,11 +108,15 @@ export function createOpenAPIAdapter(vendorSlug: string, specUrl: string): Watch
       }
 
       const etag = response.headers.get("etag");
-      const spec = (
-        specUrl.endsWith(".yaml") || specUrl.endsWith(".yml")
-          ? yaml.load(response.text)
-          : JSON.parse(response.text)
-      ) as OpenAPISpec;
+      let parsed: unknown;
+      try {
+        parsed = wantsYaml ? yaml.load(response.text) : JSON.parse(response.text);
+      } catch {
+        throw new Error(
+          `Spec for ${vendorSlug} is not parseable as ${wantsYaml ? "YAML" : "JSON"}`,
+        );
+      }
+      const spec = parsed as OpenAPISpec;
       const raw = JSON.stringify(spec);
       const contentHash = createHash("sha256").update(raw).digest("hex");
 
@@ -133,6 +137,7 @@ export function createOpenAPIAdapter(vendorSlug: string, specUrl: string): Watch
           webhookDiff = diffWebhookPayloads(prev.lastSpec, spec);
         } catch {
           apiDiff = null;
+          webhookDiff = [];
         }
       }
 
@@ -160,15 +165,19 @@ export function createOpenAPIAdapter(vendorSlug: string, specUrl: string): Watch
 
 export function createOpenAPIAdapters(): WatchtowerAdapter[] {
   // Stripe publishes its canonical spec in the stripe/openapi repo; the
-  // api.stripe.com/openapi path does not exist (404). JSON variant chosen so
-  // JSON.parse works without a YAML dependency. /HEAD/ resolves to the
+  // api.stripe.com/openapi path does not exist (404). /HEAD/ resolves to the
   // default branch without a redirect (raw 302s are hard-rejected by the
   // trust profile), so branch renames like master->main cannot break polls.
+  // Poll-volume note: GitHub's description is multi-MB, but conditional polls
+  // (ETag → 304) plus content-hash dedup mean unchanged specs cost one small
+  // request per cadence — same mechanism the stripe adapter already relies on.
+  // Each URL needs its trust-profile path prefix (trust.ts) or polls fail
+  // closed as domain_not_allowed.
   const specs: Record<string, string> = {
     stripe: "https://raw.githubusercontent.com/stripe/openapi/HEAD/openapi/spec3.json",
     github:
-      "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json",
-    openai: "https://raw.githubusercontent.com/openai/openai-openapi/master/openapi.yaml",
+      "https://raw.githubusercontent.com/github/rest-api-description/HEAD/descriptions/api.github.com/api.github.com.json",
+    openai: "https://raw.githubusercontent.com/openai/openai-openapi/HEAD/openapi.yaml",
   };
   return Object.entries(specs).map(([vendor, url]) => createOpenAPIAdapter(vendor, url));
 }

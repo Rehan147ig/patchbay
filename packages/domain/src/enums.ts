@@ -277,7 +277,7 @@ export const GraphNodeKind = {
   DATABASE: "DATABASE",
   /** An HTTP route registration (Express-style app/router METHOD(path), WP3). */
   EVENT_HANDLER: "EVENT_HANDLER",
-  /** A structured webhook payload validator discovered in application code. */
+  /** A Zod object validator for webhook/event payloads (P1 webhook intelligence). */
   WEBHOOK_SCHEMA: "WEBHOOK_SCHEMA",
 } as const;
 export type GraphNodeKind = (typeof GraphNodeKind)[keyof typeof GraphNodeKind];
