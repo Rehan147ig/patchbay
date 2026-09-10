@@ -436,3 +436,89 @@ describe("extractGraph - webhook route handlers (P0)", () => {
     expect(graph.errors).toEqual([]);
   });
 });
+
+describe("extractGraph - zod webhook schemas (P1)", () => {
+  async function writeRepo(files: Record<string, string>): Promise<string> {
+    const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "patchbay-zod-schemas-"));
+    await fs.writeFile(path.join(rootDir, "package.json"), JSON.stringify({ name: "schemas" }));
+    for (const [rel, content] of Object.entries(files)) {
+      await fs.mkdir(path.join(rootDir, path.dirname(rel)), { recursive: true });
+      await fs.writeFile(path.join(rootDir, rel), content);
+    }
+    return rootDir;
+  }
+
+  it("collects validator-named z.object schemas with field evidence", async () => {
+    const rootDir = await writeRepo({
+      "src/webhooks/stripe.ts":
+        'import { z } from "zod";\n' +
+        "export const stripeEventSchema = z.object({ id: z.string(), data: z.object({ object: z.string() }) });\n",
+    });
+    const graph = await extractGraph({ rootDir, trackPackages: [] });
+    const node = nodeByKey(
+      graph.nodeFacts,
+      "webhook-schema:src/webhooks/stripe.ts:stripeEventSchema",
+    );
+    expect(node?.kind).toBe(GraphNodeKind.WEBHOOK_SCHEMA);
+    expect(node?.filePath).toBe("src/webhooks/stripe.ts");
+    expect(node?.properties).toMatchObject({ fields: "id,data.object" });
+    expect(
+      edgesOf(
+        graph.edgeFacts,
+        "module:src/webhooks/stripe.ts",
+        GraphEdgeKind.CONTAINS,
+        "webhook-schema:src/webhooks/stripe.ts:stripeEventSchema",
+      ),
+    ).toHaveLength(1);
+    expect(graph.errors).toEqual([]);
+    const rerun = await extractGraph({ rootDir, trackPackages: [] });
+    expect(rerun.nodeFacts).toEqual(graph.nodeFacts);
+    expect(rerun.edgeFacts).toEqual(graph.edgeFacts);
+  });
+
+  it("collects non-validator names only when co-located with a route", async () => {
+    const rootDir = await writeRepo({
+      "src/webhooks/handler.ts":
+        'import { z } from "zod";\n' +
+        'app.post("/hook", () => {});\n' +
+        "const shape = z.object({ id: z.string() });\n",
+      "src/webhooks/isolated.ts":
+        'import { z } from "zod";\n' + "const shape = z.object({ id: z.string() });\n",
+    });
+    const graph = await extractGraph({ rootDir, trackPackages: [] });
+    expect(
+      nodeByKey(graph.nodeFacts, "webhook-schema:src/webhooks/handler.ts:shape")?.properties,
+    ).toMatchObject({ fields: "id" });
+    expect(
+      nodeByKey(graph.nodeFacts, "webhook-schema:src/webhooks/isolated.ts:shape"),
+    ).toBeUndefined();
+    expect(graph.errors).toEqual([]);
+  });
+
+  it("ignores non-webhook dirs, non-zod objects, and chained non-object schemas", async () => {
+    const rootDir = await writeRepo({
+      "src/lib/forms.ts":
+        'import { z } from "zod";\n' +
+        "export const loginSchema = z.object({ email: z.string() });\n",
+      "src/webhooks/mixed.ts":
+        'import { z } from "zod";\n' +
+        "export const notZod = something.object({ id: z.string() });\n" +
+        "export const maybeId = z.string().optional();\n" +
+        "export const strictPayload = z.object({ id: z.string() }).strict();\n",
+    });
+    const graph = await extractGraph({ rootDir, trackPackages: [] });
+    expect(
+      nodeByKey(graph.nodeFacts, "webhook-schema:src/lib/forms.ts:loginSchema"),
+    ).toBeUndefined();
+    expect(
+      nodeByKey(graph.nodeFacts, "webhook-schema:src/webhooks/mixed.ts:notZod"),
+    ).toBeUndefined();
+    expect(
+      nodeByKey(graph.nodeFacts, "webhook-schema:src/webhooks/mixed.ts:maybeId"),
+    ).toBeUndefined();
+    expect(
+      nodeByKey(graph.nodeFacts, "webhook-schema:src/webhooks/mixed.ts:strictPayload")?.properties,
+    ).toMatchObject({ fields: "id" });
+    expect(graph.errors).toEqual([]);
+  });
+});

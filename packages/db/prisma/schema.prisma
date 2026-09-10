@@ -1098,6 +1098,7 @@ enum GraphNodeKind {
   DATABASE
   MCP_SERVER
   EVENT_HANDLER
+  WEBHOOK_SCHEMA
 }
 
 enum GraphEdgeKind {
