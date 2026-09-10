@@ -2,7 +2,7 @@
 
 > Source: `packages/vendor-connectors/src/capabilities.ts` `CAPABILITY_REGISTRY`. Run `pnpm exec tsx scripts/generate-capability-matrix.ts` to regenerate. Checked in CI.
 
-**Total connectors: 64** — DRAFT_PR: 9 · PLAN: 4 · ASSESS: 51 · Spec mapping: DETECT→detect-only, ASSESS→impact-analysis, PLAN/VALIDATE→plan-only, DRAFT_PR→draft-PR, autonomous-generic→autonomous.
+**Total connectors: 63** — DRAFT_PR: 9 · PLAN: 3 · ASSESS: 51 · Spec mapping: DETECT→detect-only, ASSESS→impact-analysis, PLAN/VALIDATE→plan-only, DRAFT_PR→draft-PR, autonomous-generic→autonomous.
 
 | Vendor slug | Ecosystem | Package / spec | Language | Level | Spec capability | Policy class | Certified | Rule pack | Validation profile |
 |---|---|---|---|---|---|---|---|---|---|
@@ -70,4 +70,4 @@
 | `vercel-ai-sdk` | npm | `ai` | typescript/javascript | `DRAFT_PR` | draft-PR | APPROVAL_REQUIRED | 2026-08-17 | 1.0.0 | node-ts-reparse + container-sandbox |
 | `vue` | npm | `vue` | typescript/javascript | `ASSESS` | impact-analysis | PLAN_ONLY | — | — | — |
 
-*64 rows — deterministic, regenerates with timestamp at build time only.*
+*63 rows — deterministic, regenerates with timestamp at build time only.*
