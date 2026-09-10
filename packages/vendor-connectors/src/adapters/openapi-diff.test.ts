@@ -148,19 +148,11 @@ describe("diffWebhookPayloads", () => {
         },
       },
     };
-    const after = structuredClone(before) as unknown as Record<string, unknown>;
-    const webhooks = after.webhooks as Record<string, unknown>;
-    const invoice = webhooks.invoice as Record<string, unknown>;
-    const post = invoice.post as Record<string, unknown>;
-    const body = post.requestBody as Record<string, unknown>;
-    const content = body.content as Record<string, unknown>;
-    const mediaType = content["application/json"] as Record<string, unknown>;
-    const schema = mediaType.schema as Record<string, unknown>;
-    const properties = schema.properties as Record<string, Record<string, unknown>>;
-    const dataProp = properties.data as Record<string, unknown>;
-    const dataProperties = dataProp.properties as Record<string, unknown>;
-    delete dataProperties.customer_id;
-    dataProperties.customer = { type: "string" };
+    const after = structuredClone(before);
+    const properties =
+      after.webhooks.invoice.post.requestBody.content["application/json"].schema.properties;
+    delete properties.data.properties.customer_id;
+    properties.data.properties.customer = { type: "string" };
     properties.amount = { type: "number" };
     expect(diffWebhookPayloads(before, after)).toEqual([
       {
