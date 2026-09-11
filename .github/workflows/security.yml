@@ -38,6 +38,11 @@ jobs:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # gitleaks-action lists PR commits to scope the diff scan; without this
+    # the job dies with Octokit 403 "Resource not accessible by integration".
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
