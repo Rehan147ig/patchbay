@@ -189,6 +189,41 @@ flowchart LR
     Q9 --> C9
 ```
 
+### Fleet scaling (throughput)
+
+One queue, N workers, priority lanes. Measured numbers (local, `scripts/scale-benchmark.ts`):
+
+| Repo size (files) | Full index | Nodes / edges | Incremental (1 leaf) | Re-extracted |
+| ----------------- | ---------- | ------------- | -------------------- | ------------ |
+| 13                | 165 ms     | 29 / 47       | 64 ms                | 1            |
+| 103               | 396 ms     | 209 / 407     | 255 ms               | 1            |
+| 403               | 1,489 ms   | 809 / 1,607   | 1,273 ms             | 1            |
+
+Read this honestly: per-commit index cost is dominated by fixed overhead (program
+setup + tree walk), not file count — so batching a commit's files into one
+extraction is already the right shape, and the incremental path's real wins are
+DB write amplification (persist 1 file's facts, not all) plus invalidation
+precision, not CPU. Every row above verified merge-equal to a clean full
+extraction. Self-index of this repo: 1,841 nodes / 4,547 edges / 0 errors in
+~18 s.
+
+Knobs (no code change to scale):
+
+- `WORKER_CONCURRENCY` (default 4): parallel in-flight jobs per worker.
+  Raise toward host limits for validation-heavy fleets; garbage fails closed
+  to 4 with a warning. Reported in the worker heartbeat (`concurrency`).
+- Horizontal replicas: extra `worker` processes compete safely on the same
+  queue — org/global Lua admission keeps fairness, heartbeats key per worker
+  id. `docker compose up --scale worker=N` works as-is.
+- Priority lanes (`packages/queue/src/priority.ts`): heavy background jobs
+  (`graph-index`, `scan-repository`, polls, sweeps) enqueue at priority 10 so
+  a mass-indexing burst cannot head-of-line-block validations and PRs, which
+  keep the default 0. Explicit caller priorities always win.
+
+Known ceiling: validation burns a real `npm test` (minutes) per plan, so mass
+breaking events are validation-bound — roughly workers × concurrency ÷ minutes
+per validation. No load test beyond the benchmark above exists yet.
+
 ---
 
 ## 3. Key Subsystem Details

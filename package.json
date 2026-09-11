@@ -23,6 +23,7 @@
     "db:seed": "pnpm --filter @patchbay/db seed",
     "db:reset": "pnpm --filter @patchbay/db reset",
     "generate:capability-matrix": "tsx scripts/generate-capability-matrix.ts",
+    "bench:scale": "tsx scripts/scale-benchmark.ts",
     "verify:capability-matrix": "tsx scripts/generate-capability-matrix.ts --check",
     "verify:lockfile": "pnpm install --frozen-lockfile",
     "e2e": "playwright test",
