@@ -1,19 +1,31 @@
 import { expect, test } from "@playwright/test";
+import { suppressProductTour } from "./helpers/tour";
 
 /**
  * Acceptance criterion 1 + Phase 7 E2E: OpenAI demo happy path runs the full
  * chain against a live stack — change event → analysis → plan → sandbox
  * validation → local draft PR — with the diff and validation view visible.
+ *
+ * Credentials come from E2E_DEMO_EMAIL/E2E_DEMO_PASSWORD (wired to the server's
+ * DEMO_USER_EMAIL/DEMO_USER_PASSWORD in CI); the dev-only defaults apply only
+ * when those variables are absent, matching the local demo setup.
  */
+const DEMO_EMAIL = process.env.E2E_DEMO_EMAIL ?? "demo@patchbay.dev";
+const DEMO_PASSWORD = process.env.E2E_DEMO_PASSWORD ?? "dev-only";
+
 test("OpenAI demo happy path ends in a stored draft PR", async ({ page }) => {
+  await suppressProductTour(page);
   await page.goto("/login");
-  await page.getByRole("button", { name: "Sign in as demo user" }).click();
+  await page.getByLabel("Work Email").fill(DEMO_EMAIL);
+  await page.getByLabel("Password").fill(DEMO_PASSWORD);
+  await page.getByRole("button", { name: "Sign in to console" }).click();
   await page.waitForURL(/\/overview/);
 
   await page.goto("/demo");
   await page.getByRole("button", { name: "Run demo change" }).first().click();
   await page.waitForURL(/\/changes\/[a-z0-9-]+$/);
 
+  await suppressProductTour(page);
   await page.getByRole("button", { name: "Analyze change" }).click();
   await expect(page.getByText("ai-assistant-service").first()).toBeVisible({ timeout: 90_000 });
 

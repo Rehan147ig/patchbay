@@ -61,9 +61,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     // Advisory AI note (Zod-validated, redacted context). Only when a real
     // provider is configured; the default mock provider stays out of the plan
-    // path so deterministic output and the E2E flow are unchanged.
+    // path so deterministic output and the E2E flow are unchanged. `ai-sdk`
+    // follows the same advisory/planning path as the OpenAI-compatible
+    // drivers (no separate behavior).
     const aiProvider =
-      process.env.AI_PROVIDER === "openai" || process.env.AI_PROVIDER === "openai-compatible"
+      process.env.AI_PROVIDER === "openai" ||
+      process.env.AI_PROVIDER === "openai-compatible" ||
+      process.env.AI_PROVIDER === "ai-sdk"
         ? createAiProvider(process.env)
         : null;
 
@@ -109,6 +113,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           line: usageLine(usage),
           symbol: usage.symbol,
           excerpt: usageExcerpt(usage),
+          // Surface signal for the repair lanes: handler/validator usages
+          // route to the webhook lane even when no normalization names them.
+          ...(usage.usageType ? { usageType: usage.usageType } : {}),
         }));
 
         // TOCTOU guard: hash each affected file as observed right now so the

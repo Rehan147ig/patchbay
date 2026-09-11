@@ -7,6 +7,8 @@ export {
 } from "./engine";
 export { runSemanticGate, semanticCheck, readProjectFile } from "./semantic-gate";
 export type { SemanticError, SemanticGateResult, SemanticGateInput } from "./semantic-gate";
+export { attributeSurfaces, surfaceOfChangeType, surfaceOfUsageType } from "./surface";
+export type { RepairSurface, SurfaceAttribution } from "./surface";
 export { scanPatchSafety, scanPatches } from "./patch-safety";
 export type { PatchSafetyFinding, PatchSafetyVerdict } from "./patch-safety";
 export { applySemverBump, buildSemverBumpPatch, findManifestBumpSpec } from "./semver-bump";

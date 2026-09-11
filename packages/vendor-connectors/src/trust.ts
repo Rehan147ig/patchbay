@@ -121,8 +121,13 @@ export const OPENAPI_TRUST_PROFILE: TrustProfile = {
   sources: ["OPENAPI"],
   allowedDomains: ["raw.githubusercontent.com"],
   // Domain-wide raw access would let any future openapi:* adapter URL land on
-  // any org/repo; pin to the intended content roots.
-  allowedPathPrefixes: ["/stripe/openapi/"],
+  // any org/repo; pin to the intended content roots (one entry per polled
+  // spec — a new source without its prefix fails closed as domain_not_allowed).
+  allowedPathPrefixes: [
+    "/stripe/openapi/",
+    "/github/rest-api-description/",
+    "/openai/openai-openapi/",
+  ],
   allowRedirects: false,
   // Real vendor specs are large (stripe spec3.json ~8 MB decompressed); the
   // cap must fit them or every poll of that adapter fails.

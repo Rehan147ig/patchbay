@@ -275,10 +275,10 @@ export const GraphNodeKind = {
   SERVICE: "SERVICE",
   QUEUE_TOPIC: "QUEUE_TOPIC",
   DATABASE: "DATABASE",
-  /** An MCP server wired in an agent client config (WP3). */
-  MCP_SERVER: "MCP_SERVER",
   /** An HTTP route registration (Express-style app/router METHOD(path), WP3). */
   EVENT_HANDLER: "EVENT_HANDLER",
+  /** A Zod object validator for webhook/event payloads (P1 webhook intelligence). */
+  WEBHOOK_SCHEMA: "WEBHOOK_SCHEMA",
 } as const;
 export type GraphNodeKind = (typeof GraphNodeKind)[keyof typeof GraphNodeKind];
 

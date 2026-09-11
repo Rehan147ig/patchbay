@@ -12,7 +12,7 @@ const FIXTURES = [
   { name: "stripe-node-legacy", leaf: "src/lib/logger.ts", popular: "src/lib/stripe-client.ts" },
   { name: "twilio-node-legacy", leaf: "src/lib/logger.ts", popular: "src/lib/twilio-client.ts" },
   { name: "auth0-node-legacy", leaf: "src/lib/logger.ts", popular: "src/middleware/authn.ts" },
-  { name: "mcp-agent-legacy", leaf: "src/lib/logger.ts", popular: "src/lib/agent-client.ts" },
+  { name: "event-route-legacy", leaf: "src/lib/logger.ts", popular: "src/server.ts" },
 ];
 
 function tempCopy(fixtureDir: string): string {

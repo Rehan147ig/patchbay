@@ -1,5 +1,23 @@
 name: deepsec
 
+# STATUS: INFORMATIONAL / NON-REQUIRED until the DeepSec tool is provisioned.
+#
+# The `analyze` job below does NOT run until provisioning is proven: it is
+# gated on the `provision` job's `ready` output, so an unprovisioned runner
+# shows this workflow as *Skipped* — never green-success, never red-failure
+# for missing tooling. A missing command must not appear successful.
+#
+# To provision DeepSec (turn this workflow into a required gate):
+#   1. Pin the approved tool: add `"deepsec": "<exact-version>"` to root
+#      package.json devDependencies (frozen lockfile), AND
+#   2. Set the `NIM_API_KEY` repository secret (NVIDIA NIM route), AND
+#   3. Commit the `.deepsec/` workspace
+#      (`npx deepsec init --scaffold-only`, config checked in).
+# The `provision` job detects all three and flips `analyze` on automatically.
+# Until then, Gitleaks, dependency audit (pnpm + OSV), and Semgrep OWASP in
+# the Security workflow remain the REQUIRED security gates (guarded by
+# apps/web/src/lib/ci-workflows.test.ts — do not delete them to "fix" CI).
+
 on:
   pull_request:
 
@@ -7,15 +25,75 @@ permissions:
   contents: read
 
 jobs:
-  analyze:
+  provision:
+    # Provisioning probe: always runs on same-repo PRs, reports status, and
+    # NEVER fails the PR for missing tooling. Its outputs gate `analyze`.
     if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tool: ${{ steps.check.outputs.tool }}
+      secret: ${{ steps.check.outputs.secret }}
+      workspace: ${{ steps.check.outputs.workspace }}
+      ready: ${{ steps.check.outputs.ready }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          sparse-checkout: |
+            package.json
+            pnpm-lock.yaml
+            .deepsec
+
+      - id: check
+        env:
+          # Secret presence only — the value is never printed or logged.
+          HAS_NIM_KEY: ${{ secrets.NIM_API_KEY != '' }}
+        run: |
+          TOOL=no
+          if node -e "const p=require('./package.json'); if(!(p.devDependencies&&p.devDependencies.deepsec)) process.exit(1)" 2>/dev/null; then
+            TOOL=yes
+          fi
+          SECRET=no
+          if [ "${HAS_NIM_KEY}" = "true" ]; then SECRET=yes; fi
+          WORKSPACE=no
+          if [ -d .deepsec ]; then WORKSPACE=yes; fi
+          READY=no
+          if [ "$TOOL" = "yes" ] && [ "$SECRET" = "yes" ] && [ "$WORKSPACE" = "yes" ]; then READY=yes; fi
+          {
+            echo "tool=$TOOL"
+            echo "secret=$SECRET"
+            echo "workspace=$WORKSPACE"
+            echo "ready=$READY"
+          } >> "$GITHUB_OUTPUT"
+
+      # Validation step: always reports configuration status explicitly.
+      - name: Report DeepSec provisioning status
+        if: always()
+        run: |
+          {
+            echo "## DeepSec provisioning: ${{ steps.check.outputs.ready == 'yes' && 'READY ✅' || 'NOT PROVISIONED ⏭️' }}"
+            echo ""
+            echo "| Requirement | Status |"
+            echo "|---|---|"
+            echo "| Pinned \`deepsec\` devDependency | ${{ steps.check.outputs.tool == 'yes' && '✅ present' || '❌ missing' }} |"
+            echo "| \`NIM_API_KEY\` repository secret | ${{ steps.check.outputs.secret == 'yes' && '✅ set' || '❌ missing' }} |"
+            echo "| Committed \`.deepsec/\` workspace | ${{ steps.check.outputs.workspace == 'yes' && '✅ present' || '❌ missing' }} |"
+            echo ""
+            echo "Unprovisioned = the \`analyze\` job below is SKIPPED (not green, not red). Required gates meanwhile: Gitleaks, dependency audit (pnpm + OSV), Semgrep OWASP."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=DeepSec provisioning::ready=${{ steps.check.outputs.ready }} tool=${{ steps.check.outputs.tool }} secret=${{ steps.check.outputs.secret }} workspace=${{ steps.check.outputs.workspace }}. See the job summary for setup steps."
+
+  analyze:
+    needs: [provision]
+    if: >
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.provision.outputs.ready == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0 # need history for `git diff origin/<base>`
-
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with: { node-version: 22, cache: pnpm }
@@ -42,7 +120,7 @@ jobs:
             --comment-out comment.md
 
       - if: always() && hashFiles('comment.md') != ''
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@ea165f8d65b540449e92b4886f43607fa02 # v4
         with:
           name: deepsec-comment
           path: comment.md
@@ -64,7 +142,7 @@ jobs:
           name: deepsec-comment
 
       - if: steps.dl.outcome == 'success'
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6298d1e # v7
         with:
           script: |
             const fs = require('fs');

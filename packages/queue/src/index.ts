@@ -7,9 +7,11 @@ import { createHash } from "node:crypto";
 import { Queue, type Job, type JobsOptions } from "bullmq";
 import { Redis } from "ioredis";
 import { assertJobPayloadSize, parseRedisUrl } from "./url";
+import { priorityForJobType } from "./priority";
 
 export { assertJobPayloadSize, MAX_JOB_PAYLOAD_BYTES, parseRedisUrl } from "./url";
 export { createRedisTestClient, type IRedisTestClient } from "./redis-test-client";
+export { BACKGROUND_JOB_PRIORITY, priorityForJobType } from "./priority";
 
 export const QUEUE_NAME = "remediation";
 
@@ -119,7 +121,11 @@ export async function enqueue(
   options?: JobsOptions,
 ): Promise<Job> {
   assertJobPayloadSize(data);
-  return queue.add(jobType, data as Record<string, unknown>, options);
+  // Priority lane default: heavy background jobs defer to the interactive
+  // pipeline unless the caller explicitly set a priority (never override it).
+  const priority = options?.priority ?? priorityForJobType(jobType);
+  if (priority === undefined) return queue.add(jobType, data as Record<string, unknown>, options);
+  return queue.add(jobType, data as Record<string, unknown>, { ...options, priority });
 }
 
 /**

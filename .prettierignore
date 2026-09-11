@@ -26,3 +26,7 @@ docs/capability-matrix.md
 
 # pnpm owns the lockfile format; prettier only churns it
 pnpm-lock.yaml
+# Fixture repositories are test inputs; preserve their source layout and line numbers.
+fixtures/repositories/**
+# Local test artifacts
+test-artifacts/**

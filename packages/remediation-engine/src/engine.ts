@@ -5,6 +5,7 @@ import { evaluatePlanCircuitBreaker, resolvePlanLimits } from "@patchbay/policy-
 import { javaSyntaxCheck, pythonSyntaxCheck } from "@patchbay/repo-analysis";
 import * as ts from "typescript";
 import { sha256Hex, unifiedDiff } from "./diff";
+import { attributeSurfaces, type RepairSurface } from "./surface";
 import type { PatchDraft, PlanDraft, PlanInput } from "./types";
 
 /**
@@ -148,6 +149,64 @@ export async function validatePatchSyntax(filePath: string, content: string): Pr
   return reparseCheck(filePath, content);
 }
 
+const LANE_LABEL: Record<RepairSurface, string> = {
+  sdk: "SDK",
+  api: "API",
+  webhook: "webhook",
+  unclassified: "unclassified",
+};
+
+const LANE_ORDER: readonly RepairSurface[] = ["sdk", "api", "webhook", "unclassified"];
+
+/**
+ * Per-surface outcome report for the strategy string — the four disclosure
+ * categories: repaired, affected-but-not-safely-repairable (webhook lane),
+ * analyzed-and-unaffected (surface in the change, no consumers), and not in
+ * this change (surfaces the change never touched). Explicit non-actions are
+ * the point: the reviewer sees what was checked and left alone, not just
+ * what was edited.
+ */
+function describeLaneOutcomes(args: {
+  activeSurfaces: RepairSurface[];
+  repairedFilesByLane: Map<RepairSurface, number>;
+  involvedCountByLane: Map<RepairSurface, number>;
+  webhookUnrepairable: Array<{ filePath: string; symbol: string }>;
+}): string {
+  const parts: string[] = [];
+  const repaired = LANE_ORDER.filter((lane) => (args.repairedFilesByLane.get(lane) ?? 0) > 0).map(
+    (lane) => `${LANE_LABEL[lane]} ${args.repairedFilesByLane.get(lane)} file(s)`,
+  );
+  if (repaired.length > 0) parts.push(`Repaired: ${repaired.join(", ")}.`);
+  if (args.webhookUnrepairable.length > 0) {
+    const shown = args.webhookUnrepairable
+      .slice(0, 5)
+      .map((u) => `${u.filePath}:${u.symbol}`)
+      .join(", ");
+    const extra =
+      args.webhookUnrepairable.length > 5 ? ` (+${args.webhookUnrepairable.length - 5} more)` : "";
+    parts.push(
+      `Webhook: ${args.webhookUnrepairable.length} handler(s) affected but no safe rule — human review (${shown}${extra}).`,
+    );
+  }
+  const unaffected = args.activeSurfaces.filter(
+    (surface) => surface !== "unclassified" && (args.involvedCountByLane.get(surface) ?? 0) === 0,
+  );
+  if (unaffected.length > 0) {
+    parts.push(
+      `Analyzed and unaffected: ${unaffected.map((surface) => LANE_LABEL[surface]).join(", ")} (change present, no affected consumers).`,
+    );
+  }
+  const notInChange = (["sdk", "api", "webhook"] as const).filter(
+    (surface) => !args.activeSurfaces.includes(surface),
+  );
+  if (notInChange.length > 0 && notInChange.length < 3) {
+    parts.push(
+      `Not in this change: ${notInChange.map((surface) => LANE_LABEL[surface]).join(", ")}.`,
+    );
+  }
+  return parts.join(" ");
+}
+
 export async function generatePlan(input: PlanInput): Promise<PlanDraft> {
   const {
     fixtureDir,
@@ -171,6 +230,43 @@ export async function generatePlan(input: PlanInput): Promise<PlanDraft> {
     .flatMap((normalization) => normalization.affectedSymbols)
     .filter((symbol) => RESPONSE_UNWRAP_PATTERN.test(symbol));
 
+  // Surface-routed repair lanes: detection stays interconnected (one usage
+  // graph, one pipeline), but each edit family runs only for its surface. The
+  // response unwrap is an API-surface rewrite, so it applies exclusively to
+  // files with API-lane membership — symbol linkage, usage-type hint, or API
+  // symbol text in the file. A file with none of those is genuinely outside
+  // the API break and must not gain `.data` rewrites. Symbol-targeted
+  // suggestions stay precise by construction (exact symbol match) and apply
+  // wherever used; their lane attribution feeds the outcome report below.
+  const attribution = attributeSurfaces({
+    usages,
+    patchSuggestions,
+    normalizations,
+    // File text for the API text match (surface.ts): a failed read yields
+    // null and simply disables text matching for that file — the patch loop
+    // below skips unreadable files the same way.
+    readFile: (filePath) => {
+      try {
+        return readFileSync(path.join(fixtureDir, filePath), "utf8");
+      } catch {
+        return null;
+      }
+    },
+  });
+  const apiLaneFiles = attribution.filesByLane.get("api") ?? new Set<string>();
+
+  // Webhook lane has no deterministic text rules yet: affected handlers and
+  // validators without a suggestion are reported (never silently dropped) and
+  // force human review — the "affected but not safely auto-repaired" outcome.
+  // Certified connectors never emit WEBHOOK_CHANGE today, so this gate cannot
+  // flip existing certified plans; it activates for webhook-carrying changes.
+  const webhookUnrepairable: Array<{ filePath: string; symbol: string }> = [];
+  usages.forEach((usage, index) => {
+    if (attribution.usageLanes.get(index)?.has("webhook") && !renameBySymbol.has(usage.symbol)) {
+      webhookUnrepairable.push({ filePath: usage.filePath, symbol: usage.symbol });
+    }
+  });
+
   interface PlannedEdit {
     filePath: string;
     description: string;
@@ -193,6 +289,11 @@ export async function generatePlan(input: PlanInput): Promise<PlanDraft> {
   }
 
   for (const filePath of renameFiles) {
+    // API-lane scope: only files participating in the API surface claim the
+    // unwrap. SDK-only files must not gain API rewrite descriptions (or the
+    // 90-confidence edits behind them) merely because an API normalization
+    // exists elsewhere in the same change.
+    if (!apiLaneFiles.has(filePath)) continue;
     for (const symbol of unwrapSymbols) {
       const list = editsByFile.get(filePath) ?? [];
       list.push({
@@ -208,6 +309,8 @@ export async function generatePlan(input: PlanInput): Promise<PlanDraft> {
   const skippedFiles: string[] = [];
   const proposedChanges: Array<{ description: string; filePath: string }> = [];
   const appliedConfidences: number[] = [];
+  const repairedFilesByLane = new Map<RepairSurface, number>();
+  const involvedCountByLane = attribution.involvedCountByLane;
 
   for (const [filePath, edits] of editsByFile) {
     const absolutePath = path.join(fixtureDir, filePath);
@@ -238,48 +341,76 @@ export async function generatePlan(input: PlanInput): Promise<PlanDraft> {
     const eol = original.includes("\r\n") ? "\r\n" : "\n";
     let patched = original;
     let bootstrapped = false;
+    // Lanes that actually altered this file's text (honest repair
+    // attribution for the outcome report — a matched-but-no-op edit claims
+    // no lane).
+    const repairedLanes = new Set<RepairSurface>();
+    const laneOf = (symbol: string, usageIndex: number): Set<RepairSurface> => {
+      // Union of the rule's lane (via the linked normalization) and the
+      // usage's lane (via symbol linkage or usage-type hint): an edit applied
+      // to a webhook handler file repairs the webhook lane even when the
+      // rule itself came through the legacy unclassified path.
+      const lanes = new Set<RepairSurface>(
+        attribution.suggestionLanes.get(symbol) ?? ["unclassified"],
+      );
+      for (const lane of attribution.usageLanes.get(usageIndex) ?? []) lanes.add(lane);
+      return lanes;
+    };
     // 1. Stable line renames on original coordinates (no drift during loop).
-    for (const usage of usages) {
+    for (const [usageIndex, usage] of usages.entries()) {
       if (usage.filePath !== filePath) continue;
       const suggestion = renameBySymbol.get(usage.symbol);
       if (!suggestion) continue;
-      patched = applyLineRename(
-        patched,
-        usage.line,
-        suggestion.symbol,
-        suggestion.replacement,
-        eol,
+      const lanes = laneOf(usage.symbol, usageIndex);
+      const applyInLane = (next: string): void => {
+        if (next !== patched) {
+          patched = next;
+          for (const lane of lanes) repairedLanes.add(lane);
+        }
+      };
+      applyInLane(
+        applyLineRename(patched, usage.line, suggestion.symbol, suggestion.replacement, eol),
       );
       if (suggestion.insert) {
-        patched = applyLineInsert(
-          patched,
-          usage.line,
-          suggestion.insert.searchText,
-          suggestion.insert.insertText,
-          eol,
+        applyInLane(
+          applyLineInsert(
+            patched,
+            usage.line,
+            suggestion.insert.searchText,
+            suggestion.insert.insertText,
+            eol,
+          ),
         );
       }
       if (suggestion.modelUpdate) {
-        patched = applyModelUpdate(patched, usage.line, suggestion.modelUpdate, eol);
+        applyInLane(applyModelUpdate(patched, usage.line, suggestion.modelUpdate, eol));
       }
     }
     // 2. Post-rename bootstrap (zero shifting during renames).
     {
-      const needsBootstrap = [...usages].some(
-        (u) =>
+      const triggering = [...usages.entries()].filter(
+        ([, u]) =>
           u.filePath === filePath &&
           isPythonClientRename(renameBySymbol.get(u.symbol)?.replacement ?? ""),
       );
-      if (needsBootstrap && PYTHON_FILE.test(filePath)) {
+      if (triggering.length > 0 && PYTHON_FILE.test(filePath)) {
         const withBootstrap = applyPythonClientBootstrap(patched, eol);
         if (withBootstrap !== patched) {
           patched = withBootstrap;
           bootstrapped = true;
+          for (const [usageIndex, u] of triggering)
+            for (const lane of laneOf(u.symbol, usageIndex)) repairedLanes.add(lane);
         }
       }
     }
-    for (const symbol of unwrapSymbols) {
-      patched = applyResponseUnwrap(patched, symbol, eol);
+    // API-lane scope (see attribution block above): the unwrap rewrite runs
+    // only on files participating in the API surface.
+    if (apiLaneFiles.has(filePath)) {
+      for (const symbol of unwrapSymbols) {
+        const before = patched;
+        patched = applyResponseUnwrap(patched, symbol, eol);
+        if (patched !== before) repairedLanes.add("api");
+      }
     }
 
     if (patched === original) {
@@ -310,14 +441,24 @@ export async function generatePlan(input: PlanInput): Promise<PlanDraft> {
       description,
     });
     appliedConfidences.push(confidence);
+    for (const lane of repairedLanes) {
+      repairedFilesByLane.set(lane, (repairedFilesByLane.get(lane) ?? 0) + 1);
+    }
     for (const edit of edits) {
       proposedChanges.push({ description: edit.description, filePath });
     }
   }
 
+  const laneReport = describeLaneOutcomes({
+    activeSurfaces: attribution.activeSurfaces,
+    repairedFilesByLane,
+    involvedCountByLane,
+    webhookUnrepairable,
+  });
+
   if (patches.length === 0) {
     return {
-      strategy: `No deterministic rule matched usages of ${repositoryName}. Plan-only; an AI-assisted draft can propose next steps, but no patch is generated without a verified rule.`,
+      strategy: `No deterministic rule matched usages of ${repositoryName}. Plan-only; an AI-assisted draft can propose next steps, but no patch is generated without a verified rule.${laneReport ? ` ${laneReport}` : ""}`,
       proposedChanges: [],
       confidence: Math.min(assessmentConfidence, 60),
       requiresHumanReview: true,
@@ -386,14 +527,19 @@ export async function generatePlan(input: PlanInput): Promise<PlanDraft> {
     resolvePlanLimits(input.rulePack),
   );
 
-  const requiresHumanReview = planConfidence < SCORING.CONFIDENCE_MIN_PATCH || !planCircuit.ok;
+  // Safe stopping: webhook handlers the lanes could match but no rule can
+  // rewrite always require a human, even when other lanes patched cleanly.
+  const requiresHumanReview =
+    planConfidence < SCORING.CONFIDENCE_MIN_PATCH ||
+    !planCircuit.ok ||
+    webhookUnrepairable.length > 0;
 
   const circuitBreakerNote = !planCircuit.ok
     ? ` [Circuit breaker throttled: ${planCircuit.reasons.join("; ")}]`
     : "";
 
   return {
-    strategy: `Rule-based migration for ${repositoryName}: ${appliedConfidences.length} file(s) patched with deterministic rules (symbol rename, response unwrap, feature adoption), each re-parsed successfully.${circuitBreakerNote}`,
+    strategy: `Rule-based migration for ${repositoryName}: ${appliedConfidences.length} file(s) patched with deterministic rules, each re-parsed successfully. ${laneReport}${circuitBreakerNote}`,
     proposedChanges,
     confidence: planConfidence,
     requiresHumanReview,

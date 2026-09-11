@@ -55,7 +55,9 @@ import { sweepWatchtowerStaleness } from "./lib/watchtower-staleness";
 import { registerWatchtowerSchedulers } from "./schedule/watchtower";
 import { purgeExpiredAgentRuns } from "@patchbay/operations";
 import { purgeValidationArtifacts } from "@patchbay/db";
+import { expireRepositorySnapshots } from "./lib/repository-snapshot";
 import { sweepCapabilityHealth } from "./lib/capability-sweep";
+import { resolveWorkerConcurrency } from "./lib/worker-concurrency";
 
 const TASK_SWEEP_INTERVAL_MS = 60_000;
 const HEARTBEAT_INTERVAL_MS = 15_000;
@@ -134,6 +136,14 @@ async function main(): Promise<void> {
 
   await ensureConcurrencyRedisReady();
 
+  // Fleet knob: parallel in-flight jobs (default 4). Heavy graph-index jobs
+  // share these slots with the validation path, so bursts of background work
+  // are additionally deprioritized at enqueue time (see JOB_PRIORITY); raise
+  // this toward host limits for validation-heavy fleets, or run more worker
+  // processes — they compete safely on the same queue.
+  const concurrency = resolveWorkerConcurrency(process.env);
+  logger.info("worker concurrency resolved", { concurrency });
+
   const worker = new Worker(
     QUEUE_NAME,
     async (job) => {
@@ -168,7 +178,7 @@ async function main(): Promise<void> {
         await releaseOrgConcurrency(job.data.organizationId ?? "unknown");
       }
     },
-    { connection, concurrency: 4, limiter: { max: 20, duration: 1_000 } }, // 4 slots: GRAPH_INDEX (heavy, 1 at a time) + CREATE_PR/VALIDATE (3) share - 50-repo monorepo queues 10m, not a blocker for demo (1 repo 2s),
+    { connection, concurrency, limiter: { max: 20, duration: 1_000 } },
   );
 
   // Permanent-failure visibility: BullMQ fires `failed` on every attempt, but
@@ -223,6 +233,12 @@ async function main(): Promise<void> {
         logger.error("validation artifact retention sweep failed", { error: String(error) });
       },
     );
+    // Repository snapshots are immutable and time-boxed: past-expiresAt rows
+    // flip READY -> EXPIRED and refuse checkout until rebuilt. No source
+    // content is stored, so expiry is a status transition, not a blob purge.
+    expireRepositorySnapshots().catch((error: unknown) => {
+      logger.error("repository snapshot retention sweep failed", { error: String(error) });
+    });
   }, RETENTION_SWEEP_INTERVAL_MS);
 
   const capabilitySweepTimer = setInterval(() => {
@@ -242,11 +258,14 @@ async function main(): Promise<void> {
   const workerId = `${hostname()}-${process.pid}`;
   const workerStartedAt = new Date().toISOString();
   const beat = (): void => {
-    writeWorkerHeartbeat({ workerId, startedAt: workerStartedAt, queue: QUEUE_NAME }).catch(
-      (error: unknown) => {
-        logger.error("worker heartbeat failed", { error: String(error) });
-      },
-    );
+    writeWorkerHeartbeat({
+      workerId,
+      startedAt: workerStartedAt,
+      queue: QUEUE_NAME,
+      concurrency,
+    }).catch((error: unknown) => {
+      logger.error("worker heartbeat failed", { error: String(error) });
+    });
   };
   beat();
   const heartbeatTimer = setInterval(beat, HEARTBEAT_INTERVAL_MS);

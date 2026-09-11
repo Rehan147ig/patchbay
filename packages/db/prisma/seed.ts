@@ -71,6 +71,7 @@ async function main(): Promise<void> {
   console.log(`[seed] users (admin: ${admin.email})`);
 
   await seedVendors();
+  await seedVendorEnrollments();
   await seedPolicies();
   await seedRepositories();
   await seedSubscription();
@@ -177,8 +178,8 @@ async function seedValidationProfiles(): Promise<void> {
 
 /**
  * Demo contract sources (WP13 staging): the org watches the OpenAI and
- * Stripe SDK feeds, the NPM registry channel, and a generic MCP server
- * feed. No credentials (configEncrypted stays null); sync runs through the
+ * Stripe SDK feeds and the NPM registry channel. No credentials
+ * (configEncrypted stays null); sync runs through the
  * normal poll pipeline. Idempotent via the (org, vendor, kind, name) key.
  */
 async function seedContractSources(): Promise<void> {
@@ -186,7 +187,6 @@ async function seedContractSources(): Promise<void> {
     { vendorSlug: "openai", kind: "SDK", name: "openai-node" },
     { vendorSlug: "stripe", kind: "SDK", name: "stripe-node" },
     { vendorSlug: "openai", kind: "REST", name: "npm-registry" },
-    { vendorSlug: "autonomous-generic", kind: "MCP", name: "mcp-generic" },
   ];
   for (const source of sources) {
     await prisma.contractSource.upsert({
@@ -277,9 +277,8 @@ async function seedVendors(): Promise<void> {
       category: "AI",
       docsUrl: "https://platform.openai.com/docs",
       enabled: true,
-      /** Dev-only agent key: pb_agent_dev_openai (hashed, per agent-key policy). */
-      agentKeyHash: createHash("sha256").update("pb_agent_dev_openai").digest("hex"),
-      organizationId: "org-acme",
+      // Shared catalog row: no org claim, no credential. The dev-only agent
+      // key lives on org-acme's enrollment (see seedVendorEnrollments).
     },
     {
       id: "v-twilio",
@@ -346,6 +345,30 @@ async function seedVendors(): Promise<void> {
     });
   }
   console.log(`[seed] vendors (${vendors.length})`);
+}
+
+/**
+ * Dev-only agent-key enrollment (P0-1). The shared `openai` catalog row stays
+ * credential-free; org-acme's dev key (`pb_agent_dev_openai`, sha256-hashed
+ * per the legacy window) lives on its enrollment row. Also repairs databases
+ * seeded before the enrollment model existed (clears the legacy claim+hash).
+ */
+async function seedVendorEnrollments(): Promise<void> {
+  await prisma.vendor.update({
+    where: { id: "v-openai" },
+    data: { organizationId: null, agentKeyHash: null, agentKeyHashPrevious: null },
+  });
+  await prisma.organizationVendorEnrollment.upsert({
+    where: { organizationId_vendorId: { organizationId: ORG_ID, vendorId: "v-openai" } },
+    update: {},
+    create: {
+      organizationId: ORG_ID,
+      vendorId: "v-openai",
+      agentKeyHash: createHash("sha256").update("pb_agent_dev_openai").digest("hex"),
+      status: "ACTIVE",
+    },
+  });
+  console.log("[seed] vendor enrollments (org-acme × openai)");
 }
 
 async function seedPolicies(): Promise<void> {

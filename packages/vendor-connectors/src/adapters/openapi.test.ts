@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createOpenAPIAdapter } from "./openapi";
+import { createOpenAPIAdapter, createOpenAPIAdapters } from "./openapi";
 
 const SPEC_V1 = {
   openapi: "3.1.0",
@@ -119,6 +119,105 @@ describe("createOpenAPIAdapter", () => {
         headers: expect.objectContaining({ "If-None-Match": '"spec-1"' }),
       }),
     );
+  });
+
+  it("parses YAML specs for .yaml URLs", async () => {
+    const adapter = createOpenAPIAdapter(
+      "openai",
+      "https://raw.githubusercontent.com/openai/openai-openapi/HEAD/openapi.yaml",
+    );
+    const yamlBody = [
+      "openapi: 3.1.0",
+      "info:",
+      "  title: OpenAI API",
+      "  version: 2.0.0",
+      "paths: {}",
+      "",
+    ].join("\n");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(yamlBody, {
+          status: 200,
+          headers: { "content-type": "application/yaml", etag: '"yaml-1"' },
+        }),
+      ),
+    );
+    const result = await adapter.fetch();
+    expect(result.evidence).toHaveLength(1);
+    expect(result.evidence[0]!.version).toBe("2.0.0");
+    expect(result.evidence[0]!.metadata).toMatchObject({ specTitle: "OpenAI API" });
+  });
+
+  it("rejects unparsable spec bodies loudly instead of emitting empty evidence", async () => {
+    const adapter = createOpenAPIAdapter(
+      "openai",
+      "https://raw.githubusercontent.com/openai/openai-openapi/HEAD/openapi.yaml",
+    );
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("not: [valid", { status: 200 })));
+    await expect(adapter.fetch()).rejects.toThrow(/not parseable as YAML/);
+  });
+
+  it("attaches webhookDiff facts when event payloads change", async () => {
+    const adapter = createOpenAPIAdapter(
+      "stripe",
+      "https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.json",
+    );
+    const payloadOf = (usage: unknown) => ({
+      openapi: "3.1.0",
+      info: { title: "Stripe API", version: "1.0.0" },
+      paths: {},
+      webhooks: {
+        "invoice.paid": {
+          post: {
+            requestBody: { content: { "application/json": { schema: usage } } },
+            responses: { "202": {} },
+          },
+        },
+      },
+    });
+    const v1 = payloadOf({ type: "object", properties: { id: { type: "string" } } });
+    const v2 = payloadOf({
+      type: "object",
+      properties: { id: { type: "string" }, extra: { type: "string" } },
+    });
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(v1));
+    vi.stubGlobal("fetch", fetchMock);
+    const first = await adapter.fetch();
+    expect(first.evidence[0]!.metadata).not.toHaveProperty("webhookDiff");
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(v2));
+    const second = await adapter.fetch(first.cursor);
+    const webhookDiff = (second.evidence[0]!.metadata as Record<string, unknown>)
+      .webhookDiff as Array<{ eventType: string; addedFields: string[]; breaking: boolean }>;
+    expect(webhookDiff).toHaveLength(1);
+    expect(webhookDiff[0]).toMatchObject({
+      eventType: "invoice.paid",
+      addedFields: ["extra"],
+      breaking: false,
+    });
+  });
+
+  it("fails closed for spec URLs outside the trust-profile path pins", async () => {
+    const adapter = createOpenAPIAdapter(
+      "evil",
+      "https://raw.githubusercontent.com/evil-org/evil-repo/HEAD/spec.json",
+    );
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const error = await adapter.fetch().then(
+      () => null,
+      (caught: unknown) => caught,
+    );
+    expect((error as { reason?: string }).reason).toBe("domain_not_allowed");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("registers exactly the stripe, github, and openai webhook-capable sources", () => {
+    const slugs = createOpenAPIAdapters()
+      .map((adapter) => adapter.slug)
+      .sort();
+    expect(slugs).toEqual(["openapi:github", "openapi:openai", "openapi:stripe"]);
   });
 
   it("tolerates a legacy cursor written before lastSpec existed", async () => {

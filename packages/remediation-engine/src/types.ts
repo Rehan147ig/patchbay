@@ -16,6 +16,14 @@ export interface PlanUsage {
   symbol: string;
   /** The source line text the usage sits on. */
   excerpt: string;
+  /**
+   * Indexed construct type when known (IntegrationUsage.usageType). Lets the
+   * surface router attribute handler/validator usages to the webhook lane and
+   * direct HTTP calls to the api lane even when no normalization names the
+   * symbol. Optional: absent means "derive from normalizations, else
+   * unclassified" — existing callers behave exactly as before.
+   */
+  usageType?: string;
 }
 
 export interface PlanInput {

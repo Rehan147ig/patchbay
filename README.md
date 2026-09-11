@@ -9,7 +9,7 @@
 
 > **Public for now — will return to private after early feedback.** Issues and PRs welcome.
 
-**Patchbay** is a neutral, policy-governed **Autonomous Software Change Engine**. When a contract changes — `REST/GraphQL/gRPC`, `Kafka/MQTT/AMQP`, `SQL/Mongo/Schema` — Patchbay detects the delta, maps it through every `npm/PyPI/Maven/NuGet/Go/Rust` and internal `JS/TS/Python/Go/Java` SDK usage, and ships a governed, validated patch. Think "Dependabot for APIs", extended to every contract surface.
+**Patchbay** is a neutral, policy-governed **Autonomous Software Change Engine**. When a contract changes — `REST/GraphQL/gRPC`, `Kafka/AMQP`, `SQL/Mongo/Schema` — Patchbay detects the delta, maps it through every `npm/PyPI/Maven/NuGet/Go/Rust` and internal `JS/TS/Python/Go/Java` SDK usage, and ships a governed, validated patch. Think "Dependabot for APIs", extended to every contract surface.
 
 When a vendor releases a breaking SDK update, deprecates a method, or updates an API specification, Patchbay detects the release, proves AST usages across your repositories using a commit-versioned **Software Intelligence Graph**, and delivers compile-verified, test-passing remediations across **3 zero-friction distribution channels**:
 
@@ -56,7 +56,6 @@ flowchart TD
     API --> WS["WebSocket"]
 
     EVENT --> KAFKA["Kafka"]
-    EVENT --> MQTT["MQTT"]
     EVENT --> AMQP["AMQP"]
     EVENT --> NATS["NATS"]
     EVENT --> PUBSUB["Pub/Sub"]
@@ -66,7 +65,7 @@ flowchart TD
     DATA --> SCHEMA["Schema<br/>JSON / Protobuf"]
 
     REST & GQL & GRPC & SOAP & WS --> SDK
-    KAFKA & MQTT & AMQP & NATS & PUBSUB --> SDK
+    KAFKA & AMQP & NATS & PUBSUB --> SDK
     SQL & MONGO & SCHEMA --> SDK
 
     SDK["SDK"]

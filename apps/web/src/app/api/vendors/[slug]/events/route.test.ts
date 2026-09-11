@@ -4,6 +4,7 @@ import type { NextRequest } from "next/server";
 vi.mock("@patchbay/db", () => ({
   prisma: {
     vendor: { findUnique: vi.fn() },
+    organizationVendorEnrollment: { findMany: vi.fn() },
     vendorChangeEvent: { findFirst: vi.fn(), create: vi.fn() },
     normalizedChange: { create: vi.fn() },
     auditEvent: { create: vi.fn() },
@@ -54,6 +55,10 @@ const privateVendor = {
   name: "JPMC Auth SDK",
   enabled: true,
   organizationId: "org-acme",
+};
+
+const acmeEnrollment = {
+  organizationId: "org-acme",
   agentKeyHash: AGENT_HASH,
   agentKeyHashPrevious: null,
 };
@@ -79,6 +84,9 @@ beforeEach(() => {
 describe("POST /api/vendors/[slug]/events — private vendor generic ASSESS ingest", () => {
   beforeEach(() => {
     vi.mocked(prisma.vendor.findUnique).mockResolvedValue(privateVendor as never);
+    vi.mocked(prisma.organizationVendorEnrollment.findMany).mockResolvedValue([
+      acmeEnrollment,
+    ] as never);
     vi.mocked(getConnector).mockReturnValue(null);
   });
 
@@ -133,26 +141,111 @@ describe("POST /api/vendors/[slug]/events — private vendor generic ASSESS inge
   });
 });
 
-describe("POST /api/vendors/[slug]/events — shared catalog slugs cannot use the generic path", () => {
-  it("rejects a shared catalog vendor with no organization binding before any write", async () => {
+describe("POST /api/vendors/[slug]/events — enrollment-resolved authentication", () => {
+  it("rejects a shared catalog vendor with no enrollment before any write", async () => {
     vi.mocked(prisma.vendor.findUnique).mockResolvedValue({
       id: "v-shared",
       slug: "brand-new-vendor",
       name: "Brand New Vendor",
       enabled: true,
       organizationId: null,
-      agentKeyHash: null,
-      agentKeyHashPrevious: null,
     } as never);
+    vi.mocked(prisma.organizationVendorEnrollment.findMany).mockResolvedValue([]);
     vi.mocked(getConnector).mockReturnValue(null);
 
     const response = await post("brand-new-vendor", ingestPayload);
 
-    // Agent mode was never enabled (no claim, no key): auth fails before the
-    // connector lookup, so the request can never reach the generic path.
+    // Agent mode was never enabled (no enrollment, no key): auth fails before
+    // the connector lookup, so the request can never reach the generic path.
     expect(response.status).toBe(401);
     expect(prisma.vendorChangeEvent.create).not.toHaveBeenCalled();
     expect(prisma.normalizedChange.create).not.toHaveBeenCalled();
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it("attributes the event to the enrollment's organization, never a caller-supplied org", async () => {
+    const otherHash = await hashAgentKey("pb_agent_other_org");
+    vi.mocked(prisma.vendor.findUnique).mockResolvedValue({
+      id: "v-shared",
+      slug: "openai",
+      name: "OpenAI",
+      enabled: true,
+      organizationId: null,
+    } as never);
+    // Two orgs enrolled on the same shared slug; the request signs with
+    // org-b's key.
+    vi.mocked(prisma.organizationVendorEnrollment.findMany).mockResolvedValue([
+      { organizationId: "org-acme", agentKeyHash: AGENT_HASH, agentKeyHashPrevious: null },
+      { organizationId: "org-b", agentKeyHash: otherHash, agentKeyHashPrevious: null },
+    ] as never);
+    vi.mocked(getConnector).mockReturnValue({
+      normalizeChange: vi.fn().mockReturnValue([
+        {
+          changeType: "SDK_VERSION_UPGRADE",
+          breaking: false,
+          affectedSymbols: ["openai.list"],
+        },
+      ]),
+    } as never);
+
+    const otherKeyResponse = await post("openai", ingestPayload, "pb_agent_other_org");
+
+    expect(otherKeyResponse.status).toBe(201);
+    // Org-b's key → org-b's event, org-b's queue, org-b's audit. Org-acme's
+    // enrollment on the same slug is untouched and unusable here.
+    expect(prisma.vendorChangeEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ organizationId: "org-b", vendorId: "v-shared" }),
+      }),
+    );
+    expect(enqueue).toHaveBeenCalledWith(
+      "ANALYZE_CHANGE",
+      expect.objectContaining({ organizationId: "org-b" }),
+    );
+  });
+
+  it("accepts the previous-rotation key while the new key also works", async () => {
+    const previousHash = await hashAgentKey("pb_agent_oldotor");
+    vi.mocked(prisma.vendor.findUnique).mockResolvedValue({
+      id: "v-shared",
+      slug: "openai",
+      name: "OpenAI",
+      enabled: true,
+      organizationId: null,
+    } as never);
+    vi.mocked(prisma.organizationVendorEnrollment.findMany).mockResolvedValue([
+      { organizationId: "org-acme", agentKeyHash: AGENT_HASH, agentKeyHashPrevious: previousHash },
+    ] as never);
+    vi.mocked(getConnector).mockReturnValue({
+      normalizeChange: vi.fn().mockReturnValue([
+        {
+          changeType: "SDK_VERSION_UPGRADE",
+          breaking: false,
+          affectedSymbols: ["openai.list"],
+        },
+      ]),
+    } as never);
+
+    await expect(post("openai", ingestPayload, "pb_agent_oldotor")).resolves.toMatchObject({
+      status: 201,
+    });
+    await expect(post("openai", ingestPayload)).resolves.toMatchObject({ status: 201 });
+  });
+
+  it("rejects a revoked enrollment's key even though the row still exists", async () => {
+    vi.mocked(prisma.vendor.findUnique).mockResolvedValue({
+      id: "v-shared",
+      slug: "openai",
+      name: "OpenAI",
+      enabled: true,
+      organizationId: null,
+    } as never);
+    // REVOKED rows are filtered at the query — this is what the route sees.
+    vi.mocked(prisma.organizationVendorEnrollment.findMany).mockResolvedValue([]);
+    vi.mocked(getConnector).mockReturnValue(null);
+
+    const response = await post("openai", ingestPayload);
+    expect(response.status).toBe(401);
     expect(enqueue).not.toHaveBeenCalled();
   });
 
@@ -162,6 +255,9 @@ describe("POST /api/vendors/[slug]/events — shared catalog slugs cannot use th
       slug: "openai",
       name: "OpenAI",
     } as never);
+    vi.mocked(prisma.organizationVendorEnrollment.findMany).mockResolvedValue([
+      acmeEnrollment,
+    ] as never);
     vi.mocked(getConnector).mockReturnValue({
       normalizeChange: vi.fn().mockReturnValue([
         {

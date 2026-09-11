@@ -6,6 +6,7 @@ import { GET } from "./route";
 vi.mock("@patchbay/db", () => ({
   prisma: {
     vendor: { findMany: vi.fn() },
+    organizationVendorEnrollment: { findMany: vi.fn() },
   },
 }));
 
@@ -26,7 +27,7 @@ const mockVendors = [
     category: "AI",
     docsUrl: null,
     enabled: true,
-    agentKeyHash: "$argon2id$hash",
+    organizationId: null,
   },
   {
     id: "v-anthropic",
@@ -35,7 +36,7 @@ const mockVendors = [
     category: "AI",
     docsUrl: null,
     enabled: true,
-    agentKeyHash: null,
+    organizationId: null,
   },
   {
     id: "v-generic-openapi",
@@ -44,7 +45,7 @@ const mockVendors = [
     category: "Other",
     docsUrl: null,
     enabled: true,
-    agentKeyHash: null,
+    organizationId: null,
   },
   {
     id: "v-acme",
@@ -53,7 +54,7 @@ const mockVendors = [
     category: "Other",
     docsUrl: null,
     enabled: true,
-    agentKeyHash: null,
+    organizationId: null,
   },
 ];
 
@@ -66,6 +67,11 @@ describe("GET /api/vendors", () => {
     vi.clearAllMocks();
     vi.mocked(requireRole).mockResolvedValue(adminUser as never);
     vi.mocked(prisma.vendor.findMany).mockResolvedValue(mockVendors as never);
+    // Caller org holds a key for openai only — via its enrollment row, never
+    // the shared catalog row.
+    vi.mocked(prisma.organizationVendorEnrollment.findMany).mockResolvedValue([
+      { vendorId: "v-openai", agentKeyHash: "$argon2id$hash" },
+    ] as never);
   });
 
   it("merges the capability contract into each catalog vendor", async () => {
@@ -134,5 +140,21 @@ describe("GET /api/vendors", () => {
     vi.mocked(requireRole).mockRejectedValue(unauthorized());
     const response = await get("http://localhost/api/vendors");
     expect(response.status).toBe(401);
+  });
+
+  it("marks agent mode only for vendors this org enrolled, never by catalog hash", async () => {
+    const response = await get("http://localhost/api/vendors");
+    const body = (await response.json()) as {
+      data: { vendors: Array<{ slug: string; agentModeEnabled: boolean }> };
+    };
+    const bySlug = new Map(body.data.vendors.map((v) => [v.slug, v.agentModeEnabled]));
+    expect(bySlug.get("openai")).toBe(true);
+    expect(bySlug.get("anthropic")).toBe(false);
+    // No hash material may reach the response: the legacy column is not even
+    // selected anymore.
+    expect(JSON.stringify(body)).not.toContain("$argon2id$");
+    expect(prisma.organizationVendorEnrollment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ organizationId: "org-acme" }) }),
+    );
   });
 });

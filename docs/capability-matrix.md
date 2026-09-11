@@ -2,7 +2,7 @@
 
 > Source: `packages/vendor-connectors/src/capabilities.ts` `CAPABILITY_REGISTRY`. Run `pnpm exec tsx scripts/generate-capability-matrix.ts` to regenerate. Checked in CI.
 
-**Total connectors: 64** — DRAFT_PR: 9 · PLAN: 4 · ASSESS: 51 · Spec mapping: DETECT→detect-only, ASSESS→impact-analysis, PLAN/VALIDATE→plan-only, DRAFT_PR→draft-PR, autonomous-generic→autonomous.
+**Total connectors: 63** — DRAFT_PR: 9 · PLAN: 3 · ASSESS: 51 · Spec mapping: DETECT→detect-only, ASSESS→impact-analysis, PLAN/VALIDATE→plan-only, DRAFT_PR→draft-PR, autonomous-generic→autonomous.
 
 | Vendor slug | Ecosystem | Package / spec | Language | Level | Spec capability | Policy class | Certified | Rule pack | Validation profile |
 |---|---|---|---|---|---|---|---|---|---|
@@ -35,7 +35,6 @@
 | `kubernetes` | npm | `@kubernetes/client-node` | typescript/javascript | `ASSESS` | impact-analysis | PLAN_ONLY | — | — | — |
 | `langchain` | npm | `langchain` | typescript/javascript | `PLAN` | plan-only | PLAN_ONLY | 2026-08-17 | 1.0.0 | node-ts-reparse |
 | `lemon-squeezy` | npm | `lemon-squeezy` | typescript/javascript | `ASSESS` | impact-analysis | PLAN_ONLY | — | — | — |
-| `mcp-generic` | mcp | `mcp-tools-list` | typescript/javascript | `PLAN` | plan-only (MCP) | PLAN_ONLY | 2026-09-04 | mcp-diff/1.0.0 | node-ts-reparse |
 | `mistral` | npm | `@mistralai/mistralai` | typescript/javascript | `ASSESS` | impact-analysis | PLAN_ONLY | — | — | — |
 | `mongodb` | npm | `mongodb` | typescript/javascript | `ASSESS` | impact-analysis | PLAN_ONLY | — | — | — |
 | `mongoose` | npm | `mongoose` | typescript/javascript | `ASSESS` | impact-analysis | PLAN_ONLY | — | — | — |
@@ -71,4 +70,4 @@
 | `vercel-ai-sdk` | npm | `ai` | typescript/javascript | `DRAFT_PR` | draft-PR | APPROVAL_REQUIRED | 2026-08-17 | 1.0.0 | node-ts-reparse + container-sandbox |
 | `vue` | npm | `vue` | typescript/javascript | `ASSESS` | impact-analysis | PLAN_ONLY | — | — | — |
 
-*64 rows — deterministic, regenerates with timestamp at build time only.*
+*63 rows — deterministic, regenerates with timestamp at build time only.*

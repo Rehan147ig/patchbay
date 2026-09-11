@@ -56,6 +56,28 @@ describe("evaluatePolicy", () => {
     expect(result.canCreatePR).toBe(false);
   });
 
+  it.each([
+    RiskTag.PAYMENT,
+    RiskTag.AUTH,
+    RiskTag.AUTHORIZATION,
+    RiskTag.PII,
+    RiskTag.SECRETS,
+    RiskTag.ENCRYPTION,
+    RiskTag.WEBHOOK,
+    RiskTag.INFRASTRUCTURE,
+  ])("requires approval for high-risk tag %s (conservative autonomy)", (tag) => {
+    const result = evaluatePolicy({
+      confidence: 90,
+      patchCount: 1,
+      requiresHumanReview: false,
+      hasPassingValidation: true,
+      riskTags: [tag],
+    });
+
+    expect(result.decision).toBe(PolicyDecision.REQUIRE_APPROVAL);
+    expect(result.canCreatePR).toBe(false);
+  });
+
   it("returns ALLOW_VALIDATE when approval is not required but validation has not passed", () => {
     const result = evaluatePolicy({
       confidence: 90,

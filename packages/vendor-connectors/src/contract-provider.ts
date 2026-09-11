@@ -5,7 +5,7 @@ import type { ContractKind } from "@patchbay/domain";
  * Contract provider adapter interface (Production Spec §5.2, WP2).
  *
  * Adapters are the ONLY code that speaks provider protocols (registries,
- * release feeds, spec documents, MCP metadata, event docs). They return
+ * release feeds, spec documents, and event docs). They return
  * normalized data; the ingestion service (worker contract pipeline) owns
  * persistence, deduplication, and case creation. Adapters must never write
  * directly to business tables, hold credentials, or touch the database.

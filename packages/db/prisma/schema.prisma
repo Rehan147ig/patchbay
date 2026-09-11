@@ -351,6 +351,7 @@ model Organization {
   notifications          Notification[]
   taskParameters         TaskParameter[]
   vendors                Vendor[]
+  vendorEnrollments      OrganizationVendorEnrollment[]
   contractSources        ContractSource[]
   contractConsumers      ContractConsumer[]
   remediationAttempts    RemediationAttempt[]
@@ -363,6 +364,7 @@ model Organization {
   workspaceMembers       WorkspaceMember[]
   subscription           Subscription?
   autonomyPolicy         AutonomyPolicy?
+  repositorySnapshots    RepositorySnapshot[]
 }
 
 model AutonomyPolicy {
@@ -575,6 +577,7 @@ model Repository {
   remediationCases   RemediationCase[]
   contractConsumers  ContractConsumer[]
   validationProfiles ValidationProfile[]
+  repositorySnapshots RepositorySnapshot[]
 
   @@unique([organizationId, externalId])
   @@index([organizationId])
@@ -641,6 +644,42 @@ model Vendor {
   changeEvents VendorChangeEvent[]
   usages       IntegrationUsage[]
   products     VendorProduct[]
+  enrollments  OrganizationVendorEnrollment[]
+}
+
+/**
+ * Per-organization enrollment of a vendor for provider-agent mode (WP13/P0-1).
+ *
+ * Catalog Vendor rows are non-secret shared metadata and must never carry one
+ * tenant's credential: before this model, issuing an agent key wrote
+ * agentKeyHash onto the shared row and claimed the whole vendor for the first
+ * organization. Credentials now live here, keyed by (organizationId,
+ * vendorId), so N organizations can enroll the same catalog vendor with
+ * independent keys. Status is a plain string (ACTIVE | REVOKED) validated at
+ * write boundaries; no Prisma enum to drift.
+ */
+model OrganizationVendorEnrollment {
+  id             String   @id @default(uuid())
+  organizationId String
+  vendorId       String
+  /// argon2id hash of the current agent API key (same format/policy as the
+  /// legacy Vendor.agentKeyHash column it replaces). Null when revoked.
+  agentKeyHash         String?
+  agentKeyHashPrevious String?
+  /// ACTIVE | REVOKED. Revocation clears both hashes; the row is kept as
+  /// history so re-issue is an update, never a duplicate.
+  status   String @default("ACTIVE")
+  metadata Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  vendor       Vendor       @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, vendorId])
+  @@index([organizationId])
+  @@index([vendorId])
 }
 
 model VendorProduct {
@@ -875,9 +914,13 @@ model RemediationAttempt {
   remediationCase RemediationCase  @relation(fields: [caseId], references: [id], onDelete: Cascade)
   agentRun        AgentRun?        @relation(fields: [agentRunId], references: [id], onDelete: SetNull)
   patchArtifact   PatchArtifact?   @relation(fields: [patchArtifactId], references: [id], onDelete: SetNull)
+  /// Immutable snapshot this attempt ran against (provenance only, no content).
+  repositorySnapshotId String?
+  repositorySnapshot RepositorySnapshot? @relation(fields: [repositorySnapshotId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, caseId, createdAt])
   @@index([caseId, strategyId])
+  @@index([repositorySnapshotId])
 }
 
 /** Immutable timeline of a remediation case; every transition appends one row. */
@@ -938,12 +981,16 @@ model AgentRun {
   repository  Repository  @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
   match      ReleaseRepositoryMatch? @relation(fields: [releaseRepositoryMatchId], references: [id], onDelete: SetNull)
   remediationCase RemediationCase? @relation(fields: [remediationCaseId], references: [id], onDelete: SetNull)
+  /// Immutable snapshot the planner analyzed (provenance only, no content).
+  repositorySnapshotId String?
+  repositorySnapshot RepositorySnapshot? @relation(fields: [repositorySnapshotId], references: [id], onDelete: SetNull)
   steps      AgentStep[]
   attempts   RemediationAttempt[]
 
   @@index([organizationId, status])
   @@index([organizationId, releaseRecordId, repositoryId])
   @@index([releaseRecordId, createdAt])
+  @@index([repositorySnapshotId])
 }
 
 model AgentStep {
@@ -1049,8 +1096,8 @@ enum GraphNodeKind {
   SERVICE
   QUEUE_TOPIC
   DATABASE
-  MCP_SERVER
   EVENT_HANDLER
+  WEBHOOK_SCHEMA
 }
 
 enum GraphEdgeKind {
@@ -1114,6 +1161,7 @@ model GraphSnapshot {
   indexJobs    GraphIndexJob[]
   remediationCases RemediationCase[]
   outcomes     PrOutcome[]
+  repositorySnapshots RepositorySnapshot[]
 
   @@unique([repositoryId, commitSha, extractionVersion])
   @@index([organizationId, repositoryId, status])
@@ -1225,6 +1273,66 @@ model GraphIndexJob {
   @@index([repositoryId, startedAt])
 }
 
+/**
+ * Immutable repository snapshot boundary (connected-repo AI pipeline).
+ *
+ * AI proposes structured intent only. Deterministic code owns repository
+ * state: this row is the ONLY repository identity the AI path trusts. It pins
+ * the exact analyzed commit SHA, the verified Git tree hash, and the
+ * content-addressed manifest hash of allowed files. The checkout path itself
+ * is temporary execution state (job-owned temp dir, removed in `finally`) and
+ * is NEVER persisted here — only immutable identifiers, hashes, timestamps,
+ * and provenance.
+ *
+ * Fixture repositories flow through the same contract: their manifest is
+ * built from the fixture directory with the same path-safety rules, so there
+ * is no fixture-only production code path.
+ *
+ * Status vocabulary (plain String, validated at write boundaries):
+ * READY | EXPIRED | CLEANED_UP | FAILED. Retention/expiry is enforced by the
+ * worker retention job; replay re-checks out the same exact commit and
+ * re-verifies manifest identity instead of trusting an old local path.
+ */
+model RepositorySnapshot {
+  id String @id @default(uuid())
+  organizationId String
+  repositoryId   String
+  /// RepositoryProvider enum mirror (GITHUB | GITLAB | BITBUCKET | LOCAL).
+  provider       RepositoryProvider
+  /// Denormalized owner/name at snapshot time (the Repository row stays canonical).
+  repositoryFullName String
+  /// Exact analyzed commit SHA — never a mutable branch reference.
+  commitSha String
+  /// Verified `git write-tree` hash at the checked-out commit.
+  treeHash String
+  /// SHA-256 over the canonical manifest (sorted path + size + mode + sha256).
+  manifestHash String
+  /// Extractor/graph version that observed the repo, when known (e.g. "2").
+  extractorVersion String?
+  /// Graph snapshot this checkout was indexed as, when known.
+  graphSnapshotId String?
+  createdAt DateTime @default(now())
+  /// Retention deadline; null = governed by the org retention policy default.
+  expiresAt DateTime?
+  /// READY | EXPIRED | CLEANED_UP | FAILED (String to avoid enum drift).
+  status String @default("READY")
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  repository   Repository   @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  graphSnapshot GraphSnapshot? @relation(fields: [graphSnapshotId], references: [id], onDelete: SetNull)
+  agentRuns AgentRun[]
+  patchArtifacts PatchArtifact[]
+  validationRuns ValidationRun[]
+  remediationAttempts RemediationAttempt[]
+
+  @@unique([repositoryId, commitSha])
+  @@index([organizationId, repositoryId, status])
+  @@index([organizationId, status, createdAt])
+  @@index([repositoryId, status, createdAt])
+  @@index([expiresAt])
+  @@index([graphSnapshotId])
+}
+
 model VendorChangeEvent {
   id String @id @default(uuid())
   vendorId         String
@@ -1275,7 +1383,7 @@ model NormalizedChange {
 // ---------------------------------------------------------------------------
 // Contract pipeline (WP2): versioned external contracts as first-class rows.
 // Vendor/Release* models carry today's npm/release traffic; these three models
-// generalize to every contract family (REST, GraphQL, SDK, MCP, webhook,
+// generalize to every contract family (REST, GraphQL, SDK, webhook,
 // async, auth/config) behind the ContractProviderAdapter interface.
 // ---------------------------------------------------------------------------
 
@@ -1368,7 +1476,7 @@ model ContractChange {
 }
 
 /**
- * A repository's consumption of one contract (WP3): which package, server, or
+ * A repository's consumption of one contract (WP3): which package or
  * route the repo depends on, at which version, with what confidence, and the
  * graph evidence proving it. Written by WP4 orchestration from the pure
  * contractConsumersFromExtraction mapper; the graph snapshot that observed it
@@ -1381,9 +1489,9 @@ model ContractConsumer {
   contractSourceId String
   /** Contract family vocabulary lives in domain ContractKind (Zod-validated at write boundaries). */
   contractKind String
-  /** Stable within the repo: package name, MCP server name, or "METHOD /path". */
+  /** Stable within the repo: package name or "METHOD /path". */
   identifier   String
-  /** Declared range or pinned version; null when statically unknown (MCP servers, routes). */
+  /** Declared range or pinned version; null when statically unknown for routes. */
   versionRange String?
   /** 0-100; resolution-pinned evidence scores higher than syntactic evidence. */
   confidence   Int      @default(0)
@@ -1532,6 +1640,9 @@ model PatchArtifact {
   generationMethod  GenerationMethod
   confidence        Int
   createdAt         DateTime         @default(now())
+  /// Immutable snapshot the patched content was derived from (provenance only).
+  repositorySnapshotId String?
+  repositorySnapshot RepositorySnapshot? @relation(fields: [repositorySnapshotId], references: [id], onDelete: SetNull)
 
   organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   remediationPlan RemediationPlan @relation(fields: [remediationPlanId], references: [id], onDelete: Cascade)
@@ -1539,6 +1650,7 @@ model PatchArtifact {
 
   @@index([organizationId])
   @@index([remediationPlanId])
+  @@index([repositorySnapshotId])
 }
 
 model ValidationRun {
@@ -1563,11 +1675,15 @@ model ValidationRun {
   validationProfileId String?
   validationProfile   ValidationProfile? @relation(fields: [validationProfileId], references: [id], onDelete: SetNull)
   artifact            ValidationArtifact?
+  /// Immutable snapshot the validated patches were applied to (provenance only).
+  repositorySnapshotId String?
+  repositorySnapshot RepositorySnapshot? @relation(fields: [repositorySnapshotId], references: [id], onDelete: SetNull)
 
   @@index([organizationId])
   @@index([remediationPlanId])
   @@index([status])
   @@index([createdAt])
+  @@index([repositorySnapshotId])
 }
 
 /**

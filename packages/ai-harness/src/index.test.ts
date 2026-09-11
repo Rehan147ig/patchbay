@@ -38,6 +38,7 @@ const INPUT: PatchGenerationInput = {
       evidenceCount: 1,
     },
   ],
+  excerpts: [],
 };
 
 describe("agent harness planner", () => {

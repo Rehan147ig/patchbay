@@ -60,6 +60,12 @@ describe("POST /api/remediations/[id]/validate (WP9 certification gate)", () => 
     // reset (not clear): mockResolvedValueOnce queues from prior tests must
     // not leak into the next test's profile-selection sequence.
     vi.resetAllMocks();
+    // Env stubs are NOT cleared by resetAllMocks: a failing mode test must
+    // never leak SANDBOX_VALIDATION_MODE into the next test. Each
+    // mode-dependent test below also pins its own mode explicitly, so the
+    // suite is green under any ambient value (local unset or CI
+    // github-checks-only).
+    vi.unstubAllEnvs();
     vi.mocked(requireRole).mockResolvedValue(memberUser as never);
     vi.mocked(prisma.validationRun.create).mockResolvedValue({
       id: "vr-1",
@@ -82,6 +88,10 @@ describe("POST /api/remediations/[id]/validate (WP9 certification gate)", () => 
   });
 
   it("queues validation for a certified connector", async () => {
+    // QUEUED path requires a non-github-checks-only mode; pin it so this
+    // test is independent of the ambient environment (CI sets
+    // SANDBOX_VALIDATION_MODE=github-checks-only).
+    vi.stubEnv("SANDBOX_VALIDATION_MODE", "hosted-docker");
     vi.mocked(prisma.remediationPlan.findFirst).mockResolvedValue(planFor("openai") as never);
     const response = await POST(requestWithCsrf(), { params: Promise.resolve({ id: "p-1" }) });
     expect(response.status).toBe(202);
@@ -136,6 +146,9 @@ describe("POST /api/remediations/[id]/validate (WP9 certification gate)", () => 
   });
 
   it("attaches the repo-specific profile over the org default (WP8)", async () => {
+    // QUEUED path (see above): profile assertions only hold when the run is
+    // queued rather than SKIPPED.
+    vi.stubEnv("SANDBOX_VALIDATION_MODE", "hosted-docker");
     vi.mocked(prisma.remediationPlan.findFirst).mockResolvedValue(planFor("openai") as never);
     vi.mocked(prisma.validationProfile.findFirst)
       .mockResolvedValueOnce({ id: "prof-repo" } as never)
@@ -156,6 +169,8 @@ describe("POST /api/remediations/[id]/validate (WP9 certification gate)", () => 
   });
 
   it("falls back to the org-default profile when no repo profile exists (WP8)", async () => {
+    // QUEUED path (see above).
+    vi.stubEnv("SANDBOX_VALIDATION_MODE", "hosted-docker");
     vi.mocked(prisma.remediationPlan.findFirst).mockResolvedValue(planFor("openai") as never);
     vi.mocked(prisma.validationProfile.findFirst)
       .mockResolvedValueOnce(null as never)
@@ -176,6 +191,8 @@ describe("POST /api/remediations/[id]/validate (WP9 certification gate)", () => 
   });
 
   it("records a null profile when no profile exists (legacy static commands, WP8)", async () => {
+    // QUEUED path (see above).
+    vi.stubEnv("SANDBOX_VALIDATION_MODE", "hosted-docker");
     vi.mocked(prisma.remediationPlan.findFirst).mockResolvedValue(planFor("openai") as never);
     const response = await POST(requestWithCsrf(), { params: Promise.resolve({ id: "p-1" }) });
     expect(response.status).toBe(202);

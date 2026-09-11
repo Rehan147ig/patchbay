@@ -64,6 +64,7 @@ const INPUT: PatchGenerationInput = {
       evidenceCount: 1,
     },
   ],
+  excerpts: [],
 };
 
 const report = await measureWorkflow(provider, INPUT, { rounds, budgetCents });

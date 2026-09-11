@@ -202,6 +202,11 @@ export function OperationsClient({
                 {row.errorMessage ? (
                   <p className="mt-1 truncate text-[12px] text-zinc-600">{row.errorMessage}</p>
                 ) : null}
+                {row.correlationId ? (
+                  <p className="mt-1 font-mono text-[11px] text-zinc-500">
+                    Correlation ID: {row.correlationId}
+                  </p>
+                ) : null}
                 <details className="mt-1">
                   <summary className="cursor-pointer text-[11px] text-zinc-500">
                     Scrubbed payload preview

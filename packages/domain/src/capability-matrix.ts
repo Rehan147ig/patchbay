@@ -18,7 +18,6 @@ export const ContractKind = {
   REST: "REST",
   GRAPHQL: "GRAPHQL",
   SDK: "SDK",
-  MCP: "MCP",
   WEBHOOK: "WEBHOOK",
   ASYNC: "ASYNC",
   AUTH_CONFIG: "AUTH_CONFIG",

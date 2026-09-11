@@ -149,6 +149,43 @@ describe("computeOrganizationMetrics", () => {
     expect(metrics.agent.costTotalCents).toBe(500);
   });
 
+  it("rolls up graph index p95 from startedAt/completedAt with real-column queries", async () => {
+    const findMany = vi.fn().mockResolvedValue([
+      {
+        startedAt: new Date("2026-07-10T00:00:00Z"),
+        completedAt: new Date("2026-07-10T00:00:10Z"),
+      },
+      {
+        startedAt: new Date("2026-07-11T00:00:00Z"),
+        completedAt: new Date("2026-07-11T00:00:30Z"),
+      },
+      {
+        startedAt: new Date("2026-07-12T00:00:00Z"),
+        completedAt: null,
+      },
+    ] as never);
+    const prisma = makePrisma({ graphIndexJob: { findMany } });
+    const metrics = await computeOrganizationMetrics(prisma, INPUT);
+    // Durations derive from the pair (10s, 30s; incomplete rows excluded).
+    expect(metrics.graph.indexP95Ms).toBe(30_000);
+    expect(metrics.graph.snapshotCount).toBe(3);
+    // Regression lock: the query must use real GraphIndexJob columns only.
+    // createdAt/durationMs do not exist on the model — Prisma rejects them at
+    // runtime while the structural MetricsPrisma type stays silent.
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          organizationId: "org-acme",
+          startedAt: expect.objectContaining({ gte: expect.any(Date) }),
+        }),
+        select: { startedAt: true, completedAt: true },
+      }),
+    );
+    const rawCall = JSON.stringify(findMany.mock.calls[0]);
+    expect(rawCall).not.toContain("createdAt");
+    expect(rawCall).not.toContain("durationMs");
+  });
+
   it("computes cost per successful remediation and time to remediation", async () => {
     const prisma = makePrisma({
       pullRequest: {

@@ -12,7 +12,9 @@ const getRedis = () => testClient!.redis;
 
 describe("P0-B: Redis PR Slot Safety", () => {
   beforeAll(async () => {
-    testClient = await createRedisTestClient("redis://127.0.0.1:6379");
+    // Honor the configured Redis (local compose maps 6380; CI serves 6379).
+    // A hardcoded port loops forever on ECONNREFUSED anywhere else.
+    testClient = await createRedisTestClient(process.env.REDIS_URL ?? "redis://127.0.0.1:6379");
   });
 
   afterAll(async () => {
@@ -195,7 +197,7 @@ describe("P0-B: Redis PR Slot Safety", () => {
       // Pass the literal Lua text in ACQUIRE_LUA environment variable
       const childEnv = {
         ...process.env,
-        REDIS_URL: "redis://127.0.0.1:6379",
+        REDIS_URL: process.env.REDIS_URL ?? "redis://127.0.0.1:6379",
         KEY: testKey,
         LIMIT: "5",
         ACQUIRE_LUA,

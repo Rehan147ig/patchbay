@@ -60,19 +60,38 @@ export default async function SettingsPage({
 }) {
   const { capability: capabilityFilter, billing: billingStatus } = await searchParams;
   const user = await requireUser();
-  const [organization, vendors, plan, activeRepositories, capabilityGates] = await Promise.all([
-    prisma.organization.findUnique({ where: { id: user.organizationId } }),
-    prisma.vendor.findMany({
-      where: { OR: [{ organizationId: null }, { organizationId: user.organizationId }] },
-      orderBy: [{ organizationId: "asc" }, { name: "asc" }],
-    }),
-    getEffectivePlan(user.organizationId),
-    prisma.repository.count({ where: { organizationId: user.organizationId, status: "ACTIVE" } }),
-    prisma.capabilityGate.findMany({
-      where: { organizationId: user.organizationId },
-      orderBy: [{ vendorSlug: "asc" }, { level: "asc" }],
-    }),
-  ]);
+  const [organization, vendors, enrollments, plan, activeRepositories, capabilityGates] =
+    await Promise.all([
+      prisma.organization.findUnique({ where: { id: user.organizationId } }),
+      prisma.vendor.findMany({
+        where: { OR: [{ organizationId: null }, { organizationId: user.organizationId }] },
+        orderBy: [{ organizationId: "asc" }, { name: "asc" }],
+        // Never select credential hashes here: key state comes from this
+        // org's enrollment rows below.
+        select: {
+          id: true,
+          slug: true,
+          name: true,
+          category: true,
+          enabled: true,
+          organizationId: true,
+        },
+      }),
+      prisma.organizationVendorEnrollment.findMany({
+        where: { organizationId: user.organizationId, status: "ACTIVE" },
+        select: { vendorId: true, agentKeyHash: true },
+      }),
+      getEffectivePlan(user.organizationId),
+      prisma.repository.count({ where: { organizationId: user.organizationId, status: "ACTIVE" } }),
+      prisma.capabilityGate.findMany({
+        where: { organizationId: user.organizationId },
+        orderBy: [{ vendorSlug: "asc" }, { level: "asc" }],
+      }),
+    ]);
+
+  const enrollmentByVendorId = new Map(
+    enrollments.filter((e) => e.agentKeyHash !== null).map((e) => [e.vendorId, e.agentKeyHash]),
+  );
 
   const minLevel = CAPABILITY_LEVELS.includes(capabilityFilter as CapabilityLevel)
     ? (capabilityFilter as CapabilityLevel)
@@ -369,17 +388,20 @@ export default async function SettingsPage({
                       <Badge tone={vendor.enabled ? "green" : "neutral"} variant="subtle">
                         {vendor.enabled ? "enabled" : "off"}
                       </Badge>
-                      <VendorAgentKeyControl
-                        entry={{
-                          slug: vendor.slug,
-                          name: vendor.name,
-                          hasKey: vendor.agentKeyHash !== null,
-                          legacyKey:
-                            vendor.agentKeyHash !== null &&
-                            isLegacyAgentKeyHash(vendor.agentKeyHash),
-                        }}
-                        isAdmin={user.role === "ADMIN"}
-                      />
+                      {(() => {
+                        const hash = enrollmentByVendorId.get(vendor.id) ?? null;
+                        return (
+                          <VendorAgentKeyControl
+                            entry={{
+                              slug: vendor.slug,
+                              name: vendor.name,
+                              hasKey: hash !== null,
+                              legacyKey: hash !== null && isLegacyAgentKeyHash(hash),
+                            }}
+                            isAdmin={user.role === "ADMIN"}
+                          />
+                        );
+                      })()}
                     </div>
                   </li>
                 );

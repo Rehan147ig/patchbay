@@ -29,22 +29,32 @@ export async function GET(request: NextRequest) {
       minLevel = rawMinLevel as CapabilityLevel;
     }
 
-    const vendors = await prisma.vendor.findMany({
-      where: {
-        OR: [{ organizationId: null }, { organizationId: user.organizationId }],
-      },
-      orderBy: [{ organizationId: "asc" }, { name: "asc" }],
-      select: {
-        id: true,
-        slug: true,
-        name: true,
-        category: true,
-        docsUrl: true,
-        enabled: true,
-        agentKeyHash: true,
-        organizationId: true,
-      },
-    });
+    const [vendors, enrollments] = await Promise.all([
+      prisma.vendor.findMany({
+        where: {
+          OR: [{ organizationId: null }, { organizationId: user.organizationId }],
+        },
+        orderBy: [{ organizationId: "asc" }, { name: "asc" }],
+        select: {
+          id: true,
+          slug: true,
+          name: true,
+          category: true,
+          docsUrl: true,
+          enabled: true,
+          organizationId: true,
+        },
+      }),
+      // Agent-mode state comes from this org's enrollments only — the legacy
+      // Vendor.agentKeyHash column is no longer read (see agent-key route).
+      prisma.organizationVendorEnrollment.findMany({
+        where: { organizationId: user.organizationId, status: "ACTIVE" },
+        select: { vendorId: true, agentKeyHash: true },
+      }),
+    ]);
+    const keyedVendorIds = new Set(
+      enrollments.filter((e) => e.agentKeyHash !== null).map((e) => e.vendorId),
+    );
 
     const filtered = vendors.filter((vendor) => {
       if (minLevel === null) return true;
@@ -55,13 +65,13 @@ export async function GET(request: NextRequest) {
 
     return jsonOk(
       {
-        vendors: filtered.map(({ agentKeyHash, organizationId, ...vendor }) => {
+        vendors: filtered.map(({ organizationId, ...vendor }) => {
           const capability = getCapability(vendor.slug);
           const isPrivate = organizationId !== null;
           return {
             ...vendor,
             visibility: isPrivate ? ("private" as const) : ("shared" as const),
-            agentModeEnabled: agentKeyHash !== null && agentKeyHash !== undefined,
+            agentModeEnabled: keyedVendorIds.has(vendor.id),
             capability: capability
               ? {
                   level: capability.level,

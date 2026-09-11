@@ -123,9 +123,13 @@ export async function computeOrganizationMetrics(
       where: { startedAt: { gte: sinceDate } },
       select: { latencyMs: true },
     }),
+    // GraphIndexJob carries startedAt/completedAt (no createdAt/durationMs
+    // columns exist): durations derive from the pair so the query shape always
+    // matches the Prisma schema (a structural MetricsPrisma type cannot prove
+    // this — see the regression test locking the where/select keys).
     prisma.graphIndexJob?.findMany({
-      where: { organizationId: input.organizationId, createdAt: { gte: sinceDate } },
-      select: { durationMs: true },
+      where: { organizationId: input.organizationId, startedAt: { gte: sinceDate } },
+      select: { startedAt: true, completedAt: true },
     }) ?? Promise.resolve([]),
     prisma.validationRun.groupBy({
       by: ["status"],
@@ -181,9 +185,9 @@ export async function computeOrganizationMetrics(
     .filter((v): v is number => v !== null)
     .sort((a, b) => a - b);
 
-  const graphLatencies = (graphIndexJobs as Array<{ durationMs: number | null }>)
-    .map((run) => run.durationMs)
-    .filter((v): v is number => v !== null)
+  const graphLatencies = (graphIndexJobs as Array<{ startedAt: Date; completedAt: Date | null }>)
+    .map((run) => (run.completedAt ? run.completedAt.getTime() - run.startedAt.getTime() : null))
+    .filter((v): v is number => v !== null && v >= 0)
     .sort((a, b) => a - b);
 
   const sandboxPassed = countOf(validationGroups, "status", "PASSED");

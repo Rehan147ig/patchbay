@@ -235,6 +235,14 @@ export const patchPlanEditSchema = z.object({
   /** Exact text to anchor the edit (REPLACE/INSERT_AFTER). Bounded, never regex. */
   searchText: z.string().min(1).max(4000).optional(),
   replacement: z.string().max(4000).optional(),
+  /**
+   * Exact anchor occurrence count the edit intends to change (default 1).
+   * Single-anchor by default: zero matches (stale) or multiple matches
+   * (ambiguous) fail closed. Multi-occurrence edits must be explicit
+   * (set N) and are bounded (max 10) so one AI edit can never rewrite an
+   * unbounded number of locations.
+   */
+  expectedOccurrences: z.number().int().min(1).max(10).optional(),
   /** Human-readable AST/precondition check description (e.g. "caller expression is a member call"). */
   precondition: z.string().min(1).max(500).optional(),
   description: z.string().min(1).max(500),
@@ -267,6 +275,22 @@ export const patchGenerationInputSchema = z.object({
   releaseRecordId: z.string().min(1),
   repositoryId: z.string().min(1),
   expectedCommitSha: z.string().max(200).optional(),
+  /** Immutable snapshot identity (exact commit analyzed; never a branch ref). */
+  snapshotId: z.string().min(1).max(200).optional(),
+  snapshotTreeHash: z.string().max(200).optional(),
+  snapshotManifestHash: z.string().max(200).optional(),
+  /** Ranked source excerpts from impacted files only (untrusted, bounded). */
+  excerpts: z
+    .array(
+      z.object({
+        filePath: z.string().min(1).max(512),
+        excerpt: z.string().max(2_000),
+      }),
+    )
+    .max(8)
+    .default([]),
+  /** Certified rule-pack version guiding the plan, when present. */
+  rulePackVersion: z.string().max(200).optional(),
   vendorSlug: z.string().min(1).max(100),
   packageName: z.string().min(1).max(100),
   fromVersion: z.string().max(50).nullable(),

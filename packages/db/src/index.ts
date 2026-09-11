@@ -66,4 +66,5 @@ export type {
   AgentStep,
   Subscription,
   Notification,
+  RepositorySnapshot,
 } from "@prisma/client";
